@@ -90,3 +90,30 @@ def test_strip_bajie_urls_restores_official_hosts():
     assert n == 2
     assert out == 'Upt="https://api2.cursor.sh",$pt="https://agent.api5.cursor.sh"'
     assert "43111" not in out
+
+
+def test_detect_patch_finds_bajie(tmp_path):
+    from launcher.bajie_route import BAJIE_PREFIX, detect_patch
+
+    root = tmp_path / "cursor"
+    wb = root / "resources" / "app" / "out" / "vs" / "workbench"
+    wb.mkdir(parents=True)
+    f = wb / "workbench.desktop.main.js"
+    f.write_text(f'host="{BAJIE_PREFIX}api2.cursor.sh"', encoding="utf-8")
+    st = detect_patch(root)
+    assert st["ok"] is True
+    assert st["patched"] is True
+    assert st["hits"] == 1
+
+
+def test_detect_patch_clean_workbench(tmp_path):
+    from launcher.bajie_route import detect_patch
+
+    root = tmp_path / "cursor"
+    wb = root / "resources" / "app" / "out" / "vs" / "workbench"
+    wb.mkdir(parents=True)
+    f = wb / "workbench.desktop.main.js"
+    f.write_text('host="https://api2.cursor.sh"', encoding="utf-8")
+    st = detect_patch(root)
+    assert st["patched"] is False
+    assert st["hits"] == 0

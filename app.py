@@ -36,7 +36,7 @@ from launcher.cursor_proxy import (
     proxy_env,
     read_current_proxy,
 )
-from launcher.bajie_route import apply_bajie_route
+from launcher.bajie_route import apply_bajie_route, detect_patch
 from launcher.process_proxy import deploy_process_proxy, remove_process_proxy, status as process_proxy_status
 from launcher.proxy_detect import detect_local_proxies, probe_direct, probe_proxy
 from launcher.cursor_sessions import list_sessions, revoke_session, revoke_all_except
@@ -650,10 +650,18 @@ class Api:
         saved = _read_json("proxy.json", ProxyConfig().to_dict())
         current = read_current_proxy()
         try:
-            hook_status = process_proxy_status(resolve_install().install_root)
+            layout = resolve_install()
+            hook_status = process_proxy_status(layout.install_root)
+            patch_status = detect_patch(layout.install_root)
         except Exception:
             hook_status = {"ok": False, "installed": False, "hasDllSource": False}
-        return {"saved": saved, "cursorSettings": current, "processProxyStatus": hook_status}
+            patch_status = {"ok": False, "patched": False, "hits": 0, "hasBackup": False}
+        return {
+            "saved": saved,
+            "cursorSettings": current,
+            "processProxyStatus": hook_status,
+            "patchStatus": patch_status,
+        }
 
     def detect_proxy(self, probe: bool = True) -> dict:
         try:

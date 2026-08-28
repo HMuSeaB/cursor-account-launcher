@@ -36,13 +36,16 @@ python app.py
 
 设置 → **打上 500k / 还原 256k**。会改本机 Cursor 安装目录中的扩展宿主文件，把 Grok Extra High 客户端看到的窗口从 256k 抬到 500k（不改官方计费）。需本机 Node.js；升级 Cursor 后需重打。改前请完全退出 IDE。
 
-### 代理（进程级，不用 TUN）
+### 代理（不用 TUN）
 
-启动器把 Antigravity-Proxy 同款的 `version.dll` 放到 Cursor 目录，只 hook Cursor 进程树 → Clash（推荐 SOCKS5 `127.0.0.1:7891`），**不需要开全局 TUN**。
+FlClash 开着，启动器里 **开代理 → 选对应场景 → 保存 → 用启动器重启 Cursor**。
 
-- **经 Clash 访问官方 API**：改回官方地址，流量进 Clash
-- **走本机网关插件**：保留网关路由，`127.0.0.1:43111` 仍直连
-- 保存后用启动器重启 IDE；`version.dll` 不随公开仓库分发
+| 你的情况 | 选哪个 |
+|---------|--------|
+| 没打网关补丁 | **没打网关补丁（正常用）** |
+| 打了补丁、走网关原生 | **打了补丁，走网关原生** |
+
+两种都靠进程级 `version.dll` 把 Cursor 流量送进 Clash，**不用开 TUN**。
 
 ### Token / 设备
 

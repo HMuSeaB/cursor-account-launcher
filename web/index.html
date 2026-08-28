@@ -112,15 +112,15 @@
       </summary>
       <div class="settings-grid">
         <section class="settings-panel">
-          <h3 class="settings-title">网络代理</h3>
-          <label class="check-row"><input type="checkbox" id="proxyEnabled" checked /> 启用进程代理（version.dll，仅 Cursor，不用 TUN）</label>
-          <label class="field-label" for="proxyRoute">路由</label>
+          <h3 class="settings-title">网络代理（不用 TUN）</h3>
+          <label class="check-row"><input type="checkbox" id="proxyEnabled" checked /> 开代理</label>
+          <label class="field-label" for="proxyRoute">你的 Cursor 是哪种？</label>
           <select id="proxyRoute" aria-label="路由模式">
-            <option value="clash">经 Clash 访问官方 API</option>
-            <option value="gateway">走本机网关插件</option>
+            <option value="clash">没打网关补丁（正常用）</option>
+            <option value="gateway">打了补丁，走网关原生</option>
           </select>
-          <p class="hint settings-hint">保存后请用启动器重启 IDE。走网关时 127.0.0.1:43111 仍直连；走 Clash 时会改回官方 API 地址。</p>
-          <label class="field-label" for="proxyType">Clash 地址</label>
+          <p class="hint settings-hint">两种都能用，不用开 TUN。保存后务必用<strong>启动器</strong>重启 Cursor。FlClash 开着即可。</p>
+          <label class="field-label" for="proxyType">FlClash 端口</label>
           <div class="proxy-fields">
             <select id="proxyType" aria-label="代理类型"><option value="http">HTTP</option><option value="socks5" selected>SOCKS5</option></select>
             <input id="proxyHost" value="127.0.0.1" spellcheck="false" aria-label="代理主机" />
@@ -131,7 +131,7 @@
             <button type="button" class="btn ghost" id="btnTestLatency">测延迟</button>
             <button type="button" class="btn" id="btnSaveProxy">保存</button>
           </div>
-          <pre class="mini" id="proxyDetectInfo">推荐 SOCKS5 127.0.0.1:7891。点「测延迟」确认 Clash 可用。</pre>
+          <pre class="mini" id="proxyDetectInfo">检测中…</pre>
         </section>
         <section class="settings-panel">
           <h3 class="settings-title">Cursor 安装路径</h3>

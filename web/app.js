@@ -475,7 +475,7 @@ function paintSettingsMeta(status) {
   const enabled = $("proxyEnabled")?.checked;
   if (enabled === false) bits.push("代理关");
   else {
-    const route = $("proxyRoute")?.value === "gateway" ? "网关" : "Clash";
+    const route = $("proxyRoute")?.value === "gateway" ? "网关" : "官方";
     bits.push(route);
     const host = $("proxyHost")?.value;
     const port = $("proxyPort")?.value;
@@ -545,6 +545,24 @@ async function refreshCursorStatus(opts = {}) {
   maybePaintLocalCards();
 }
 
+function formatProxyStatus(res) {
+  const st = res.processProxyStatus || {};
+  const patch = res.patchStatus || {};
+  const route = $("proxyRoute")?.value;
+  const lines = [];
+  lines.push(`补丁：${patch.patched ? "有" : "无"}${patch.hits ? `（${patch.hits} 处）` : ""}`);
+  lines.push(`进程代理 DLL：${st.installed ? "已装" : "未装"}`);
+  if (!st.hasDllSource) lines.push("缺少 version.dll 源文件");
+  if (route === "gateway" && !patch.patched && !patch.hasBackup) {
+    lines.push("⚠ 没检测到补丁：请先在网关插件里打补丁，或改选「没打补丁」");
+  } else if (route === "clash" && patch.patched) {
+    lines.push("保存后会去掉补丁，改走官方 API + Clash");
+  } else {
+    lines.push("保存后用启动器重启 Cursor");
+  }
+  return lines.join("\n");
+}
+
 async function loadProxy() {
   const res = await api().get_proxy();
   const cfg = res.saved || {};
@@ -556,15 +574,7 @@ async function loadProxy() {
   $("proxyType").value = cfg.proxy_type || cfg.proxyType || "socks5";
   $("proxyHost").value = cfg.host || "127.0.0.1";
   $("proxyPort").value = cfg.port || 7891;
-  if (res.processProxyStatus && $("proxyDetectInfo")) {
-    const st = res.processProxyStatus;
-    const route = $("proxyRoute")?.value === "gateway" ? "网关" : "Clash 官方";
-    const line = st.installed
-      ? `进程代理：已安装${st.managed ? "" : "（非本工具）"} · 路由 ${route}`
-      : `进程代理：未安装 · 路由 ${route}`;
-    const src = st.hasDllSource ? "DLL 源可用" : "缺少 version.dll（需 Antigravity-Proxy）";
-    $("proxyDetectInfo").textContent = `${line}\n${src}`;
-  }
+  if ($("proxyDetectInfo")) $("proxyDetectInfo").textContent = formatProxyStatus(res);
   paintSettingsMeta(lastCursorStatus);
 }
 
@@ -1192,15 +1202,10 @@ $("btnSaveProxy").onclick = async () => {
   if (!res.ok) toast(res.error || "失败");
   else if (res.processProxy?.deferred || res.route?.deferred) {
     toast(res.processProxy?.message || res.route?.message || "已保存，请用启动器重启 IDE");
-  } else if (res.processProxy?.dll) toast("已写入进程代理 DLL，请用启动器重启 IDE");
-  else if (res.route?.hits) toast(`已注入，并改了 ${res.route.hits} 处 API 地址`);
-  else toast("代理已保存");
-  if (res.processProxyStatus) {
-    const st = res.processProxyStatus;
-    $("proxyDetectInfo").textContent =
-      (st.installed ? `进程代理：已安装（${st.managed ? "本工具管理" : "未知来源"}）` : "进程代理：未安装") +
-      (st.hasDllSource ? `\nDLL 源：${st.dllSource}` : "\n缺少 version.dll 源文件");
-  }
+  }   else if (res.processProxy?.dll) toast("已装好，请用启动器重启 Cursor");
+  else if (res.route?.hits) toast(`已去掉网关补丁（${res.route.hits} 处），请重启`);
+  else toast("已保存，请用启动器重启 Cursor");
+  await loadProxy();
   paintSettingsMeta(lastCursorStatus);
 };
 $("btnSavePath").onclick = async () => {
@@ -1340,7 +1345,13 @@ async function maybePromptShortcuts() {
   } catch {}
 }
 
-$("proxyRoute")?.addEventListener("change", () => paintSettingsMeta(lastCursorStatus));
+$("proxyRoute")?.addEventListener("change", async () => {
+  paintSettingsMeta(lastCursorStatus);
+  try {
+    const res = await api().get_proxy();
+    if ($("proxyDetectInfo")) $("proxyDetectInfo").textContent = formatProxyStatus(res);
+  } catch {}
+});
 $("proxyEnabled")?.addEventListener("change", () => paintSettingsMeta(lastCursorStatus));
 
 async function boot() {

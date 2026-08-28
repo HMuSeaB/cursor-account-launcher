@@ -43,6 +43,30 @@ def workbench_files(install_root: Path) -> list[Path]:
     return [root / rel for rel in WORKBENCH_REL]
 
 
+def detect_patch(install_root: Path) -> dict:
+    """检测 workbench 里是否已有网关补丁（43111/__bajie）。"""
+    files = [p for p in workbench_files(install_root) if p.is_file()]
+    if not files:
+        return {"ok": False, "patched": False, "hits": 0, "hasBackup": False, "error": "找不到 workbench"}
+    backups = _backup_dir()
+    hits = 0
+    for path in files:
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        _, n = strip_bajie_urls(raw)
+        hits += n
+    has_backup = any((backups / p.name).is_file() for p in files)
+    return {
+        "ok": True,
+        "patched": hits > 0,
+        "hits": hits,
+        "hasBackup": has_backup,
+        "files": len(files),
+    }
+
+
 def apply_bajie_route(install_root: Path, *, bypass: bool) -> dict:
     """bypass=True：改回官方 URL；False：从备份恢复插件改过的文件。"""
     files = [p for p in workbench_files(install_root) if p.is_file()]
