@@ -29,11 +29,35 @@
         <button class="btn ghost icon-only" id="btnRefreshAll" type="button" title="刷新全部" aria-label="刷新全部">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 3v6h-6"/></svg>
         </button>
+        <div class="ide-tools" id="ideTools">
+          <button class="btn ghost icon-only" id="btnIdeMenu" type="button" title="减负操作" aria-label="减负操作" aria-expanded="false" aria-controls="ideTray">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M7 12h10M10 17h4"/></svg>
+          </button>
+          <div class="ide-tray" id="ideTray">
+            <button class="btn ghost icon-only" id="btnLightLaunch" type="button" title="轻量启动（关 GPU、空工作区）" aria-label="轻量启动">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19c8-1 12-8 12-14 0 0-6 1-10 6-3 3-4 6-2 8z"/><path d="M9 15c2-1 4-4 5-6"/></svg>
+            </button>
+            <button class="btn ghost icon-only" id="btnCloseIde" type="button" title="关闭 IDE（腾出内存）" aria-label="关闭 IDE">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+            </button>
+            <button class="btn ghost icon-only" id="btnCompactState" type="button" title="压缩状态库（先关闭 IDE）" aria-label="压缩状态库">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8M8 20h8M6 9l6 4 6-4M6 15l6-4 6 4"/></svg>
+            </button>
+          </div>
+        </div>
         <button class="btn primary icon-only" id="btnLaunchLocal" type="button" title="启动 IDE" aria-label="启动 IDE">
           <svg class="filled" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
         </button>
       </div>
     </header>
+
+    <div class="compact-banner" id="compactBanner" hidden>
+      <div class="compact-banner-row">
+        <strong id="compactText">正在压缩…</strong>
+        <span class="compact-pct" id="compactPct"></span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill teal" id="compactFill" style="width:0%"></div></div>
+    </div>
 
     <section class="toolbar card">
       <input id="searchInput" type="search" placeholder="搜索邮箱、备注…" />
@@ -58,7 +82,7 @@
     </section>
 
     <details class="card settings-fold">
-      <summary>代理与 Cursor 路径</summary>
+      <summary>代理、路径与上下文</summary>
       <div class="settings-grid">
         <section class="settings-panel">
           <h3 class="settings-title">网络代理</h3>
@@ -84,6 +108,21 @@
           <input id="cursorPath" spellcheck="false" placeholder="留空则自动检测 Cursor.exe" />
           <button type="button" class="btn" id="btnSavePath">保存路径</button>
           <pre class="mini" id="cursorInfo">—</pre>
+        </section>
+        <section class="settings-panel settings-span">
+          <h3 class="settings-title">Grok Extra High 500k 上下文</h3>
+          <p class="hint settings-hint">只改客户端看到的窗口上限（256k → 500k），减轻约 200k 就压缩的问题。这不是官方 1M，也加不出 Claude Options 里的 Context 200K/1M 开关。走 Cursor 网关时，插件里已有同名选项且默认开启；这里打的是 Cursor 本体文件补丁，升级 IDE 后会丢，需要重打。</p>
+          <div class="guard-actions">
+            <button type="button" class="btn" id="btnCtxwinApply">打上 500k</button>
+            <button type="button" class="btn ghost" id="btnCtxwinRestore">还原 256k</button>
+            <button type="button" class="btn ghost" id="btnCtxwinRefresh">刷新状态</button>
+          </div>
+          <pre class="mini" id="ctxwinInfo">检测中…</pre>
+        </section>
+        <section class="settings-panel settings-span">
+          <h3 class="settings-title">减负 / 游戏挂机</h3>
+          <p class="hint settings-hint">右上角三条杠展开：轻量启动、关闭 IDE、压缩状态库。压缩前请先关掉 IDE。状态库过大时（曾到约 9GB）压缩能明显瘦身。</p>
+          <pre class="mini" id="lightInfo">—</pre>
         </section>
       </div>
     </details>

@@ -5,12 +5,25 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import time
 
 import webview
 
 from launcher.account_store import AccountStore, SessionGuardStore
-from launcher.cursor_process import close_cursor, is_cursor_running, resolve_install, save_cursor_path, start_cursor
+from launcher.ctxwin import ctxwin_apply as run_ctxwin_apply
+from launcher.ctxwin import ctxwin_restore as run_ctxwin_restore
+from launcher.ctxwin import ctxwin_status as read_ctxwin_status
+from launcher.cursor_process import (
+    close_cursor,
+    compact_cursor_state,
+    compact_precheck,
+    is_cursor_running,
+    light_workspace_dir,
+    resolve_install,
+    save_cursor_path,
+    start_cursor,
+)
 from launcher.cursor_proxy import ProxyConfig, apply_proxy, read_current_proxy
 from launcher.proxy_detect import detect_local_proxies, probe_direct, probe_proxy
 from launcher.cursor_sessions import list_sessions, revoke_session, revoke_all_except
@@ -67,6 +80,8 @@ class Api:
             proxies_fn=self._session_proxies,
         )
         self._guard.start()
+        self._compact_lock = threading.Lock()
+        self._compact_progress = {"busy": False, "pct": 0, "phase": "", "message": ""}
 
     def _on_guard_event(self, payload: dict) -> None:
         if self._window is not None:
@@ -367,21 +382,36 @@ class Api:
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
+    def ctxwin_status(self) -> dict:
+        try:
+            return read_ctxwin_status()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def ctxwin_apply(self) -> dict:
+        try:
+            return run_ctxwin_apply()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def ctxwin_restore(self) -> dict:
+        try:
+            return run_ctxwin_restore()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
     def launch_ide(
         self,
         account_id: str | None = None,
         reset_machine_id: bool = False,
         force: bool = False,
         machine_mode: str = "bind",
+        light: bool = False,
     ) -> dict:
-        """切号启动。
-
-        machine_mode:
-          - bind（默认）：恢复/绑定该账号机器码，同号不新开 Desktop
-          - none：不动机器码
-          - reset：随机新机器码（会多一台 Desktop，等同 FlyCursor 重置）
-        """
+        """切号启动。light=True 时关 GPU、打开空工作区，适合打游戏挂机。"""
         try:
+            if light:
+                force = True
             if not account_id and is_cursor_running() and not force:
                 return {
                     "ok": False,
@@ -411,7 +441,6 @@ class Api:
                 close_cursor(layout)
                 wait_state_db_ready()
 
-                # 机器码：默认按账号绑定（FlyCursor 同思路）
                 if mode == "reset":
                     reset_machine_ids()
                     self._store.set_device_ids(account_id, read_fingerprint())
@@ -420,7 +449,6 @@ class Api:
                     if bound.get("machineId") or bound.get("serviceMachineId") or bound.get("telemetryMachineId"):
                         write_fingerprint(bound)
                     else:
-                        # 首次：绑定当前本机指纹，避免无意义重置
                         fp = read_fingerprint()
                         if not (fp.get("machineId") or fp.get("serviceMachineId")):
                             fp = generate_fingerprint()
@@ -434,18 +462,100 @@ class Api:
                     membership=str(membership) if membership else None,
                     keep_refresh_if_missing=True,
                 )
-                # 稍等落盘再启动，减少偶发「登不上」
                 time.sleep(0.4)
+            elif light and is_cursor_running():
+                close_cursor(layout)
+                wait_state_db_ready()
 
-            start_cursor(layout)
+            start_cursor(layout, light=bool(light))
             return {
                 "ok": True,
                 "launched": True,
                 "classic": True,
+                "light": bool(light),
+                "workspace": str(light_workspace_dir()) if light else "",
                 "machineMode": mode if account_id else "none",
             }
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
+
+    def close_ide(self) -> dict:
+        """关掉 Cursor，腾出内存。账号仍留在启动器。"""
+        try:
+            if not is_cursor_running():
+                return {"ok": True, "running": False, "closed": False}
+            layout = resolve_install()
+            close_cursor(layout)
+            wait_state_db_ready()
+            return {"ok": True, "running": is_cursor_running(), "closed": True}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "running": is_cursor_running()}
+
+    def compact_precheck(self) -> dict:
+        try:
+            return compact_precheck()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def compact_progress(self) -> dict:
+        return dict(self._compact_progress)
+
+    def compact_start(self) -> dict:
+        pre = compact_precheck()
+        if not pre.get("ok"):
+            return pre
+        with self._compact_lock:
+            if self._compact_progress.get("busy"):
+                return {"ok": False, "error": "正在压缩，请稍候"}
+            self._compact_progress = {
+                "busy": True,
+                "pct": 1,
+                "phase": "start",
+                "message": f"准备压缩 {pre.get('sizeMb', 0)}MB…",
+            }
+        threading.Thread(target=self._run_compact, daemon=True).start()
+        return {"ok": True, "started": True, "sizeMb": pre.get("sizeMb"), "backupMb": pre.get("backupMb")}
+
+    def compact_cursor_state(self) -> dict:
+        """占用时立即返回；真正压缩请走 compact_start，避免卡住界面。"""
+        return self.compact_precheck()
+
+    def _run_compact(self) -> None:
+        def on_progress(payload: dict) -> None:
+            with self._compact_lock:
+                self._compact_progress = {"busy": True, **payload}
+            self._emit_compact(self._compact_progress)
+
+        try:
+            result = compact_cursor_state(on_progress=on_progress)
+        except Exception as exc:
+            result = {"ok": False, "error": str(exc)}
+        done = {
+            "busy": False,
+            "pct": 100 if result.get("ok") else int(self._compact_progress.get("pct") or 0),
+            "phase": "done" if result.get("ok") else "error",
+            "message": (
+                f"压缩完成 {result.get('beforeMb')}MB → {result.get('afterMb')}MB，现在可以打开 Cursor"
+                if result.get("ok")
+                else (result.get("error") or "压缩失败")
+            ),
+            "result": result,
+        }
+        with self._compact_lock:
+            self._compact_progress = done
+        self._emit_compact(done)
+
+    def _emit_compact(self, payload: dict) -> None:
+        if self._window is None:
+            return
+        try:
+            self._window.evaluate_js(
+                "window.dispatchEvent(new CustomEvent('compact-progress', {detail: "
+                + json.dumps(payload, ensure_ascii=False)
+                + "}))"
+            )
+        except Exception:
+            pass
 
     # ---- 代理 ----
 

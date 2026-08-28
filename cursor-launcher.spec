@@ -13,7 +13,7 @@ a = Analysis(
     ["app.py"],
     pathex=[],
     binaries=webview_binaries,
-    datas=[("web", "web"), *webview_datas],
+    datas=[("web", "web"), ("scripts", "scripts"), *webview_datas],
     hiddenimports=[
         "webview",
         "webview.platforms.winforms",

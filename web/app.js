@@ -279,18 +279,44 @@ function hasWsToken(a) {
   return a?.hasWsToken || t.includes("::") || t.toLowerCase().includes("%3a%3a");
 }
 
-function tokenDetailSection(a) {
-  const tok = a.token || "";
-  const ws = hasWsToken(a);
-  return `<div class="detail-section token-section">
+function splitDisplayTokens(a) {
+  const raw = String(a?.token || "").trim();
+  let access = String(a?.accessToken || "").trim();
+  let ws = String(a?.wsToken || "").trim();
+  if (!access && raw) {
+    const lower = raw.toLowerCase();
+    if (raw.includes("::")) access = raw.slice(raw.indexOf("::") + 2);
+    else if (lower.includes("%3a%3a")) access = raw.slice(lower.indexOf("%3a%3a") + 6);
+    else access = raw;
+  }
+  if (!ws && hasWsToken(a) && a?.id && access) ws = `${a.id}::${access}`;
+  return { accessToken: access, wsToken: ws };
+}
+
+function tokenBox(title, value, hint, warn) {
+  const empty = !value;
+  return `<div class="token-block">
     <div class="progress-head">
-      <strong>${ws ? "WS Token" : "Token"}</strong>
-      <button type="button" class="copy-link" data-copy="${esc(tok)}">复制</button>
+      <strong>${esc(title)}</strong>
+      ${empty ? "<span class=\"hint\">无</span>" : `<button type="button" class="copy-link" data-copy="${esc(value)}">复制</button>`}
     </div>
-    <textarea class="token-box" readonly spellcheck="false" rows="4">${esc(tok)}</textarea>
-    <p class="hint token-hint ${ws ? "" : "warn"}">${ws
-      ? "设备管理 / 踢设备需要 user_xxx::eyJ… 格式（推荐）"
-      : "当前为 JWT，可直接拉设备列表；同步 WS 后可更准确标记本机"}</p>
+    <textarea class="token-box" readonly spellcheck="false" rows="3" placeholder="尚未保存">${esc(value)}</textarea>
+    ${hint ? `<p class="hint token-hint ${warn ? "warn" : ""}">${hint}</p>` : ""}
+  </div>`;
+}
+
+function tokenDetailSection(a) {
+  const { accessToken, wsToken } = splitDisplayTokens(a);
+  return `<div class="detail-section token-section">
+    ${tokenBox("Access Token", accessToken, "Cursor 登录用的 JWT（cursorAuth/accessToken）", false)}
+    ${tokenBox(
+      "WS Token",
+      wsToken,
+      wsToken
+        ? "设备管理 / 踢设备推荐 user_xxx::eyJ… 格式"
+        : "当前没有 WS Token。可点「同步本机 WS」，或先在 Cursor 网页完成登录",
+      !wsToken,
+    )}
   </div>`;
 }
 
@@ -410,10 +436,19 @@ async function refreshCursorStatus() {
   if (!res.ok) {
     pill.textContent = "未检测到 Cursor";
     $("cursorInfo").textContent = res.error || "请设置 Cursor 路径";
+    refreshCtxwin();
     return;
   }
   pill.textContent = res.running ? "已登录 · 运行中" : "已登录";
   $("cursorInfo").textContent = `${res.executable || res.path} · v${res.version || "?"}`;
+  const compactBtn = $("btnCompactState");
+  if (compactBtn) {
+    compactBtn.classList.toggle("is-blocked", Boolean(res.running));
+    compactBtn.title = res.running
+      ? "目前 Cursor 正在运行，状态库被占用，无法压缩"
+      : "压缩状态库（先关闭 IDE）";
+  }
+  refreshCtxwin();
 }
 
 async function loadProxy() {
@@ -424,6 +459,66 @@ async function loadProxy() {
   $("proxyType").value = cfg.proxy_type || cfg.proxyType || "http";
   $("proxyHost").value = cfg.host || "127.0.0.1";
   $("proxyPort").value = cfg.port || 7890;
+}
+
+function paintCtxwin(res) {
+  const info = $("ctxwinInfo");
+  const applyBtn = $("btnCtxwinApply");
+  const restoreBtn = $("btnCtxwinRestore");
+  if (!info) return;
+  if (!res || !res.ok) {
+    info.textContent = res?.error || "无法检测补丁状态";
+    if (applyBtn) applyBtn.classList.add("is-blocked");
+    if (restoreBtn) restoreBtn.classList.add("is-blocked");
+    return;
+  }
+  const lines = [
+    res.patched ? "状态：已打上 500k" : "状态：官方 256k（未打补丁）",
+    `窗口 ${res.from || 256000} → ${res.to || 500000}`,
+    res.version ? `Cursor v${res.version}` : "",
+    res.running ? "IDE 正在运行，改文件前请先关闭" : "IDE 未运行，可以改文件",
+    res.node ? `Node ${res.node}` : "未找到 Node.js，无法打补丁",
+  ].filter(Boolean);
+  info.textContent = lines.join("\n");
+  if (applyBtn) {
+    applyBtn.classList.toggle("is-blocked", !res.canApply);
+    applyBtn.title = res.running
+      ? "请先关闭 IDE"
+      : (!res.node ? "需要本机 Node.js" : "把 grok Extra High 窗口改成 500k");
+  }
+  if (restoreBtn) {
+    restoreBtn.classList.toggle("is-blocked", !res.canRestore);
+    restoreBtn.title = res.patched ? "去掉补丁，回到官方 256k" : "当前没有补丁";
+  }
+}
+
+async function refreshCtxwin() {
+  if (!api()?.ctxwin_status) return;
+  try {
+    paintCtxwin(await api().ctxwin_status());
+  } catch (e) {
+    paintCtxwin({ ok: false, error: String(e) });
+  }
+}
+
+async function runCtxwin(kind) {
+  const status = await api().ctxwin_status();
+  if (kind === "apply" && !status.canApply) {
+    paintCtxwin(status);
+    return toast(status.running ? "请先关闭 IDE" : (status.error || "当前不能打补丁"));
+  }
+  if (kind === "restore" && !status.canRestore) {
+    paintCtxwin(status);
+    return toast(status.patched ? (status.running ? "请先关闭 IDE" : "无法还原") : "当前没有补丁");
+  }
+  const fn = kind === "restore" ? "ctxwin_restore" : "ctxwin_apply";
+  const info = $("ctxwinInfo");
+  if (info) info.textContent = kind === "restore" ? "正在还原…" : "正在打补丁…";
+  const res = await api()[fn]();
+  paintCtxwin(res);
+  if (!res.ok) return toast(res.error || "失败");
+  if (res.skipped) return toast(res.message || "无需还原");
+  toast(kind === "restore" ? "已还原官方 256k，请再启动 IDE" : "已打上 500k，请再启动 IDE");
 }
 
 async function openDetail(accountId) {
@@ -490,26 +585,111 @@ async function refreshOne(accountId) {
   }
 }
 
-async function launch(accountId, force = false) {
-  if (!accountId && !force) {
+async function launch(accountId, force = false, light = false) {
+  if (!accountId && !force && !light) {
     const st = await api().cursor_status();
     if (st.running && !confirm("Cursor 已在运行，仍要启动新实例？")) return;
     force = st.running;
   }
-  // 默认 bind：同账号复用机器码，避免每切一次多一台 Desktop
   const machineMode = accountId ? "bind" : "none";
-  if (accountId) toast("正在切号并启动 IDE…");
+  if (light) toast("正在轻量启动（关 GPU、空工作区）…");
+  else if (accountId) toast("正在切号并启动 IDE…");
   else toast("正在启动 IDE…");
-  const res = await api().launch_ide(accountId || null, false, force, machineMode);
+  const res = await api().launch_ide(accountId || null, false, force, machineMode, light);
   if (res.alreadyRunning && !force) {
     if (confirm(res.error || "Cursor 已在运行，仍要启动新实例？")) {
-      return launch(accountId, true);
+      return launch(accountId, true, light);
     }
     return;
   }
-  toast(res.ok ? (accountId ? "已切换并启动 Cursor（--classic）" : "已启动 Cursor（--classic）") : (res.error || "失败"));
+  toast(res.ok
+    ? (light ? "已轻量启动 Cursor" : (accountId ? "已切换并启动 Cursor（--classic）" : "已启动 Cursor（--classic）"))
+    : (res.error || "失败"));
   await refreshCursorStatus();
 }
+
+async function closeIde() {
+  if (!confirm("关闭 Cursor 以腾出内存？账号仍留在启动器里。")) return;
+  toast("正在关闭 IDE…");
+  const res = await api().close_ide();
+  toast(res.ok ? (res.closed ? "已关闭 Cursor" : "Cursor 本来就没在运行") : (res.error || "关闭失败"));
+  await refreshCursorStatus();
+}
+
+async function compactState() {
+  const pre = await api().compact_precheck();
+  if (!pre.ok) {
+    toast(pre.error || "目前无法压缩");
+    if ($("lightInfo")) $("lightInfo").textContent = pre.error || "无法压缩";
+    showCompactBanner({
+      pct: 0,
+      phase: "blocked",
+      message: pre.error || "目前 Cursor 正在运行，无法压缩",
+    });
+    return;
+  }
+  const size = pre.sizeMb ? `${pre.sizeMb}MB` : "";
+  if (!confirm(`将压缩状态库${size ? "（约 " + size + "）" : ""}。\n压缩完成前请不要打开 Cursor。`)) return;
+  showCompactBanner({ pct: 2, phase: "start", message: `准备压缩 ${size || "状态库"}…` });
+  settleCompact._once = false;
+  const res = await api().compact_start();
+  if (!res.ok) {
+    toast(res.error || "无法开始压缩");
+    showCompactBanner({ pct: 0, phase: "error", message: res.error || "无法开始压缩" });
+    return;
+  }
+  watchCompactProgress();
+}
+
+function showCompactBanner(p) {
+  const bar = $("compactBanner");
+  if (!bar) return;
+  bar.hidden = false;
+  const pct = Math.max(0, Math.min(100, Number(p.pct) || 0));
+  if ($("compactFill")) $("compactFill").style.width = `${pct}%`;
+  if ($("compactText")) $("compactText").textContent = p.message || "正在压缩…";
+  if ($("compactPct")) $("compactPct").textContent = p.phase === "blocked" || p.phase === "error" ? "" : `${pct}%`;
+  bar.classList.toggle("is-done", p.phase === "done");
+  bar.classList.toggle("is-error", p.phase === "error" || p.phase === "blocked");
+  if ($("lightInfo") && p.message) $("lightInfo").textContent = p.message;
+}
+
+function hideCompactBannerLater() {
+  clearTimeout(hideCompactBannerLater._t);
+  hideCompactBannerLater._t = setTimeout(() => {
+    const bar = $("compactBanner");
+    if (bar) bar.hidden = true;
+  }, 8000);
+}
+
+function settleCompact(p) {
+  if (settleCompact._once) return;
+  settleCompact._once = true;
+  clearInterval(watchCompactProgress._t);
+  if (p.phase === "done") toast("压缩完成，可以打开 Cursor 了");
+  else if (p.phase === "error") toast(p.message || "压缩失败");
+  hideCompactBannerLater();
+}
+
+function watchCompactProgress() {
+  clearInterval(watchCompactProgress._t);
+  watchCompactProgress._t = setInterval(async () => {
+    try {
+      const p = await api().compact_progress();
+      if (!p) return;
+      showCompactBanner(p);
+      if (!p.busy) settleCompact(p);
+    } catch {
+      clearInterval(watchCompactProgress._t);
+    }
+  }, 400);
+}
+
+window.addEventListener("compact-progress", (ev) => {
+  const p = ev.detail || {};
+  showCompactBanner(p);
+  if (!p.busy) settleCompact(p);
+});
 
 function updateGuardHint() {
   const mode = $("guardMode")?.value || guardConfig.mode || "whitelist";
@@ -774,6 +954,31 @@ $("btnRefreshAll").onclick = async () => {
   await renderAccounts();
 };
 $("btnLaunchLocal").onclick = () => launch(null);
+$("btnLightLaunch").onclick = () => { closeIdeTools(); launch(null, true, true); };
+$("btnCloseIde").onclick = () => { closeIdeTools(); closeIde(); };
+$("btnCompactState").onclick = () => { closeIdeTools(); compactState(); };
+
+function closeIdeTools() {
+  const el = $("ideTools");
+  if (el) el.classList.remove("open");
+  const menu = $("btnIdeMenu");
+  if (menu) menu.setAttribute("aria-expanded", "false");
+}
+function toggleIdeTools(ev) {
+  ev.stopPropagation();
+  const el = $("ideTools");
+  const open = !el.classList.contains("open");
+  el.classList.toggle("open", open);
+  $("btnIdeMenu").setAttribute("aria-expanded", open ? "true" : "false");
+}
+$("btnIdeMenu").onclick = toggleIdeTools;
+document.addEventListener("click", (ev) => {
+  const el = $("ideTools");
+  if (el && !el.contains(ev.target)) closeIdeTools();
+});
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") closeIdeTools();
+});
 $("btnDetectProxy").onclick = async () => {
   toast("正在检测本机代理…");
   $("proxyDetectInfo").textContent = "检测中…";
@@ -855,6 +1060,9 @@ $("btnSavePath").onclick = async () => {
   toast(res.ok ? "路径已保存" : (res.error || "失败"));
   await refreshCursorStatus();
 };
+$("btnCtxwinApply").onclick = () => runCtxwin("apply");
+$("btnCtxwinRestore").onclick = () => runCtxwin("restore");
+$("btnCtxwinRefresh").onclick = () => refreshCtxwin();
 $("detailBody").addEventListener("click", (ev) => {
   if (ev.target.id === "btnLoadModelUsage") {
     ev.preventDefault();

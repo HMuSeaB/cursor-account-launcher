@@ -24,6 +24,19 @@ def _has_ws_token(token: str | None) -> bool:
     text = str(token or "")
     return "::" in text or "%3a%3a" in text.lower()
 
+
+def _split_token(token: str | None) -> tuple[str, str]:
+    """返回 (access_jwt, ws_token)。仅 JWT 时 ws 为空。"""
+    text = str(token or "").strip()
+    if not text:
+        return "", ""
+    try:
+        uid, jwt, _ = parse_token(text)
+    except Exception:
+        return text, text if _has_ws_token(text) else ""
+    ws = f"{uid}::{jwt}" if _has_ws_token(text) and uid and jwt else ""
+    return jwt, ws
+
 _USAGE_FIELDS = (
     "email",
     "membershipType",
@@ -141,7 +154,11 @@ class AccountStore(_BaseStore):
         out["hasDeviceIds"] = bool((item.get("deviceIds") or {}).get("machineId") or (item.get("deviceIds") or {}).get("serviceMachineId"))
         out["hasRefreshToken"] = bool(item.get("refreshTokenEnc"))
         if include_token:
-            out["token"] = item.get("token") or ""
+            raw = item.get("token") or ""
+            access, ws = _split_token(raw)
+            out["token"] = raw
+            out["accessToken"] = access
+            out["wsToken"] = ws
             out["deviceIds"] = dict(item.get("deviceIds") or {})
         return out
 
