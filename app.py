@@ -147,7 +147,13 @@ class Api:
         email = acct.get("email")
         if account_id and email and "@" in email:
             self._store.set_label(account_id, email)
-        return {"ok": True, "id": account_id, "email": email, "accounts": self._store.list()}
+        return {
+            "ok": True,
+            "id": account_id,
+            "email": email,
+            "hasWsToken": bool(acct.get("hasWsToken")),
+            "accounts": self._store.list(),
+        }
 
     def remove_account(self, account_id: str) -> list:
         self._store.remove(account_id)

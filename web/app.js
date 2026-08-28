@@ -41,11 +41,22 @@ function daysLeft(ms) {
   return `${d}天后`;
 }
 
+function closeAddDialog() {
+  $("addDialog").close();
+  $("tokenInput").value = "";
+  $("addEmail").value = "";
+  $("addPassword").value = "";
+  $("addGroup").value = "";
+  $("addTags").value = "";
+}
+
 function displayEmail(a) {
   if (a.email && String(a.email).includes("@")) return a.email;
   if (a.label && String(a.label).includes("@")) return a.label;
   return a.email || a.label || a.id;
 }
+
+function membershipClass(mt) {
   const x = String(mt || "").toLowerCase();
   if (x.includes("ultra")) return "ultra";
   if (x.includes("pro")) return "pro";
@@ -331,6 +342,12 @@ $("searchInput").oninput = () => renderAccounts();
 ["filterGroup", "filterTag", "filterPlan"].forEach((id) => { $(id).onchange = () => renderAccounts(); });
 
 $("btnAddOpen").onclick = () => $("addDialog").showModal();
+$("btnAddCancel").onclick = closeAddDialog;
+$("btnAddCancel2").onclick = closeAddDialog;
+$("addDialog").addEventListener("cancel", (ev) => {
+  ev.preventDefault();
+  closeAddDialog();
+});
 $("btnAdd").onclick = async (ev) => {
   ev.preventDefault();
   const res = await api().import_text($("tokenInput").value);
@@ -347,7 +364,7 @@ $("btnAdd").onclick = async (ev) => {
     await api().refresh_account(acct.id);
   }
   $("tokenInput").value = "";
-  $("addDialog").close();
+  closeAddDialog();
   toast(`已添加 ${res.added} 个账号`);
   await renderAccounts();
 };
@@ -361,8 +378,13 @@ $("btnImport").onclick = async () => {
 };
 $("btnDetect").onclick = async () => {
   const res = await api().detect_local_account();
-  toast(res.ok ? `已探测 ${res.email || ""}` : (res.error || "失败"));
-  if (res.ok && res.id) await api().refresh_account(res.id);
+  if (!res.ok) {
+    toast(res.error || "失败");
+    return;
+  }
+  const wsHint = res.hasWsToken ? "（含 ws token，可用设备管理）" : "（仅 access_token，设备管理需 ws token）";
+  toast(`已探测 ${res.email || ""} ${wsHint}`);
+  if (res.id) await api().refresh_account(res.id);
   await renderAccounts();
 };
 $("btnRefreshAll").onclick = async () => {
