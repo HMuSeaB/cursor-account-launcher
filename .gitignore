@@ -13,3 +13,7 @@ build/
 Thumbs.db
 *.exe
 *.tmp
+
+# 本地开发备忘，不上传
+dev-references.local.md
+*.local.md

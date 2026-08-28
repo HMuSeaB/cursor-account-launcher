@@ -1,23 +1,14 @@
-# Cursor Launcher
+# Cursor Account Launcher
 
-私人定制的 **Cursor 启动器**（非 Tauri），专注 Cursor 单平台：
+Windows 桌面版 **Cursor 账号启动器**（非官方），基于 Python + pywebview。
 
-- 多账号管理、额度查询与一键切号
-- **IDE 模式启动**（`--classic`，跳过 Agents 窗口）
-- **登录会话管理** + **会话守卫**（保留名单 + 定时踢掉其它设备）
-- **代理注入**（写入 Cursor `settings.json`）
+## 功能
 
-技术栈：**Python + pywebview**（Windows WebView2），无需 Rust/Tauri 构建链。
-
-## 与现有零散项目的关系
-
-| 来源 | 复用了什么 |
-|------|-----------|
-| `Cusor-bot-sand` | pywebview 架构、账号存储、本机登录态读写、Cursor 进程启停 |
-| [ai-tools-mng](https://github.com/githubgotest001/ai-tools-mng) | Cursor 会话 API（`/api/auth/sessions`）与会话守卫思路 |
-| 你之前的 settings | 代理默认值 `127.0.0.1:7890` / SOCKS `7891` |
-
-Sand 补丁、多平台账号等**不包含**在本项目中。
+- 多账号管理、额度查询、一键切号
+- **IDE 模式启动**（`--classic`）
+- **登录设备管理**：查看会话、踢掉其它设备（保留本机 Web + Desktop）
+- **会话守卫**：保留名单 / 踢新设备，后台定时巡检
+- **代理注入**：写入 Cursor `settings.json`
 
 ## 快速开始
 
@@ -30,66 +21,65 @@ pip install -r requirements.txt
 python app.py
 ```
 
-## 功能说明
+## 使用说明
 
-### 1. 启动 IDE
+### 启动 IDE
 
-- 「启动 IDE（本机账号）」：注入代理 → 带 `--classic` 启动 Cursor
-- 账号行「启动 IDE / 切号并启动 IDE」：关 Cursor → 写入该账号 token → 可选重置机器码 → 注入代理 → 启动
+- **启动 IDE（本机账号）**：注入代理 → 带 `--classic` 启动 Cursor
+- **切换并启动**：关闭 Cursor → 写入所选账号 Token → 注入代理 → 启动
 
-### 2. 代理注入
+### 代理
 
-保存后会写入 `%APPDATA%\Cursor\User\settings.json`：
+保存后写入 `%APPDATA%\Cursor\User\settings.json`：
 
-- `http.proxy`
-- `http.proxySupport`: `override`
-- `http.proxyStrictSSL`
-- SOCKS5 时额外写 `cursorGateway.downloadProxy`
+- `http.proxy` / `http.proxySupport` / `http.proxyStrictSSL`
+- SOCKS5 时额外写入 `cursorGateway.downloadProxy`
 
-### 3. 会话管理 / 会话守卫
+默认本地代理：`127.0.0.1:7890`（可在界面修改）
 
-参考 [ai-tools-mng](https://github.com/githubgotest001/ai-tools-mng) 的 sessions API，守卫策略移植自工作区 **BajieAsk**（`source/ggbond-mobile`）：
+### 登录设备 / 会话守卫
 
-| 模式 | 对应 BajieAsk | 行为 |
-|------|---------------|------|
-| **保留名单** | `autoClean` | 勾选保留 + 本机当前会话；巡检时踢掉其它 |
-| **踢新设备** | `autoKick` | 启用时建立 baseline；之后只踢**新出现**的设备 |
+**设备管理**
 
-接口：
+- 需要完整 ws token（`user_xxx::eyJ...`）才能拉取设备列表
+- 一键「踢掉其它设备」会自动保留本机 Desktop + 最近活跃的 Web
+
+**会话守卫（可选）**
+
+| 模式 | 行为 |
+|------|------|
+| 保留名单 | 勾选保留 + 本机当前会话；巡检时踢掉其余 |
+| 踢新设备 | 启用时建立 baseline；之后只踢新出现的设备 |
+
+相关 API（Cursor 私有接口，可能变动）：
 
 - `GET https://cursor.com/api/auth/sessions`
 - `POST https://cursor.com/api/auth/sessions/revoke`
+- `GET https://api2.cursor.sh/auth/usage-summary`
 
-## 数据目录
+### 数据目录
 
 `%LOCALAPPDATA%\CursorLauncher\`
 
-- `accounts.json` — 账号（Windows DPAPI 加密）
-- `session_guard.json` — 各账号保留名单
-- `proxy.json` — 启动器代理配置
-- `config.json` — Cursor 安装路径
+| 文件 | 说明 |
+|------|------|
+| `accounts.json` | 账号（Windows DPAPI 加密） |
+| `session_guard.json` | 会话守卫配置 |
+| `proxy.json` | 代理配置 |
+| `config.json` | Cursor 安装路径 |
 
-## 打包 exe（无需 Python）
+Token、密码等敏感数据**仅存本机**，不会上传。
 
-已配置 PyInstaller 单文件打包：
+## 打包 exe
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
-产物：`dist\CursorLauncher.exe`（约 15 MB，双击即用）。
+产物：`dist\CursorLauncher.exe`（约 15 MB）
 
-账号/代理等数据仍在 `%LOCALAPPDATA%\CursorLauncher\`，与 `python app.py` 共用。
-
-**系统要求：** Windows 10/11，需已安装 [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)（Win11 通常自带）。
-
-## 后续可扩展
-
-- [x] 打包为单 exe（PyInstaller）
-- [x] 账号用量/套餐查询
-- [ ] 系统托盘 + 开机自启守卫
-- [ ] 任务栏固定快捷方式自动带 `--classic`
+**系统要求：** Windows 10/11 + [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)
 
 ## 许可
 
-MIT — 非官方工具，仅供个人学习使用，请遵守 Cursor 服务条款。账号 Token 等敏感数据仅存本机 `%LOCALAPPDATA%\CursorLauncher\`，不会上传。
+MIT — 非官方工具，仅供个人学习使用，请遵守 [Cursor 服务条款](https://cursor.com/terms)。
