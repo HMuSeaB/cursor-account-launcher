@@ -330,3 +330,29 @@ class AccountStore(_BaseStore):
         for v in self._items.values():
             tags.update(v.get("tags") or [])
         return sorted(tags)
+
+
+def sort_account_rows(
+    rows: list[dict],
+    *,
+    local_user_id: str = "",
+    local_email: str = "",
+    last_id: str = "",
+) -> list[dict]:
+    """本机账号最上，其次最近切换的账号，其余保持相对顺序。"""
+    uid = (local_user_id or "").strip()
+    email = (local_email or "").strip().lower()
+    last = (last_id or "").strip()
+
+    def rank(item: dict) -> int:
+        aid = str(item.get("id") or "")
+        mail = str(item.get("email") or item.get("label") or "").strip().lower()
+        if uid and aid == uid:
+            return 0
+        if email and mail == email:
+            return 0
+        if last and aid == last:
+            return 1
+        return 2
+
+    return sorted(rows, key=rank)

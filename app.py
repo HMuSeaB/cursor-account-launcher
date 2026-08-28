@@ -10,7 +10,7 @@ import time
 
 import webview
 
-from launcher.account_store import AccountStore, SessionGuardStore
+from launcher.account_store import AccountStore, SessionGuardStore, sort_account_rows
 from launcher.ctxwin import ctxwin_apply as run_ctxwin_apply
 from launcher.ctxwin import ctxwin_restore as run_ctxwin_restore
 from launcher.ctxwin import ctxwin_status as read_ctxwin_status
@@ -26,6 +26,8 @@ from launcher.cursor_process import (
     save_cursor_path,
     start_cursor,
     trim_cursor_memory,
+    update_config,
+    _load_config,
 )
 from launcher.cursor_proxy import ProxyConfig, apply_proxy, read_current_proxy
 from launcher.proxy_detect import detect_local_proxies, probe_direct, probe_proxy
@@ -42,6 +44,7 @@ from launcher.local_cursor import (
     write_fingerprint,
     write_local_account,
 )
+from launcher.window_state import attach_window_persistence, load_window_geom
 from launcher.session_guard import SessionGuardService
 from launcher.token_utils import parse_token
 
@@ -109,7 +112,14 @@ class Api:
     # ---- 账号 ----
 
     def list_accounts(self) -> list:
-        return self._store.list()
+        ident = peek_local_identity()
+        last_id = str(_load_config().get("lastAccountId") or "")
+        return sort_account_rows(
+            self._store.list(),
+            local_user_id=ident.get("userId") or "",
+            local_email=ident.get("email") or "",
+            last_id=last_id,
+        )
 
     def get_account_detail(self, account_id: str) -> dict:
         detail = self._store.get_detail(account_id)
@@ -381,6 +391,7 @@ class Api:
                 "processCount": len(procs),
                 "localEmail": identity.get("email") or "",
                 "localUserId": identity.get("userId") or "",
+                "lastAccountId": str(_load_config().get("lastAccountId") or ""),
             }
         except Exception as exc:
             return {
@@ -389,6 +400,7 @@ class Api:
                 "running": is_cursor_running(),
                 "localEmail": identity.get("email") or "",
                 "localUserId": identity.get("userId") or "",
+                "lastAccountId": str(_load_config().get("lastAccountId") or ""),
             }
 
     def set_cursor_path(self, path: str) -> dict:
@@ -480,6 +492,7 @@ class Api:
                     membership=str(membership) if membership else None,
                     keep_refresh_if_missing=True,
                 )
+                update_config(lastAccountId=account_id)
                 time.sleep(0.4)
             elif light and is_cursor_running():
                 close_cursor(layout)
@@ -755,16 +768,25 @@ def resource_path(rel: str) -> str:
 
 def main() -> None:
     api = Api()
+    geom = load_window_geom()
+    window_kwargs = {
+        "width": geom["width"],
+        "height": geom["height"],
+        "min_size": (900, 640),
+        "maximized": bool(geom["maximized"]),
+        "background_color": "#ECEAE6",
+    }
+    if geom["x"] is not None and geom["y"] is not None:
+        window_kwargs["x"] = geom["x"]
+        window_kwargs["y"] = geom["y"]
     window = webview.create_window(
         "Cursor Launcher",
         resource_path(os.path.join("web", "index.html")),
         js_api=api,
-        width=1080,
-        height=760,
-        min_size=(900, 640),
-        background_color="#ECEAE6",
+        **window_kwargs,
     )
     api._window = window
+    attach_window_persistence(window)
     webview.start()
 
 

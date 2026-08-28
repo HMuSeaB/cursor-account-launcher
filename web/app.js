@@ -10,6 +10,7 @@ let autoKeepIds = new Set();
 let keepReasons = {};
 let localIdentity = { email: "", userId: "" };
 let lastCursorStatus = null;
+let lastAccountId = "";
 let guardConfig = {
   enabled: false,
   mode: "whitelist",
@@ -363,7 +364,7 @@ function filteredAccounts() {
   const group = $("filterGroup").value;
   const tag = $("filterTag").value;
   const plan = $("filterPlan").value;
-  return accounts.filter((a) => {
+  const rows = accounts.filter((a) => {
     const hay = `${a.email || ""} ${a.label || ""} ${a.remark || ""} ${a.membershipType || ""}`.toLowerCase();
     if (q && !hay.includes(q)) return false;
     if (group && (a.group || "未分组") !== group) return false;
@@ -371,6 +372,14 @@ function filteredAccounts() {
     if (plan && !String(a.membershipType || "").toLowerCase().includes(plan)) return false;
     return true;
   });
+  rows.sort((a, b) => accountRank(a) - accountRank(b));
+  return rows;
+}
+
+function accountRank(a) {
+  if (isLocalAccount(a)) return 0;
+  if (lastAccountId && a.id === lastAccountId) return 1;
+  return 2;
 }
 
 function isLocalAccount(a) {
@@ -486,6 +495,7 @@ async function refreshCursorStatus(opts = {}) {
     email: res.localEmail || "",
     userId: res.localUserId || "",
   };
+  if (res.lastAccountId) lastAccountId = res.lastAccountId;
   const pill = $("loginPill");
   if (!res.ok) {
     pill.textContent = "未检测到 Cursor";
@@ -686,6 +696,7 @@ async function launch(accountId, force = false, light = false) {
   toast(res.ok
     ? (light ? "已轻量启动 Cursor" : (accountId ? "已切换并启动 Cursor（--classic）" : "已启动 Cursor（--classic）"))
     : (res.error || "失败"));
+  if (res.ok && accountId) lastAccountId = accountId;
   await refreshCursorStatus();
 }
 
