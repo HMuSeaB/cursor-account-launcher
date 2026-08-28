@@ -475,8 +475,7 @@ function paintSettingsMeta(status) {
   const enabled = $("proxyEnabled")?.checked;
   if (enabled === false) bits.push("代理关");
   else {
-    const route = $("proxyRoute")?.value === "gateway" ? "网关" : "官方";
-    bits.push(route);
+    bits.push("代理");
     const host = $("proxyHost")?.value;
     const port = $("proxyPort")?.value;
     if (host && port) bits.push(`${host}:${port}`);
@@ -548,29 +547,17 @@ async function refreshCursorStatus(opts = {}) {
 function formatProxyStatus(res) {
   const st = res.processProxyStatus || {};
   const patch = res.patchStatus || {};
-  const route = $("proxyRoute")?.value;
-  const lines = [];
-  lines.push(`补丁：${patch.patched ? "有" : "无"}${patch.hits ? `（${patch.hits} 处）` : ""}`);
-  lines.push(`进程代理 DLL：${st.installed ? "已装" : "未装"}`);
-  if (!st.hasDllSource) lines.push("缺少 version.dll 源文件");
-  if (route === "gateway" && !patch.patched && !patch.hasBackup) {
-    lines.push("⚠ 没检测到补丁：请先在网关插件里打补丁，或改选「没打补丁」");
-  } else if (route === "clash" && patch.patched) {
-    lines.push("保存后会去掉补丁，改走官方 API + Clash");
-  } else {
-    lines.push("保存后用启动器重启 Cursor");
-  }
-  return lines.join("\n");
+  return [
+    `进程 DLL：${st.installed ? "已写入" : "未写入"}${st.hasBackup ? " · 有备份可还原" : ""}`,
+    `网关补丁：${patch.patched ? "有" : "无"}${patch.hasBackup ? " · 有备份可还原" : ""}`,
+    st.installed ? "若黑屏：先「删除 DLL」（会备份，还能还原）" : "保存只改 settings；DLL 用下面四个按钮",
+  ].join("\n");
 }
 
 async function loadProxy() {
   const res = await api().get_proxy();
   const cfg = res.saved || {};
-  $("proxyEnabled").checked = cfg.enabled !== false;
-  if ($("proxyRoute")) {
-    const clash = cfg.bypass_gateway !== false && cfg.bypassGateway !== false;
-    $("proxyRoute").value = clash ? "clash" : "gateway";
-  }
+  $("proxyEnabled").checked = cfg.enabled === true || cfg.enabled === "true";
   $("proxyType").value = cfg.proxy_type || cfg.proxyType || "socks5";
   $("proxyHost").value = cfg.host || "127.0.0.1";
   $("proxyPort").value = cfg.port || 7891;
@@ -722,8 +709,7 @@ async function launch(accountId, force = false, light = false) {
   toast(res.ok
     ? (light ? "已轻量启动 Cursor" : (accountId ? "已切换并启动 Cursor（--classic）" : "已启动 Cursor（--classic）"))
     : (res.error || "失败"));
-  if (res.ok && res.processProxy?.dll) toast("已写入进程代理 DLL");
-  else if (res.ok && res.route?.hits) toast(`已绕过网关，改了 ${res.route.hits} 处 API 地址`);
+  if (res.ok && res.processProxy?.removed) toast("已卸掉残留的 version.dll");
   if (res.ok && accountId) lastAccountId = accountId;
   await refreshCursorStatus();
 }
@@ -1189,25 +1175,31 @@ $("btnTestLatency").onclick = async () => {
 $("btnTheme").onclick = () => toggleTheme();
 $("btnUsageStyle").onclick = () => toggleUsageStyle();
 $("btnSaveProxy").onclick = async () => {
-  const clash = $("proxyRoute")?.value !== "gateway";
   const res = await api().save_proxy({
     enabled: $("proxyEnabled").checked,
-    bypass_gateway: clash,
-    process_hook: $("proxyEnabled").checked,
+    process_hook: false,
     proxy_type: $("proxyType").value,
     host: $("proxyHost").value,
     port: Number($("proxyPort").value || 7891),
     strict_ssl: false,
   });
-  if (!res.ok) toast(res.error || "失败");
-  else if (res.processProxy?.deferred || res.route?.deferred) {
-    toast(res.processProxy?.message || res.route?.message || "已保存，请用启动器重启 IDE");
-  }   else if (res.processProxy?.dll) toast("已装好，请用启动器重启 Cursor");
-  else if (res.route?.hits) toast(`已去掉网关补丁（${res.route.hits} 处），请重启`);
-  else toast("已保存，请用启动器重启 Cursor");
+  toast(res.ok ? "已保存（不会动 DLL）" : (res.error || "失败"));
   await loadProxy();
   paintSettingsMeta(lastCursorStatus);
 };
+
+async function runDll(fnName, waitText, okText) {
+  toast(waitText);
+  const res = await api()[fnName]();
+  toast(res.ok ? (res.message || okText) : (res.error || "失败"));
+  await loadProxy();
+  await refreshCursorStatus();
+}
+if ($("btnDllInstall")) $("btnDllInstall").onclick = () => runDll("install_process_proxy", "正在写入 DLL…", "已写入");
+if ($("btnDllRemove")) $("btnDllRemove").onclick = () => runDll("uninstall_process_proxy", "正在删除 DLL（会备份）…", "已删除");
+if ($("btnDllRestore")) $("btnDllRestore").onclick = () => runDll("restore_process_proxy_files", "正在还原 DLL…", "已还原");
+if ($("btnWorkbenchRestore")) $("btnWorkbenchRestore").onclick = () => runDll("restore_workbench", "正在还原 workbench 备份…", "已还原补丁");
+if ($("btnRecoverCursor")) $("btnRecoverCursor").onclick = () => runDll("uninstall_process_proxy", "正在删除 DLL…", "已删除");
 $("btnSavePath").onclick = async () => {
   const res = await api().set_cursor_path($("cursorPath").value);
   toast(res.ok ? "路径已保存" : (res.error || "失败"));
@@ -1345,13 +1337,6 @@ async function maybePromptShortcuts() {
   } catch {}
 }
 
-$("proxyRoute")?.addEventListener("change", async () => {
-  paintSettingsMeta(lastCursorStatus);
-  try {
-    const res = await api().get_proxy();
-    if ($("proxyDetectInfo")) $("proxyDetectInfo").textContent = formatProxyStatus(res);
-  } catch {}
-});
 $("proxyEnabled")?.addEventListener("change", () => paintSettingsMeta(lastCursorStatus));
 
 async function boot() {

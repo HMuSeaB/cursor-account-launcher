@@ -112,14 +112,9 @@
       </summary>
       <div class="settings-grid">
         <section class="settings-panel">
-          <h3 class="settings-title">网络代理（不用 TUN）</h3>
-          <label class="check-row"><input type="checkbox" id="proxyEnabled" checked /> 开代理</label>
-          <label class="field-label" for="proxyRoute">你的 Cursor 是哪种？</label>
-          <select id="proxyRoute" aria-label="路由模式">
-            <option value="clash">没打网关补丁（正常用）</option>
-            <option value="gateway">打了补丁，走网关原生</option>
-          </select>
-          <p class="hint settings-hint">两种都能用，不用开 TUN。保存后务必用<strong>启动器</strong>重启 Cursor。FlClash 开着即可。</p>
+          <h3 class="settings-title">网络代理</h3>
+          <label class="check-row"><input type="checkbox" id="proxyEnabled" /> 开代理（settings / 环境变量）</label>
+          <p class="hint settings-hint">四个按钮都要先关 IDE。删除 DLL 会备份，还能还原。重装过 Cursor 后不要点「还原补丁」（旧 workbench 会盖出黑屏）。</p>
           <label class="field-label" for="proxyType">FlClash 端口</label>
           <div class="proxy-fields">
             <select id="proxyType" aria-label="代理类型"><option value="http">HTTP</option><option value="socks5" selected>SOCKS5</option></select>
@@ -130,6 +125,12 @@
             <button type="button" class="btn ghost" id="btnDetectProxy">检测本机代理</button>
             <button type="button" class="btn ghost" id="btnTestLatency">测延迟</button>
             <button type="button" class="btn" id="btnSaveProxy">保存</button>
+          </div>
+          <div class="guard-actions">
+            <button type="button" class="btn ghost" id="btnDllInstall">写入 DLL</button>
+            <button type="button" class="btn ghost" id="btnDllRemove">删除 DLL</button>
+            <button type="button" class="btn ghost" id="btnDllRestore">还原 DLL</button>
+            <button type="button" class="btn ghost" id="btnWorkbenchRestore">还原补丁</button>
           </div>
           <pre class="mini" id="proxyDetectInfo">检测中…</pre>
         </section>

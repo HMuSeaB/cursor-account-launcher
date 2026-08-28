@@ -94,12 +94,15 @@ def apply_bajie_route(install_root: Path, *, bypass: bool) -> dict:
                 if bak.is_file():
                     shutil.copy2(bak, path)
                     restored += 1
+        if not bypass and restored == 0:
+            return {"ok": False, "error": "没有 workbench 备份，无法还原", "restored": 0}
         return {
             "ok": True,
             "bypass": bypass,
             "changed": changed,
             "hits": hits,
             "restored": restored,
+            "message": (f"已还原 {restored} 个 workbench 文件" if restored else None),
             "files": [str(p) for p in files],
         }
     except PermissionError:

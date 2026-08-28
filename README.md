@@ -9,7 +9,7 @@ Windows 桌面版 **Cursor 账号启动器**（非官方），基于 Python + py
 - 减负：轻量启动、运行中削减内存、关闭 IDE、压缩状态库
 - Grok Extra High 500k 上下文补丁（可选；改本机 Cursor 文件，需 Node.js）
 - 登录设备管理 / 会话守卫
-- 代理：settings / argv / 环境变量 + **进程级 version.dll**（Antigravity 同款，仅 Cursor，无需 TUN）
+- 代理：settings / argv / 环境变量；可选进程级 `version.dll`（手动写入/删除/还原）
 
 ## 快速开始
 
@@ -36,16 +36,20 @@ python app.py
 
 设置 → **打上 500k / 还原 256k**。会改本机 Cursor 安装目录中的扩展宿主文件，把 Grok Extra High 客户端看到的窗口从 256k 抬到 500k（不改官方计费）。需本机 Node.js；升级 Cursor 后需重打。改前请完全退出 IDE。
 
-### 代理（不用 TUN）
+### 代理
 
-FlClash 开着，启动器里 **开代理 → 选对应场景 → 保存 → 用启动器重启 Cursor**。
+FlClash 开着（推荐 SOCKS5 `127.0.0.1:7891`）。设置里 **保存** 只写 settings / 环境变量。
 
-| 你的情况 | 选哪个 |
-|---------|--------|
-| 没打网关补丁 | **没打网关补丁（正常用）** |
-| 打了补丁、走网关原生 | **打了补丁，走网关原生** |
+进程 DLL（Antigravity 同款，不用 TUN）需 **手动** 操作，且要先关 IDE：
 
-两种都靠进程级 `version.dll` 把 Cursor 流量送进 Clash，**不用开 TUN**。
+| 按钮 | 作用 |
+|------|------|
+| 写入 DLL | 安装到 Cursor 目录 |
+| 删除 DLL | 删除（会先备份） |
+| 还原 DLL | 从备份装回 |
+| 还原补丁 | 恢复 workbench 备份（重装 Cursor 后勿用） |
+
+黑屏时：关 IDE → **删除 DLL** → 再开。exe 版关启动器时若弹 `_MEI` 警告，点确定即可。
 
 ### Token / 设备
 

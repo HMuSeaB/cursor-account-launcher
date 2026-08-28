@@ -63,6 +63,26 @@ def test_deploy_and_remove_roundtrip(tmp_path, monkeypatch):
     assert not (install / "config.json").exists()
 
 
+def test_remove_then_restore(tmp_path, monkeypatch):
+    dll_src = tmp_path / "src" / "version.dll"
+    dll_src.parent.mkdir()
+    dll_src.write_bytes(b"fake-dll")
+    install = tmp_path / "cursor"
+    install.mkdir()
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    monkeypatch.setattr("launcher.process_proxy._state_dir", lambda: cache)
+    monkeypatch.setattr("launcher.process_proxy.resolve_dll_source", lambda explicit=None: dll_src)
+
+    assert deploy_process_proxy(install, host="127.0.0.1", port=7891, proxy_type="socks5")["ok"]
+    assert remove_process_proxy(install)["ok"]
+    assert not (install / "version.dll").exists()
+    from launcher.process_proxy import restore_process_proxy
+    back = restore_process_proxy(install)
+    assert back["ok"] is True, back
+    assert (install / "version.dll").read_bytes() == b"fake-dll"
+
+
 def test_remove_skips_unmanaged_dll(tmp_path):
     install = tmp_path / "cursor"
     install.mkdir()

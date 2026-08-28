@@ -28,6 +28,22 @@ def _state_dir() -> Path:
     return path
 
 
+def _backup_dir() -> Path:
+    path = _state_dir() / "backups"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _snapshot_install(install_root: Path) -> None:
+    """删除/覆盖前把当前 DLL+配置拷走，才能还原。"""
+    root = Path(install_root)
+    bak = _backup_dir()
+    for name in (DLL_NAME, CONFIG_NAME):
+        src = root / name
+        if src.is_file():
+            shutil.copy2(src, bak / name)
+
+
 def resolve_dll_source(explicit: str | None = None) -> Path | None:
     if explicit:
         p = Path(explicit)
@@ -99,6 +115,7 @@ def status(install_root: Path) -> dict:
         except Exception:
             managed = False
     src = resolve_dll_source()
+    bak = _backup_dir()
     return {
         "ok": True,
         "installed": dll.is_file() and cfg.is_file(),
@@ -107,6 +124,7 @@ def status(install_root: Path) -> dict:
         "config": str(cfg) if cfg.is_file() else "",
         "dllSource": str(src) if src else "",
         "hasDllSource": bool(src),
+        "hasBackup": (bak / DLL_NAME).is_file(),
     }
 
 
@@ -138,7 +156,6 @@ def deploy_process_proxy(
             src = cached
         dest_dll = root / DLL_NAME
         dest_cfg = root / CONFIG_NAME
-        # 已有别人的 version.dll 且不是我们管的，别覆盖
         existing_cfg = {}
         if dest_cfg.is_file():
             try:
@@ -146,11 +163,12 @@ def deploy_process_proxy(
             except Exception:
                 existing_cfg = {}
         managed_by = existing_cfg.get("_managed_by")
-        if dest_dll.is_file() and managed_by != MARKER:
+        if dest_dll.is_file() and managed_by not in (None, MARKER):
             return {
                 "ok": False,
                 "error": "Cursor 目录已有 version.dll（非本工具管理），已跳过。请手动处理后再试",
             }
+        _snapshot_install(root)
         shutil.copy2(src, dest_dll)
         cfg = build_hook_config(host=host, port=port, proxy_type=proxy_type)
         tmp = dest_cfg.with_suffix(".tmp")
@@ -164,12 +182,16 @@ def deploy_process_proxy(
             "message": "已写入进程代理 DLL（仅 Cursor，非 TUN）",
         }
     except PermissionError:
-        return {"ok": False, "error": "无法写入 Cursor 目录，请先关闭 IDE 或以足够权限重试"}
+        return {"ok": False, "error": "无法写入 Cursor 目录，请先关闭 IDE 后再试"}
     except OSError as exc:
         return {"ok": False, "error": str(exc)}
 
 
-def remove_process_proxy(install_root: Path) -> dict:
+def remove_process_proxy(install_root: Path, *, force: bool = False) -> dict:
+    """卸掉 Cursor 目录里的劫持 DLL。force=True 时，只要旁边有 Cursor.exe 就删 version.dll。
+
+    官方安装不会在 Cursor.exe 同目录放 version.dll（用的是 System32），出现即劫持。
+    """
     root = Path(install_root)
     dest_dll = root / DLL_NAME
     dest_cfg = root / CONFIG_NAME
@@ -181,18 +203,48 @@ def remove_process_proxy(install_root: Path) -> dict:
             managed = json.loads(dest_cfg.read_text(encoding="utf-8")).get("_managed_by") == MARKER
         except Exception:
             managed = False
-    if dest_dll.is_file() and not managed:
+    if dest_dll.is_file() and not managed and not force:
         return {"ok": False, "error": "检测到非本工具的 version.dll，未删除"}
     removed = []
     try:
-        if dest_cfg.is_file() and managed:
+        _snapshot_install(root)
+        if dest_cfg.is_file() and (managed or force):
             dest_cfg.unlink()
             removed.append(CONFIG_NAME)
-        if dest_dll.is_file() and managed:
+        if dest_dll.is_file() and (managed or force):
             dest_dll.unlink()
             removed.append(DLL_NAME)
-        return {"ok": True, "removed": bool(removed), "files": removed}
+        return {"ok": True, "removed": bool(removed), "files": removed, "message": "已删除，可用「还原 DLL」装回去"}
     except PermissionError:
         return {"ok": False, "error": "文件被占用，请先关闭 Cursor 再移除"}
     except OSError as exc:
         return {"ok": False, "error": str(exc)}
+
+
+def restore_process_proxy(install_root: Path) -> dict:
+    """把上次删除/覆盖前备份的 version.dll + config.json 拷回 Cursor 目录。"""
+    root = Path(install_root)
+    if not root.is_dir():
+        return {"ok": False, "error": f"安装目录不存在：{root}"}
+    bak = _backup_dir()
+    src_dll = bak / DLL_NAME
+    src_cfg = bak / CONFIG_NAME
+    if not src_dll.is_file():
+        return {"ok": False, "error": "没有 DLL 备份。先「写入」再「删除」，才会留下可还原的副本"}
+    restored = []
+    try:
+        shutil.copy2(src_dll, root / DLL_NAME)
+        restored.append(DLL_NAME)
+        if src_cfg.is_file():
+            shutil.copy2(src_cfg, root / CONFIG_NAME)
+            restored.append(CONFIG_NAME)
+        return {"ok": True, "restored": restored, "message": "已还原进程代理 DLL"}
+    except PermissionError:
+        return {"ok": False, "error": "文件被占用，请先关闭 Cursor 再还原"}
+    except OSError as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def emergency_cleanup(install_root: Path) -> dict:
+    """黑屏急救：删 version.dll（会先备份，仍可还原）。"""
+    return remove_process_proxy(install_root, force=True)

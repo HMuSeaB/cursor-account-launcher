@@ -16,6 +16,17 @@ from pathlib import Path
 
 from launcher.hidden_proc import run as run_hidden
 
+# 脱离启动器进程树，避免 Cursor 锁住 PyInstaller 的 _MEI 临时目录
+CREATE_NEW_PROCESS_GROUP = 0x00000200
+DETACHED_PROCESS = 0x00000008
+CREATE_BREAKAWAY_FROM_JOB = 0x01000000
+_PYI_ENV_KEYS = (
+    "_MEIPASS",
+    "_PYI_APPLICATION_HOME_DIR",
+    "_PYI_ARCHIVE_FILE",
+    "_PYI_PARENT_PROCESS_LEVEL",
+)
+
 CURSOR_START_ARGS = ("--classic",)
 LIGHT_START_ARGS = (
     "--classic",
@@ -478,6 +489,36 @@ def _with_extra_args(args: list[str], extra_args: tuple[str, ...] | list[str], *
     return [*args, *extra]
 
 
+def _is_pyinstaller_dir(path: str) -> bool:
+    name = Path(path).name
+    return name.startswith("_MEI") or name == "_internal"
+
+
+def child_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """给 Cursor 用的环境：去掉 PyInstaller 解包目录，防止子进程锁住 _MEI。"""
+    env = os.environ.copy()
+    meipass = getattr(sys, "_MEIPASS", None)
+    path_parts: list[str] = []
+    for part in env.get("PATH", "").split(os.pathsep):
+        if not part:
+            continue
+        try:
+            resolved = str(Path(part).resolve())
+        except OSError:
+            resolved = part
+        if meipass and resolved.lower() == str(Path(meipass).resolve()).lower():
+            continue
+        if _is_pyinstaller_dir(part) or _is_pyinstaller_dir(resolved):
+            continue
+        path_parts.append(part)
+    env["PATH"] = os.pathsep.join(path_parts)
+    for key in _PYI_ENV_KEYS:
+        env.pop(key, None)
+    if extra:
+        env.update({str(k): str(v) for k, v in extra.items() if v is not None})
+    return env
+
+
 def start_cursor(
     layout: CursorInstall,
     extra_args: tuple[str, ...] = (),
@@ -486,9 +527,7 @@ def start_cursor(
     env_extra: dict[str, str] | None = None,
 ) -> None:
     args = _with_extra_args(launch_args(light=light), extra_args, light=light)
-    env = os.environ.copy()
-    if env_extra:
-        env.update({str(k): str(v) for k, v in env_extra.items() if v is not None})
+    env = child_env(env_extra)
     if sys.platform == "win32":
         subprocess.Popen(
             [str(layout.executable), *args],
@@ -496,7 +535,7 @@ def start_cursor(
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             close_fds=True,
-            creationflags=0x00000200,
+            creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB,
             env=env,
         )
         return

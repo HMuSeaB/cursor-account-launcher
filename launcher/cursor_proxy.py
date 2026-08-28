@@ -40,7 +40,7 @@ class ProxyConfig:
     strict_ssl: bool = False
     apply_on_launch: bool = False
     bypass_gateway: bool = True
-    process_hook: bool = True
+    process_hook: bool = False
     dll_source: str = ""
 
     def http_proxy_url(self) -> str:
@@ -65,7 +65,7 @@ class ProxyConfig:
             strict_ssl=bool(data.get("strict_ssl", data.get("strictSsl", False))),
             apply_on_launch=bool(data.get("apply_on_launch", data.get("applyOnLaunch", False))),
             bypass_gateway=bool(data.get("bypass_gateway", data.get("bypassGateway", True))),
-            process_hook=bool(data.get("process_hook", data.get("processHook", True))),
+            process_hook=bool(data.get("process_hook", data.get("processHook", False))),
             dll_source=str(data.get("dll_source") or data.get("dllSource") or ""),
         )
 
