@@ -210,10 +210,13 @@ def _dedupe(items: list[dict]) -> list[dict]:
 
 
 def probe_proxy(proxy_type: str, host: str, port: int, timeout: float = 4.0) -> dict:
-    """用该代理请求 cursor.com，验证能否过 SSL。"""
+    """用该代理请求 cursor.com，验证能否过 SSL，并返回延迟。"""
+    import time
+
     scheme = "socks5h" if proxy_type == "socks5" else "http"
     url = f"{scheme}://{host}:{int(port)}"
     proxies = {"http": url, "https": url}
+    started = time.perf_counter()
     try:
         import requests
 
@@ -224,6 +227,7 @@ def probe_proxy(proxy_type: str, host: str, port: int, timeout: float = 4.0) -> 
             headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
             allow_redirects=False,
         )
+        latency_ms = int((time.perf_counter() - started) * 1000)
         ok = resp.status_code < 500
         return {
             "ok": ok,
@@ -232,8 +236,10 @@ def probe_proxy(proxy_type: str, host: str, port: int, timeout: float = 4.0) -> 
             "host": host,
             "port": int(port),
             "url": url,
+            "latencyMs": latency_ms,
         }
     except Exception as exc:
+        latency_ms = int((time.perf_counter() - started) * 1000)
         return {
             "ok": False,
             "error": str(exc),
@@ -241,6 +247,37 @@ def probe_proxy(proxy_type: str, host: str, port: int, timeout: float = 4.0) -> 
             "host": host,
             "port": int(port),
             "url": url,
+            "latencyMs": latency_ms,
+        }
+
+
+def probe_direct(timeout: float = 4.0) -> dict:
+    """直连测延迟（无代理）。"""
+    import time
+
+    started = time.perf_counter()
+    try:
+        import requests
+
+        resp = requests.get(
+            "https://cursor.com/api/auth/sessions",
+            proxies={},
+            timeout=timeout,
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+            allow_redirects=False,
+        )
+        return {
+            "ok": resp.status_code < 500,
+            "status": resp.status_code,
+            "latencyMs": int((time.perf_counter() - started) * 1000),
+            "mode": "direct",
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+            "latencyMs": int((time.perf_counter() - started) * 1000),
+            "mode": "direct",
         }
 
 

@@ -15,6 +15,46 @@ let guardConfig = {
   keepSessionIds: [],
 };
 
+const PREF_THEME = "cursorLauncher.theme";
+const PREF_USAGE = "cursorLauncher.usageStyle";
+
+function loadPrefs() {
+  try {
+    const theme = localStorage.getItem(PREF_THEME) || "light";
+    const usage = localStorage.getItem(PREF_USAGE) || "ring";
+    document.documentElement.setAttribute("data-theme", theme === "dark" ? "dark" : "light");
+    document.documentElement.setAttribute("data-usage", usage === "bar" ? "bar" : "ring");
+    syncPrefButtons();
+  } catch {
+    document.documentElement.setAttribute("data-theme", "light");
+    document.documentElement.setAttribute("data-usage", "ring");
+  }
+}
+
+function syncPrefButtons() {
+  const theme = document.documentElement.getAttribute("data-theme") || "light";
+  const usage = document.documentElement.getAttribute("data-usage") || "ring";
+  if ($("btnTheme")) $("btnTheme").textContent = theme === "dark" ? "日间" : "夜间";
+  if ($("btnUsageStyle")) $("btnUsageStyle").textContent = usage === "bar" ? "圆形" : "条形";
+}
+
+function toggleTheme() {
+  const next = (document.documentElement.getAttribute("data-theme") === "dark") ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  try { localStorage.setItem(PREF_THEME, next); } catch {}
+  syncPrefButtons();
+}
+
+function toggleUsageStyle() {
+  const next = (document.documentElement.getAttribute("data-usage") === "bar") ? "ring" : "bar";
+  document.documentElement.setAttribute("data-usage", next);
+  try { localStorage.setItem(PREF_USAGE, next); } catch {}
+  syncPrefButtons();
+  paintAccounts();
+}
+
+loadPrefs();
+
 function toast(msg) {
   const el = $("toast");
   el.textContent = msg;
@@ -200,6 +240,30 @@ function ringHtml(label, value, color) {
   return `<div class="ring-item"><div class="ring"><svg width="52" height="52" viewBox="0 0 52 52"><circle class="ring-bg" cx="26" cy="26" r="${r}"></circle><circle class="ring-fg" cx="26" cy="26" r="${r}" stroke="${color}" stroke-dasharray="${c}" stroke-dashoffset="${off}"></circle></svg><div class="ring-val">${p >= 0 ? p : "—"}</div></div><div class="ring-label">${esc(label)}</div></div>`;
 }
 
+function barHtml(label, value, color) {
+  const p = pct(value);
+  return `<div class="usage-bar-row">
+    <div class="usage-bar-head"><span class="name">${esc(label)}</span><span class="val">${p}%</span></div>
+    <div class="usage-bar-track"><div class="usage-bar-fill" style="width:${p}%;background:${color}"></div></div>
+  </div>`;
+}
+
+function usageBlock(apiPct, autoPct, botPct) {
+  const style = document.documentElement.getAttribute("data-usage") || "ring";
+  if (style === "bar") {
+    return `<div class="usage-bars">
+      ${barHtml("高级", apiPct, "#ef4444")}
+      ${barHtml("Auto", autoPct, "#22c55e")}
+      ${barHtml("Bot", botPct, "#f59e0b")}
+    </div>`;
+  }
+  return `<div class="ring-row">
+    ${ringHtml("高级", apiPct, "#ef4444")}
+    ${ringHtml("Auto", autoPct, "#22c55e")}
+    ${ringHtml("Bot", botPct, "#f59e0b")}
+  </div>`;
+}
+
 function hasWsToken(a) {
   const t = a?.token || "";
   return a?.hasWsToken || t.includes("::") || t.toLowerCase().includes("%3a%3a");
@@ -298,11 +362,7 @@ function renderAccountCard(a) {
       </div>
     </div>
     ${err}
-    <div class="ring-row">
-      ${ringHtml("高级", apiPct, "#ef4444")}
-      ${ringHtml("Auto", autoPct, "#22c55e")}
-      ${ringHtml("Bot", botPct, "#f59e0b")}
-    </div>
+    ${usageBlock(apiPct, autoPct, botPct)}
     <div class="acc-foot">
       <button class="icon-btn" data-action="copy-token" data-id="${esc(a.id)}" title="复制 Token">📋</button>
       <button class="icon-btn" data-action="detail" data-id="${esc(a.id)}" title="详情">ℹ</button>
@@ -319,6 +379,10 @@ async function renderAccounts() {
   const filters = await api().list_account_filters();
   fillSelect($("filterGroup"), "全部分组", filters.groups || []);
   fillSelect($("filterTag"), "全部标签", filters.tags || []);
+  paintAccounts();
+}
+
+function paintAccounts() {
   const rows = filteredAccounts();
   $("accGrid").innerHTML = rows.map(renderAccountCard).join("");
   $("emptyAccounts").hidden = rows.length > 0;
@@ -631,8 +695,8 @@ document.addEventListener("click", async (ev) => {
   }
 });
 
-$("searchInput").oninput = () => renderAccounts();
-["filterGroup", "filterTag", "filterPlan"].forEach((id) => { $(id).onchange = () => renderAccounts(); });
+$("searchInput").oninput = () => paintAccounts();
+["filterGroup", "filterTag", "filterPlan"].forEach((id) => { $(id).onchange = () => paintAccounts(); });
 
 $("btnAddOpen").onclick = () => $("addDialog").showModal();
 $("btnAddCancel").onclick = closeAddDialog;
@@ -697,18 +761,20 @@ $("btnDetectProxy").onclick = async () => {
     }
     const rec = res.recommended;
     const lines = (res.candidates || []).map((c) => {
+      const ms = c.probe && c.probe.latencyMs != null ? `${c.probe.latencyMs}ms` : "";
       const mark = c.reachable ? "✓" : (c.open ? "○" : "×");
-      return `${mark} ${c.proxy_type}://${c.host}:${c.port}  ${c.label || ""}`;
+      return `${mark} ${c.proxy_type}://${c.host}:${c.port}  ${ms}  ${c.label || ""}`;
     });
     if (rec) {
       $("proxyEnabled").checked = true;
       $("proxyType").value = rec.proxy_type || "http";
       $("proxyHost").value = rec.host || "127.0.0.1";
       $("proxyPort").value = rec.port || 7890;
+      const ms = rec.probe && rec.probe.latencyMs != null ? ` · ${rec.probe.latencyMs}ms` : "";
       $("proxyDetectInfo").textContent =
-        `已填入推荐：${rec.proxy_type}://${rec.host}:${rec.port}（${rec.label || ""}）\n` +
+        `已填入推荐：${rec.proxy_type}://${rec.host}:${rec.port}${ms}（${rec.label || ""}）\n` +
         (res.hint || "") + "\n" + lines.join("\n");
-      toast(`已填入 ${rec.proxy_type}://${rec.host}:${rec.port}，请点「保存并注入」`);
+      toast(`已填入 ${rec.proxy_type}://${rec.host}:${rec.port}${ms}，请点「保存并注入」`);
     } else {
       $("proxyDetectInfo").textContent =
         "未发现可用本地代理。请先打开 Clash / v2rayN 等。\n" + (res.hint || "") + "\n" + lines.join("\n");
@@ -719,6 +785,36 @@ $("btnDetectProxy").onclick = async () => {
     toast("检测失败：" + String(e));
   }
 };
+$("btnTestLatency").onclick = async () => {
+  toast("正在测延迟…");
+  $("proxyDetectInfo").textContent = "测延迟中…";
+  try {
+    const res = await api().test_proxy_latency(
+      $("proxyType").value,
+      $("proxyHost").value,
+      Number($("proxyPort").value || 7890),
+      $("proxyEnabled").checked
+    );
+    if (!res.ok && res.error && res.latencyMs == null) {
+      $("proxyDetectInfo").textContent = res.error;
+      return toast(res.error || "测延迟失败");
+    }
+    const mode = res.mode === "direct" ? "直连" : `${res.proxy_type || "http"}://${res.host}:${res.port}`;
+    if (res.ok || res.status) {
+      const grade = res.latencyMs < 400 ? "很快" : (res.latencyMs < 900 ? "一般" : "偏慢");
+      $("proxyDetectInfo").textContent = `${mode}\n延迟 ${res.latencyMs}ms（${grade}） · HTTP ${res.status || "?"}`;
+      toast(`${mode} · ${res.latencyMs}ms`);
+    } else {
+      $("proxyDetectInfo").textContent = `${mode}\n失败（约 ${res.latencyMs || "?"}ms）\n${res.error || ""}`;
+      toast("测延迟失败：" + (res.error || "未知"));
+    }
+  } catch (e) {
+    $("proxyDetectInfo").textContent = String(e);
+    toast("测延迟失败：" + String(e));
+  }
+};
+$("btnTheme").onclick = () => toggleTheme();
+$("btnUsageStyle").onclick = () => toggleUsageStyle();
 $("btnSaveProxy").onclick = async () => {
   const res = await api().save_proxy({
     enabled: $("proxyEnabled").checked,

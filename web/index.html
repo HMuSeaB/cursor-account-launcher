@@ -18,6 +18,8 @@
         <span class="pill ok" id="loginPill">检测中</span>
       </div>
       <div class="topbar-actions">
+        <button class="btn ghost" id="btnTheme" title="切换夜间模式" type="button">夜间</button>
+        <button class="btn ghost" id="btnUsageStyle" title="切换额度样式" type="button">条形</button>
         <button class="btn ghost" id="btnRefreshAll">刷新全部</button>
         <button class="btn primary" id="btnLaunchLocal">启动 IDE</button>
       </div>
@@ -61,9 +63,10 @@
           </div>
           <div class="guard-actions">
             <button type="button" class="btn ghost" id="btnDetectProxy">检测本机代理</button>
+            <button type="button" class="btn ghost" id="btnTestLatency">测延迟</button>
             <button type="button" class="btn" id="btnSaveProxy">保存并注入</button>
           </div>
-          <pre class="mini" id="proxyDetectInfo">优先用 HTTP（对本工具更稳）；SOCKS5 也可。</pre>
+          <pre class="mini" id="proxyDetectInfo">优先用 HTTP（对本工具更稳）；SOCKS5 也可。点「测延迟」看当前代理到 cursor.com 的耗时。</pre>
         </section>
         <section class="settings-panel">
           <h3 class="settings-title">Cursor 安装路径</h3>

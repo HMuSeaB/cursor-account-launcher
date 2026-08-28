@@ -12,7 +12,7 @@ import webview
 from launcher.account_store import AccountStore, SessionGuardStore
 from launcher.cursor_process import close_cursor, is_cursor_running, resolve_install, save_cursor_path, start_cursor
 from launcher.cursor_proxy import ProxyConfig, apply_proxy, read_current_proxy
-from launcher.proxy_detect import detect_local_proxies
+from launcher.proxy_detect import detect_local_proxies, probe_direct, probe_proxy
 from launcher.cursor_sessions import list_sessions, revoke_session, revoke_all_except
 from launcher.cursor_usage import fetch_model_usage, refresh_account_usage
 from launcher.session_keep import merge_keep_ids, pick_auto_keep_sessions, sessions_to_revoke
@@ -457,6 +457,28 @@ class Api:
     def detect_proxy(self, probe: bool = True) -> dict:
         try:
             return detect_local_proxies(probe=bool(probe))
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def test_proxy_latency(
+        self,
+        proxy_type: str | None = None,
+        host: str | None = None,
+        port: int | None = None,
+        enabled: bool | None = None,
+    ) -> dict:
+        """测试当前/指定代理到 cursor.com 的延迟。"""
+        try:
+            cfg = ProxyConfig.from_dict(_read_json("proxy.json", {}))
+            use_enabled = cfg.enabled if enabled is None else bool(enabled)
+            ptype = proxy_type or cfg.proxy_type or "http"
+            phost = host or cfg.host or "127.0.0.1"
+            pport = int(port or cfg.port or 7890)
+            if not use_enabled:
+                direct = probe_direct()
+                return {"ok": True, "mode": "direct", **direct}
+            result = probe_proxy(ptype, phost, pport)
+            return {"ok": True, "mode": "proxy", **result}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
