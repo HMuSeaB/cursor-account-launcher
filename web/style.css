@@ -425,6 +425,47 @@ textarea { min-height: 96px; resize: vertical; }
 }
 .device-item.protected { border-color: rgba(21,128,61,.22); background: rgba(21,128,61,.04); }
 
+.guard-panel {
+  padding: 12px 14px;
+  margin: 10px 0;
+  display: grid;
+  gap: 10px;
+}
+.guard-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.guard-head h3 { margin: 0; font-size: 14px; }
+.guard-status {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--muted);
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+.guard-status.on {
+  color: #15803d;
+  border-color: rgba(21,128,61,.22);
+  background: rgba(21,128,61,.06);
+}
+.guard-fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 10px;
+  align-items: center;
+}
+.guard-fields select,
+.guard-fields input[type="number"] {
+  width: 100%;
+  max-width: 280px;
+}
+.guard-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.guard-note { margin: 0; }
+
 .settings-fold { padding: 14px 16px 16px; }
 .settings-fold summary {
   cursor: pointer;

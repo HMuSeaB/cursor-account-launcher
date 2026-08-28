@@ -207,6 +207,109 @@ class Api:
         self._store.remove(account_id)
         return self._store.list()
 
+    def export_accounts(
+        self,
+        account_ids: list | None = None,
+        include_secrets: bool = False,
+        fmt: str = "json",
+    ) -> dict:
+        ids = list(account_ids or [])
+        if not ids:
+            ids = [a["id"] for a in self._store.list()]
+        rows: list[dict] = []
+        for aid in ids:
+            detail = self._store.get_detail(aid)
+            if not detail:
+                continue
+            row = {
+                "id": detail["id"],
+                "email": detail.get("email") or detail.get("label") or detail["id"],
+                "label": detail.get("label") or "",
+                "group": detail.get("group") or "未分组",
+                "tags": list(detail.get("tags") or []),
+                "remark": detail.get("remark") or "",
+                "hasWsToken": bool(detail.get("hasWsToken")),
+                "membershipType": detail.get("membershipType") or "",
+                "usageLine": detail.get("usageLine") or "",
+                "costUsd": detail.get("costUsd"),
+                "costMaxUsd": detail.get("costMaxUsd"),
+                "usagePct": detail.get("usagePct"),
+                "apiPercentUsed": detail.get("apiPercentUsed"),
+                "autoPercentUsed": detail.get("autoPercentUsed"),
+                "periodCostUsd": detail.get("periodCostUsd"),
+                "requestCount30d": detail.get("requestCount30d"),
+                "lastRefreshed": detail.get("lastRefreshed"),
+            }
+            if include_secrets:
+                row["token"] = detail.get("token") or ""
+                password = detail.get("password") or ""
+                if password:
+                    row["password"] = password
+            rows.append(row)
+
+        if not rows:
+            return {"ok": False, "error": "没有可导出的账号"}
+
+        export_fmt = (fmt or "json").lower()
+        default_name = (
+            "cursor-accounts-export.csv" if export_fmt == "csv" else "cursor-accounts-export.json"
+        )
+        path = None
+        try:
+            if self._window is not None:
+                if export_fmt == "csv":
+                    file_types = ("CSV (*.csv)", "所有文件 (*.*)")
+                else:
+                    file_types = ("JSON (*.json)", "所有文件 (*.*)")
+                path = self._window.create_file_dialog(
+                    webview.SAVE_DIALOG,
+                    save_filename=default_name,
+                    file_types=file_types,
+                )
+        except Exception:
+            path = None
+        if not path:
+            return {"ok": False, "cancelled": True, "count": len(rows)}
+        out_path = path[0] if isinstance(path, (list, tuple)) else path
+
+        try:
+            if export_fmt == "csv":
+                import csv
+
+                headers = [
+                    "id",
+                    "email",
+                    "group",
+                    "tags",
+                    "remark",
+                    "membershipType",
+                    "usageLine",
+                    "costUsd",
+                    "costMaxUsd",
+                    "usagePct",
+                    "lastRefreshed",
+                ]
+                if include_secrets:
+                    headers.extend(["token", "password"])
+                with open(out_path, "w", encoding="utf-8-sig", newline="") as handle:
+                    writer = csv.DictWriter(handle, fieldnames=headers, extrasaction="ignore")
+                    writer.writeheader()
+                    for row in rows:
+                        flat = dict(row)
+                        flat["tags"] = ",".join(flat.get("tags") or [])
+                        writer.writerow(flat)
+            else:
+                payload = {
+                    "version": 1,
+                    "includeSecrets": include_secrets,
+                    "accounts": rows,
+                }
+                with open(out_path, "w", encoding="utf-8") as handle:
+                    json.dump(payload, handle, ensure_ascii=False, indent=2)
+            return {"ok": True, "count": len(rows), "path": str(out_path)}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "count": len(rows)}
+
     # ---- 启动 / 切号 ----
 
     def cursor_status(self) -> dict:
@@ -231,8 +334,19 @@ class Api:
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
-    def launch_ide(self, account_id: str | None = None, reset_machine_id: bool = False) -> dict:
+    def launch_ide(
+        self,
+        account_id: str | None = None,
+        reset_machine_id: bool = False,
+        force: bool = False,
+    ) -> dict:
         try:
+            if not account_id and is_cursor_running() and not force:
+                return {
+                    "ok": False,
+                    "alreadyRunning": True,
+                    "error": "Cursor 已在运行。继续将启动新实例。",
+                }
             layout = resolve_install()
             proxy_cfg = ProxyConfig.from_dict(_read_json("proxy.json", {}))
             if proxy_cfg.apply_on_launch:

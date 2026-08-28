@@ -8,6 +8,12 @@ let modelUsageCache = {};
 let sessions = [];
 let autoKeepIds = new Set();
 let keepReasons = {};
+let guardConfig = {
+  enabled: false,
+  mode: "whitelist",
+  intervalSeconds: 300,
+  keepSessionIds: [],
+};
 
 function toast(msg) {
   const el = $("toast");
@@ -217,6 +223,28 @@ async function copyText(text) {
   }
 }
 
+function selectedAccountIds() {
+  return [...document.querySelectorAll(".acc-check:checked")].map((el) => el.getAttribute("data-select")).filter(Boolean);
+}
+
+function setAllAccountChecks(checked) {
+  document.querySelectorAll(".acc-check[data-select]").forEach((el) => {
+    el.checked = checked;
+  });
+}
+
+async function exportAccounts() {
+  let ids = selectedAccountIds();
+  if (!ids.length) {
+    if (!confirm("未勾选账号，将导出列表中的全部账号。继续？")) return;
+  }
+  const includeSecrets = confirm("是否在导出文件中包含 Token 与密码？\n（敏感信息，请妥善保管）");
+  toast("正在导出…");
+  const res = await api().export_accounts(ids.length ? ids : null, includeSecrets, "json");
+  if (res.cancelled) return;
+  toast(res.ok ? `已导出 ${res.count} 个账号` : (res.error || "导出失败"));
+}
+
 function filteredAccounts() {
   const q = ($("searchInput").value || "").trim().toLowerCase();
   const group = $("filterGroup").value;
@@ -377,11 +405,76 @@ async function refreshOne(accountId) {
   }
 }
 
-async function launch(accountId) {
-  toast("正在切号并启动 IDE…");
-  const res = await api().launch_ide(accountId || null);
-  toast(res.ok ? "已启动 Cursor（--classic）" : (res.error || "失败"));
+async function launch(accountId, force = false) {
+  if (!accountId && !force) {
+    const st = await api().cursor_status();
+    if (st.running && !confirm("Cursor 已在运行，仍要启动新实例？")) return;
+    force = st.running;
+  }
+  if (accountId) toast("正在切号并启动 IDE…");
+  else toast("正在启动 IDE…");
+  const res = await api().launch_ide(accountId || null, false, force);
+  if (res.alreadyRunning && !force) {
+    if (confirm(res.error || "Cursor 已在运行，仍要启动新实例？")) {
+      return launch(accountId, true);
+    }
+    return;
+  }
+  toast(res.ok ? (accountId ? "已切换并启动 Cursor（--classic）" : "已启动 Cursor（--classic）") : (res.error || "失败"));
   await refreshCursorStatus();
+}
+
+function updateGuardHint() {
+  const mode = $("guardMode")?.value || guardConfig.mode || "whitelist";
+  const enabled = $("guardEnabled")?.checked ?? guardConfig.enabled;
+  if ($("guardHint")) {
+    $("guardHint").textContent = enabled
+      ? (mode === "auto_kick" ? "守卫已启用 · 自动踢掉新登录设备" : "守卫已启用 · 保留名单外会话将被踢掉")
+      : "自动保护本机 Web + Desktop";
+  }
+  if ($("guardModeHint")) {
+    $("guardModeHint").textContent = mode === "auto_kick"
+      ? "保存后将以当前设备列表为基准；之后仅踢掉新出现的登录。"
+      : "勾选下方设备为保留名单；定时踢掉未勾选的会话。";
+  }
+  const statusEl = $("guardStatus");
+  if (statusEl) {
+    statusEl.textContent = enabled ? "运行中" : "未启用";
+    statusEl.classList.toggle("on", enabled);
+  }
+}
+
+function collectKeepSessionIds() {
+  const keep = new Set();
+  document.querySelectorAll("[data-keep]").forEach((el) => {
+    if (el.checked) keep.add(el.getAttribute("data-keep"));
+  });
+  for (const s of sessions) if (s.isCurrent) keep.add(s.id);
+  return [...keep];
+}
+
+async function saveGuard() {
+  if (!activeAccountId) return;
+  const enabled = $("guardEnabled").checked;
+  const mode = $("guardMode").value || "whitelist";
+  const intervalSeconds = Math.max(60, Number($("guardInterval").value || 5) * 60);
+  const keepIds = collectKeepSessionIds();
+  const res = await api().save_session_guard(activeAccountId, enabled, keepIds, intervalSeconds, mode);
+  if (!res.ok) return toast(res.error || "保存失败");
+  guardConfig = res.guard || guardConfig;
+  updateGuardHint();
+  toast("守卫配置已保存");
+}
+
+async function runGuardNow() {
+  if (!activeAccountId) return;
+  toast("正在执行守卫巡检…");
+  const res = await api().run_session_guard(activeAccountId);
+  if (!res.ok) return toast(res.error || "巡检失败");
+  const n = (res.revoked || []).length;
+  toast(n ? `守卫已踢掉 ${n} 台设备` : "没有需要踢掉的设备");
+  await loadSessions();
+  await renderAccounts();
 }
 
 async function openDevices(accountId) {
@@ -397,17 +490,26 @@ async function loadSessions() {
   sessions = res.sessions || [];
   autoKeepIds = new Set(res.autoKeepIds || []);
   keepReasons = res.keepReasons || {};
+  guardConfig = res.guard || guardConfig;
+  if ($("guardEnabled")) $("guardEnabled").checked = Boolean(guardConfig.enabled);
+  if ($("guardMode")) $("guardMode").value = guardConfig.mode || "whitelist";
+  if ($("guardInterval")) {
+    $("guardInterval").value = String(Math.max(1, Math.round((guardConfig.intervalSeconds || 300) / 60)));
+  }
+  updateGuardHint();
   renderSessions();
 }
 
 function renderSessions() {
   $("sessionCount").textContent = String(sessions.length);
+  const keepSet = new Set(guardConfig.keepSessionIds || []);
   const body = $("sessionBody");
   body.innerHTML = sessions.map((s) => {
     const protectedRow = s.isCurrent || autoKeepIds.has(s.id);
-    const keepChecked = protectedRow;
+    const keepChecked = protectedRow || keepSet.has(s.id);
+    const canToggle = !protectedRow;
     return `<div class="device-item ${protectedRow ? "protected" : ""}">
-      <input type="checkbox" data-keep="${esc(s.id)}" ${keepChecked ? "checked disabled" : ""} />
+      <input type="checkbox" data-keep="${esc(s.id)}" ${keepChecked ? "checked" : ""} ${canToggle ? "" : "disabled"} />
       <div>
         <strong>${esc(s.typeLabel)}</strong> ${s.isCurrent ? '<span class="tag">本机</span>' : ""}
         <div class="hint">${esc(keepReasons[s.id] || fmtTime(s.createdAt))}</div>
@@ -419,13 +521,15 @@ function renderSessions() {
 }
 
 function updateKickSummary() {
-  const keep = new Set();
-  document.querySelectorAll("[data-keep]").forEach((el) => { if (el.checked) keep.add(el.getAttribute("data-keep")); });
-  for (const s of sessions) if (s.isCurrent) keep.add(s.id);
+  const keep = new Set(collectKeepSessionIds());
   const kickCount = sessions.filter((s) => !keep.has(s.id) && !s.isCurrent).length;
   $("kickSummary").textContent = kickCount ? `将踢掉 ${kickCount} 台，保留 ${keep.size} 台` : "没有需要踢掉的设备";
   $("btnKickOthers").disabled = kickCount === 0;
 }
+
+$("sessionBody")?.addEventListener("change", (ev) => {
+  if (ev.target.matches("[data-keep]")) updateKickSummary();
+});
 
 async function kickOthers() {
   if (!activeAccountId) return;
@@ -562,6 +666,29 @@ $("btnDetailSwitch").onclick = () => detailAccountId && launch(detailAccountId);
 $("btnDetailDevices").onclick = () => { $("detailDialog").close(); detailAccountId && openDevices(detailAccountId); };
 $("btnRefreshSessions").onclick = () => loadSessions();
 $("btnKickOthers").onclick = () => kickOthers();
+$("btnSaveGuard").onclick = () => saveGuard();
+$("btnRunGuard").onclick = () => runGuardNow();
+$("guardEnabled").onchange = () => updateGuardHint();
+$("guardMode").onchange = () => updateGuardHint();
+$("btnSelectAll").onclick = () => {
+  const boxes = [...document.querySelectorAll(".acc-check[data-select]")];
+  const allChecked = boxes.length && boxes.every((el) => el.checked);
+  setAllAccountChecks(!allChecked);
+};
+$("btnExport").onclick = () => exportAccounts();
+
+window.addEventListener("guard-event", (ev) => {
+  const d = ev.detail || {};
+  if (d.type === "guard_run") {
+    const n = (d.revoked || []).length;
+    if (n) toast(`守卫巡检：已踢 ${n} 台`);
+  } else if (d.type === "guard_disabled") {
+    toast("会话守卫已自动关闭（连续失败）");
+    guardConfig.enabled = false;
+    if ($("guardEnabled")) $("guardEnabled").checked = false;
+    updateGuardHint();
+  }
+});
 
 async function boot() {
   if (!api()) return setTimeout(boot, 120);

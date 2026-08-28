@@ -36,6 +36,8 @@
       </select>
       <button class="btn primary" id="btnAddOpen">添加账号</button>
       <button class="btn ghost" id="btnDetect">探测本机</button>
+      <button class="btn ghost" id="btnSelectAll">全选</button>
+      <button class="btn ghost" id="btnExport">导出</button>
     </section>
 
     <section class="accounts-wrap">
@@ -131,6 +133,27 @@
         <button type="button" class="icon-btn modal-close" id="devicesClose">×</button>
       </div>
       <p class="hint" id="guardHint">自动保护本机 Web + Desktop</p>
+      <section class="guard-panel card">
+        <div class="guard-head">
+          <h3>会话守卫</h3>
+          <span class="guard-status" id="guardStatus">未启用</span>
+        </div>
+        <label class="check-row"><input type="checkbox" id="guardEnabled" /> 启用定时巡检</label>
+        <div class="guard-fields">
+          <label class="field-label" for="guardMode">模式</label>
+          <select id="guardMode">
+            <option value="whitelist">保留名单（踢未勾选）</option>
+            <option value="auto_kick">自动踢新设备</option>
+          </select>
+          <label class="field-label" for="guardInterval">间隔（分钟）</label>
+          <input id="guardInterval" type="number" min="1" max="120" value="5" />
+        </div>
+        <div class="guard-actions">
+          <button type="button" class="btn" id="btnSaveGuard">保存守卫</button>
+          <button type="button" class="btn ghost" id="btnRunGuard">立即巡检</button>
+        </div>
+        <p class="hint guard-note" id="guardModeHint">勾选下方设备为保留名单；定时踢掉未勾选的会话。</p>
+      </section>
       <div class="kick-bar">
         <button class="btn danger" id="btnKickOthers">踢掉其它设备</button>
         <span class="kick-summary" id="kickSummary"></span>
