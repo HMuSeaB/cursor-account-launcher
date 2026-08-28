@@ -290,7 +290,7 @@ textarea { min-height: 96px; resize: vertical; }
 
 .acc-foot {
   display: grid;
-  grid-template-columns: 34px 34px 34px 1fr 34px;
+  grid-template-columns: 34px 34px 34px 34px 1fr 34px;
   gap: 6px;
   align-items: center;
   width: 100%;
@@ -298,7 +298,7 @@ textarea { min-height: 96px; resize: vertical; }
   padding-top: 12px;
 }
 .acc-foot .btn-switch {
-  grid-column: 4;
+  grid-column: 5;
   width: 100%;
   background: var(--accent-soft);
   color: var(--accent);
@@ -358,7 +358,8 @@ textarea { min-height: 96px; resize: vertical; }
 .kv .k { color: var(--muted); font-size: 12px; }
 .kv .v { word-break: break-all; font-family: var(--mono); font-size: 11px; }
 .copy-link { color: var(--accent); cursor: pointer; font-size: 12px; border: 0; background: none; padding: 0; }
-.token-box-wrap { grid-column: 2; min-width: 0; }
+.token-section { display: grid; gap: 8px; }
+.token-section .progress-head { margin-bottom: 0; }
 .token-box {
   width: 100%;
   min-height: 72px;

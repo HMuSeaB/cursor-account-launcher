@@ -188,20 +188,19 @@ function hasWsToken(a) {
   return a?.hasWsToken || t.includes("::") || t.toLowerCase().includes("%3a%3a");
 }
 
-function tokenDetailRows(a) {
+function tokenDetailSection(a) {
   const tok = a.token || "";
-  if (hasWsToken(a)) {
-    return `
-      <div class="k">WS Token</div>
-      <div class="v token-box-wrap"><textarea class="token-box" readonly spellcheck="false">${esc(tok)}</textarea></div>
+  const ws = hasWsToken(a);
+  return `<div class="detail-section token-section">
+    <div class="progress-head">
+      <strong>${ws ? "WS Token" : "Token"}</strong>
       <button type="button" class="copy-link" data-copy="${esc(tok)}">复制</button>
-      <div class="k">说明</div><div class="v hint token-hint">设备管理 / 踢设备需要此格式（user_xxx::eyJ…）</div><span></span>`;
-  }
-  return `
-    <div class="k">Token</div>
-    <div class="v token-box-wrap"><textarea class="token-box" readonly spellcheck="false">${esc(tok)}</textarea></div>
-    <button type="button" class="copy-link" data-copy="${esc(tok)}">复制</button>
-    <div class="k">说明</div><div class="v hint token-hint warn">当前为 access_token，设备管理需完整 WS Token</div><span></span>`;
+    </div>
+    <textarea class="token-box" readonly spellcheck="false" rows="4">${esc(tok)}</textarea>
+    <p class="hint token-hint ${ws ? "" : "warn"}">${ws
+      ? "设备管理 / 踢设备需要 user_xxx::eyJ… 格式"
+      : "当前为 JWT；点下方「同步本机 WS」或重新探测本机"}</p>
+  </div>`;
 }
 
 function progressBlock(title, used, max, percent, colorClass, legend) {
@@ -266,6 +265,7 @@ function renderAccountCard(a) {
       ${ringHtml("Bot", botPct, "#f59e0b")}
     </div>
     <div class="acc-foot">
+      <button class="icon-btn" data-action="copy-token" data-id="${esc(a.id)}" title="复制 Token">📋</button>
       <button class="icon-btn" data-action="detail" data-id="${esc(a.id)}" title="详情">ℹ</button>
       <button class="icon-btn" data-action="refresh" data-id="${esc(a.id)}" title="刷新">↻</button>
       <button class="icon-btn" data-action="devices" data-id="${esc(a.id)}" title="设备">📱</button>
@@ -333,11 +333,11 @@ function renderDetail(a) {
         <div class="k">标签</div><div class="v"><input id="detailTags" value="${esc((a.tags || []).join(","))}" placeholder="逗号分隔" /></div><span></span>
         <div class="k">备注</div><div class="v"><input id="detailRemark" value="${esc(a.remark || "")}" /></div><span></span>
         <div class="k">密码</div><div class="v"><input id="detailPassword" type="password" value="${esc(a.password || "")}" placeholder="本地加密保存" /></div><span></span>
-        ${tokenDetailRows(a)}
         <div class="k">套餐</div><div class="v"><span class="tag ${membershipClass(a.membershipType)}">${esc(membershipLabel(a.membershipType))}</span> ${expiryDays ? `周期至 ${fmtDate(a.proExpiryMs)} · ${expiryDays}` : ""}</div><span></span>
         <div class="k">最近刷新</div><div class="v">${esc(fmtTime(a.lastRefreshed))}</div><span></span>
       </div>
     </div>
+    ${tokenDetailSection(a)}
     ${progressBlock("费用概览（近30天）", `$${Number(a.periodCostUsd || 0).toFixed(2)}`, "", Math.min(100, (a.periodCostUsd || 0) * 4), "pink", `<span>${a.requestCount30d || 0} 次请求</span>`)}
     ${progressBlock("套餐额度", `$${Number(a.costUsd || 0).toFixed(2)} / $${Number(a.costMaxUsd || 0).toFixed(2)}`, "", a.usagePct >= 0 ? a.usagePct : pct((a.costUsd / Math.max(a.costMaxUsd, 0.01)) * 100), "green", `<span>Auto ${pct(a.autoPercentUsed)}%</span><span>API ${pct(a.apiPercentUsed)}%</span>${a.giftUsd ? `<span>赠送 $${a.giftUsd}</span>` : ""}`)}
     ${a.botPercent >= 0 ? progressBlock("Grok Bot 独立额度", `${pct(a.botPercent)}%`, "", a.botPercent, "teal", a.botResetMs ? `<span>重置于 ${fmtTime(a.botResetMs)}</span>` : "") : ""}
@@ -443,6 +443,11 @@ document.addEventListener("click", async (ev) => {
   const id = t.dataset.id;
   const action = t.dataset.action;
   if (action === "detail") return openDetail(id);
+  if (action === "copy-token") {
+    const res = await api().get_account_detail(id);
+    if (!res.ok || !res.account?.token) return toast(res.error || "无 Token");
+    return copyText(res.account.token);
+  }
   if (action === "refresh") return refreshOne(id);
   if (action === "devices") return openDevices(id);
   if (action === "switch") return launch(id);
@@ -540,6 +545,17 @@ $("detailBody").addEventListener("click", (ev) => {
 });
 $("detailClose").onclick = () => $("detailDialog").close();
 $("devicesClose").onclick = () => $("devicesDialog").close();
+async function syncDetailWs() {
+  if (!detailAccountId) return;
+  toast("正在从本机同步 WS Token…");
+  const res = await api().sync_ws_token(detailAccountId);
+  if (!res.ok) return toast(res.error || "同步失败");
+  toast("WS Token 已同步");
+  renderDetail(res.account);
+  await renderAccounts();
+}
+
+$("btnDetailSyncWs").onclick = () => syncDetailWs();
 $("btnDetailSave").onclick = () => saveDetailMeta();
 $("btnDetailRefresh").onclick = () => detailAccountId && refreshOne(detailAccountId);
 $("btnDetailSwitch").onclick = () => detailAccountId && launch(detailAccountId);

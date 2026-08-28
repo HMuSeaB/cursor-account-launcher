@@ -173,6 +173,36 @@ class Api:
             "accounts": self._store.list(),
         }
 
+    def sync_ws_token(self, account_id: str) -> dict:
+        """从本机 state.vscdb 同步 WS Token 到已存账号。"""
+        local = read_local_account()
+        if not local or not local.get("token"):
+            return {"ok": False, "error": "未检测到本机 Cursor 登录"}
+        item = self._store.get(account_id)
+        if not item:
+            return {"ok": False, "error": "账号不存在"}
+
+        ws = local.get("wsToken") or local.get("token") or ""
+        if "::" not in ws and "%3A%3A" not in ws.upper():
+            return {"ok": False, "error": "本机仅有 access_token，请先在 Cursor 网页完成登录后再试"}
+
+        try:
+            local_uid, _, _ = parse_token(ws)
+            acct_uid, _, _ = parse_token(item["token"])
+            if local_uid != acct_uid:
+                return {
+                    "ok": False,
+                    "error": f"本机账号 ({local_uid}) 与所选账号 ({acct_uid}) 不一致",
+                }
+        except Exception:
+            pass
+
+        updated = self._store.update_token(account_id, ws)
+        if not updated:
+            return {"ok": False, "error": "更新 token 失败"}
+        detail = self._store.get_detail(account_id) or updated
+        return {"ok": True, "account": detail, "hasWsToken": True}
+
     def remove_account(self, account_id: str) -> list:
         self._store.remove(account_id)
         return self._store.list()

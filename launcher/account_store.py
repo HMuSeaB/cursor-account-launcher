@@ -201,6 +201,18 @@ class AccountStore(_BaseStore):
             self.set_password(account_id, password)
         return self._public_view(self._items[account_id])
 
+    def update_token(self, account_id: str, token: str) -> dict | None:
+        text = (token or "").strip()
+        if not text:
+            return None
+        with self._lock:
+            item = self._items.get(account_id)
+            if not item:
+                return None
+            item["token"] = text
+            self._save()
+            return self._public_view(item, include_token=True)
+
     def update_usage_snapshot(self, account_id: str, snapshot: dict) -> dict | None:
         with self._lock:
             item = self._items.get(account_id)
