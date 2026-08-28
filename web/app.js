@@ -468,6 +468,32 @@ function fillSelect(el, allLabel, items) {
   if ([...el.options].some((o) => o.value === cur)) el.value = cur;
 }
 
+function paintUpdateStatus(st) {
+  const info = $("updateInfo");
+  const box = $("disableAutoUpdate");
+  if (!info) return;
+  if (!st || !st.ok) {
+    info.textContent = st?.error || "无法检测更新设置";
+    return;
+  }
+  if (box) box.checked = st.disableAutoUpdate !== false;
+  const lines = [
+    st.settingsBlocked ? "settings：已禁用自动更新" : `settings：update.mode=${st.updateMode ?? "默认"}`,
+    st.innoUpdaterDisabled ? "inno_updater：已重命名禁用" : "inno_updater：仍可运行（需关 IDE 后点「立即应用」）",
+    st.updaterDirBlocked ? "cursor-updater：已只读拦截" : "cursor-updater：未拦截",
+  ];
+  info.textContent = lines.join("\n");
+}
+
+async function refreshUpdateStatus() {
+  if (!api()?.get_update_status) return;
+  try {
+    paintUpdateStatus(await api().get_update_status());
+  } catch (e) {
+    paintUpdateStatus({ ok: false, error: String(e) });
+  }
+}
+
 function paintSettingsMeta(status) {
   const el = $("settingsMeta");
   if (!el) return;
@@ -475,7 +501,8 @@ function paintSettingsMeta(status) {
   const enabled = $("proxyEnabled")?.checked;
   if (enabled === false) bits.push("代理关");
   else {
-    bits.push("代理");
+    const route = $("proxyRoute")?.value === "gateway" ? "网关" : "官方";
+    bits.push(route);
     const host = $("proxyHost")?.value;
     const port = $("proxyPort")?.value;
     if (host && port) bits.push(`${host}:${port}`);
@@ -541,23 +568,40 @@ async function refreshCursorStatus(opts = {}) {
   }
   paintSettingsMeta(res);
   if (opts.ctxwin) refreshCtxwin();
+  if (opts.update !== false) refreshUpdateStatus();
   maybePaintLocalCards();
 }
 
 function formatProxyStatus(res) {
   const st = res.processProxyStatus || {};
   const patch = res.patchStatus || {};
-  return [
+  const route = $("proxyRoute")?.value;
+  const lines = [
+    `网关补丁：${patch.patched ? "有" : "无"}${patch.hits ? `（${patch.hits} 处）` : ""}${patch.hasBackup ? " · 有备份可还原" : ""}`,
     `进程 DLL：${st.installed ? "已写入" : "未写入"}${st.hasBackup ? " · 有备份可还原" : ""}`,
-    `网关补丁：${patch.patched ? "有" : "无"}${patch.hasBackup ? " · 有备份可还原" : ""}`,
-    st.installed ? "若黑屏：先「删除 DLL」（会备份，还能还原）" : "保存只改 settings；DLL 用下面四个按钮",
-  ].join("\n");
+  ];
+  if (route === "gateway" && !patch.patched && !patch.hasBackup) {
+    lines.push("⚠ 没检测到补丁：请先在网关插件里打补丁，或改选「没打网关补丁」");
+  } else if (route === "clash" && patch.patched) {
+    lines.push("保存后会改回官方 API（去掉 43111 路由）");
+  } else if (route === "gateway" && patch.hasBackup && !patch.patched) {
+    lines.push("保存后会从备份恢复网关补丁");
+  } else {
+    lines.push("保存后用启动器重启 Cursor");
+  }
+  if (st.installed) lines.push("若黑屏：先「删除 DLL」（会备份，还能还原）");
+  else lines.push("进程 DLL 需手动点「写入 DLL」（有闪退风险）");
+  return lines.join("\n");
 }
 
 async function loadProxy() {
   const res = await api().get_proxy();
   const cfg = res.saved || {};
   $("proxyEnabled").checked = cfg.enabled === true || cfg.enabled === "true";
+  if ($("proxyRoute")) {
+    const clash = cfg.bypass_gateway !== false && cfg.bypassGateway !== false;
+    $("proxyRoute").value = clash ? "clash" : "gateway";
+  }
   $("proxyType").value = cfg.proxy_type || cfg.proxyType || "socks5";
   $("proxyHost").value = cfg.host || "127.0.0.1";
   $("proxyPort").value = cfg.port || 7891;
@@ -1175,18 +1219,38 @@ $("btnTestLatency").onclick = async () => {
 $("btnTheme").onclick = () => toggleTheme();
 $("btnUsageStyle").onclick = () => toggleUsageStyle();
 $("btnSaveProxy").onclick = async () => {
+  const clash = $("proxyRoute")?.value !== "gateway";
   const res = await api().save_proxy({
     enabled: $("proxyEnabled").checked,
+    bypass_gateway: clash,
     process_hook: false,
     proxy_type: $("proxyType").value,
     host: $("proxyHost").value,
     port: Number($("proxyPort").value || 7891),
     strict_ssl: false,
   });
-  toast(res.ok ? "已保存（不会动 DLL）" : (res.error || "失败"));
+  if (!res.ok) {
+    toast(res.error || "失败");
+  } else if (res.route?.deferred) {
+    toast(res.route.message || "已保存，请关 IDE 后用启动器重启");
+  } else if (res.route?.changed || res.route?.hits) {
+    toast(`已保存 · 已改回官方 API（${res.route.hits || 0} 处）`);
+  } else if (res.route?.restored) {
+    toast(`已保存 · 已恢复网关补丁（${res.route.restored} 个文件）`);
+  } else {
+    toast("已保存");
+  }
   await loadProxy();
   paintSettingsMeta(lastCursorStatus);
 };
+
+$("proxyRoute")?.addEventListener("change", async () => {
+  paintSettingsMeta(lastCursorStatus);
+  try {
+    const res = await api().get_proxy();
+    if ($("proxyDetectInfo")) $("proxyDetectInfo").textContent = formatProxyStatus(res);
+  } catch {}
+});
 
 async function runDll(fnName, waitText, okText) {
   toast(waitText);
@@ -1203,8 +1267,36 @@ if ($("btnRecoverCursor")) $("btnRecoverCursor").onclick = () => runDll("uninsta
 $("btnSavePath").onclick = async () => {
   const res = await api().set_cursor_path($("cursorPath").value);
   toast(res.ok ? "路径已保存" : (res.error || "失败"));
-  await refreshCursorStatus({ ctxwin: true });
+  await refreshCursorStatus({ ctxwin: true, update: true });
 };
+if ($("btnApplyDisableUpdate")) {
+  $("btnApplyDisableUpdate").onclick = async () => {
+    toast("正在禁用自动更新…");
+    const res = await api().apply_disable_updates();
+    if (!res.ok) return toast(res.error || "失败");
+    toast("已禁用自动更新");
+    await refreshUpdateStatus();
+  };
+}
+if ($("btnRestoreUpdate")) {
+  $("btnRestoreUpdate").onclick = async () => {
+    if (!confirm("恢复后 Cursor 可能再次自动升级并覆盖补丁，确定？")) return;
+    const res = await api().restore_updates();
+    toast(res.ok ? "已恢复自动更新" : (res.error || "失败"));
+    await refreshUpdateStatus();
+  };
+}
+if ($("disableAutoUpdate")) {
+  $("disableAutoUpdate").onchange = async () => {
+    if ($("disableAutoUpdate").checked) {
+      await refreshUpdateStatus();
+      return;
+    }
+    if (!confirm("取消勾选不会自动恢复更新器，需点「恢复更新」。继续？")) {
+      $("disableAutoUpdate").checked = true;
+    }
+  };
+}
 $("btnCtxwinApply").onclick = () => runCtxwin("apply");
 $("btnCtxwinRestore").onclick = () => runCtxwin("restore");
 $("btnCtxwinRefresh").onclick = () => refreshCtxwin();
@@ -1231,6 +1323,7 @@ document.querySelector(".settings-fold")?.addEventListener("toggle", (ev) => {
   if (ev.target.open) {
     refreshCtxwin();
     refreshShortcutStatus();
+    refreshUpdateStatus();
   }
 });
 $("detailBody").addEventListener("click", (ev) => {

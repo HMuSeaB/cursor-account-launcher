@@ -9,7 +9,8 @@ Windows 桌面版 **Cursor 账号启动器**（非官方），基于 Python + py
 - 减负：轻量启动、运行中削减内存、关闭 IDE、压缩状态库
 - Grok Extra High 500k 上下文补丁（可选；改本机 Cursor 文件，需 Node.js）
 - 登录设备管理 / 会话守卫
-- 代理：settings / argv / 环境变量；可选进程级 `version.dll`（手动写入/删除/还原）
+- 代理：settings / argv / 环境变量；网关路由（改补丁 / 不改补丁）；可选进程级 `version.dll`（手动）
+- 禁用 Cursor 自动更新（settings + Windows 更新器拦截）
 
 ## 快速开始
 
@@ -38,7 +39,14 @@ python app.py
 
 ### 代理
 
-FlClash 开着（推荐 SOCKS5 `127.0.0.1:7891`）。设置里 **保存** 只写 settings / 环境变量。
+FlClash 开着（推荐 SOCKS5 `127.0.0.1:7891`）。路由二选一：
+
+| 模式 | 适用 |
+|------|------|
+| 没打网关补丁 | 改回官方 API，走 Clash |
+| 打了补丁，走网关原生 | 保留 `43111` 网关路由 |
+
+**保存** 写 settings / 环境变量，并按模式改 workbench（需关 IDE 或下次用启动器重启）。
 
 进程 DLL（Antigravity 同款，不用 TUN）需 **手动** 操作，且要先关 IDE：
 
@@ -50,6 +58,10 @@ FlClash 开着（推荐 SOCKS5 `127.0.0.1:7891`）。设置里 **保存** 只写
 | 还原补丁 | 恢复 workbench 备份（重装 Cursor 后勿用） |
 
 黑屏时：关 IDE → **删除 DLL** → 再开。exe 版关启动器时若弹 `_MEI` 警告，点确定即可。
+
+### 禁用自动更新
+
+设置 → **禁用自动更新** → **立即应用**（需先关 IDE）。写入 `update.mode: none`，并重命名 `inno_updater.exe`。用启动器启动 IDE 时会自动维持。升级 Cursor 会覆盖补丁/DLL，建议保持禁用。
 
 ### Token / 设备
 

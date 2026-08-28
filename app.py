@@ -43,6 +43,7 @@ from launcher.process_proxy import (
     restore_process_proxy,
     status as process_proxy_status,
 )
+from launcher.cursor_update import apply_disable_updates, read_update_status, restore_updates
 from launcher.proxy_detect import detect_local_proxies, probe_direct, probe_proxy
 from launcher.cursor_sessions import list_sessions, revoke_session, revoke_all_except
 from launcher.cursor_usage import fetch_model_usage, refresh_account_usage
@@ -469,6 +470,11 @@ class Api:
             layout = resolve_install()
             saved_proxy = _read_json("proxy.json", {})
             proxy_cfg = ProxyConfig.from_dict(saved_proxy if isinstance(saved_proxy, dict) else {})
+            if _load_config().get("disableAutoUpdate", True):
+                try:
+                    apply_disable_updates(layout.install_root)
+                except Exception:
+                    pass
             proxy_args: tuple[str, ...] = ()
             proxy_env_extra: dict = {}
             proxy_ready = isinstance(saved_proxy, dict) and saved_proxy and proxy_cfg.enabled
@@ -478,6 +484,9 @@ class Api:
                 applied = apply_proxy(proxy_cfg)
                 if not applied.get("ok"):
                     return {"ok": False, "error": applied.get("error") or "代理注入失败"}
+                routed = apply_bajie_route(layout.install_root, bypass=bool(proxy_cfg.bypass_gateway))
+                if not routed.get("ok"):
+                    return {"ok": False, "error": routed.get("error") or "改路由失败"}
                 proxy_args = tuple(proxy_chromium_args(proxy_cfg))
                 proxy_env_extra = proxy_env(proxy_cfg)
 
@@ -682,11 +691,49 @@ class Api:
             applied = apply_proxy(cfg)
             if not applied.get("ok"):
                 return {"ok": False, "error": applied.get("error") or "代理写入失败", "config": cfg.to_dict()}
+            routed = {"ok": True, "skipped": True}
+            running = is_cursor_running()
+            if cfg.enabled:
+                if cfg.bypass_gateway:
+                    if running:
+                        routed = {
+                            "ok": True,
+                            "deferred": True,
+                            "message": "改回官方 API 会在下次用启动器打开 IDE 时写入（需先关 Cursor）",
+                        }
+                    else:
+                        layout = resolve_install()
+                        routed = apply_bajie_route(layout.install_root, bypass=True)
+                        if not routed.get("ok"):
+                            return {
+                                "ok": False,
+                                "error": routed.get("error") or "改路由失败",
+                                "config": cfg.to_dict(),
+                                "applied": applied,
+                            }
+                elif running:
+                    routed = {
+                        "ok": True,
+                        "deferred": True,
+                        "message": "恢复网关补丁会在下次用启动器打开 IDE 时写入（需先关 Cursor）",
+                    }
+                else:
+                    layout = resolve_install()
+                    routed = apply_bajie_route(layout.install_root, bypass=False)
+                    if not routed.get("ok") and routed.get("error") != "没有 workbench 备份，无法还原":
+                        return {
+                            "ok": False,
+                            "error": routed.get("error") or "恢复网关补丁失败",
+                            "config": cfg.to_dict(),
+                            "applied": applied,
+                        }
+            layout = resolve_install()
             return {
                 "ok": True,
                 "config": cfg.to_dict(),
                 "applied": applied,
-                "processProxyStatus": process_proxy_status(resolve_install().install_root),
+                "route": routed,
+                "processProxyStatus": process_proxy_status(layout.install_root),
             }
         except Exception as exc:
             return {"ok": False, "error": str(exc), "config": cfg.to_dict()}
@@ -752,6 +799,40 @@ class Api:
     def recover_cursor(self) -> dict:
         """黑屏急救 = 删除 DLL（先备份，可再点还原）。"""
         return self.uninstall_process_proxy()
+
+    # ---- 更新 ----
+
+    def get_update_status(self) -> dict:
+        try:
+            layout = resolve_install()
+            root = layout.install_root
+        except Exception:
+            root = None
+        try:
+            return read_update_status(root)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def apply_disable_updates(self) -> dict:
+        try:
+            layout = resolve_install()
+            if is_cursor_running():
+                return {
+                    "ok": False,
+                    "error": "请先关闭 Cursor，再禁用更新（需重命名 inno_updater.exe）",
+                }
+            return apply_disable_updates(layout.install_root)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def restore_updates(self) -> dict:
+        try:
+            layout = resolve_install()
+            if is_cursor_running():
+                return {"ok": False, "error": "请先关闭 Cursor"}
+            return restore_updates(layout.install_root)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
 
     # ---- 会话 ----
 
