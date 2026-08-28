@@ -472,11 +472,15 @@ function paintSettingsMeta(status) {
   const el = $("settingsMeta");
   if (!el) return;
   const bits = [];
-  const host = $("proxyHost")?.value;
-  const port = $("proxyPort")?.value;
   const enabled = $("proxyEnabled")?.checked;
   if (enabled === false) bits.push("代理关");
-  else if (host && port) bits.push(`${host}:${port}`);
+  else {
+    const route = $("proxyRoute")?.value === "gateway" ? "网关" : "Clash";
+    bits.push(route);
+    const host = $("proxyHost")?.value;
+    const port = $("proxyPort")?.value;
+    if (host && port) bits.push(`${host}:${port}`);
+  }
   if (status?.version) bits.push(`v${status.version}`);
   el.textContent = bits.join(" · ");
 }
@@ -545,10 +549,22 @@ async function loadProxy() {
   const res = await api().get_proxy();
   const cfg = res.saved || {};
   $("proxyEnabled").checked = cfg.enabled !== false;
-  $("proxyOnLaunch").checked = cfg.apply_on_launch === true || cfg.applyOnLaunch === true;
-  $("proxyType").value = cfg.proxy_type || cfg.proxyType || "http";
+  if ($("proxyRoute")) {
+    const clash = cfg.bypass_gateway !== false && cfg.bypassGateway !== false;
+    $("proxyRoute").value = clash ? "clash" : "gateway";
+  }
+  $("proxyType").value = cfg.proxy_type || cfg.proxyType || "socks5";
   $("proxyHost").value = cfg.host || "127.0.0.1";
-  $("proxyPort").value = cfg.port || 7890;
+  $("proxyPort").value = cfg.port || 7891;
+  if (res.processProxyStatus && $("proxyDetectInfo")) {
+    const st = res.processProxyStatus;
+    const route = $("proxyRoute")?.value === "gateway" ? "网关" : "Clash 官方";
+    const line = st.installed
+      ? `进程代理：已安装${st.managed ? "" : "（非本工具）"} · 路由 ${route}`
+      : `进程代理：未安装 · 路由 ${route}`;
+    const src = st.hasDllSource ? "DLL 源可用" : "缺少 version.dll（需 Antigravity-Proxy）";
+    $("proxyDetectInfo").textContent = `${line}\n${src}`;
+  }
   paintSettingsMeta(lastCursorStatus);
 }
 
@@ -696,6 +712,8 @@ async function launch(accountId, force = false, light = false) {
   toast(res.ok
     ? (light ? "已轻量启动 Cursor" : (accountId ? "已切换并启动 Cursor（--classic）" : "已启动 Cursor（--classic）"))
     : (res.error || "失败"));
+  if (res.ok && res.processProxy?.dll) toast("已写入进程代理 DLL");
+  else if (res.ok && res.route?.hits) toast(`已绕过网关，改了 ${res.route.hits} 处 API 地址`);
   if (res.ok && accountId) lastAccountId = accountId;
   await refreshCursorStatus();
 }
@@ -1161,15 +1179,28 @@ $("btnTestLatency").onclick = async () => {
 $("btnTheme").onclick = () => toggleTheme();
 $("btnUsageStyle").onclick = () => toggleUsageStyle();
 $("btnSaveProxy").onclick = async () => {
+  const clash = $("proxyRoute")?.value !== "gateway";
   const res = await api().save_proxy({
     enabled: $("proxyEnabled").checked,
-    apply_on_launch: $("proxyOnLaunch").checked,
+    bypass_gateway: clash,
+    process_hook: $("proxyEnabled").checked,
     proxy_type: $("proxyType").value,
     host: $("proxyHost").value,
-    port: Number($("proxyPort").value || 7890),
+    port: Number($("proxyPort").value || 7891),
     strict_ssl: false,
   });
-  toast(res.ok ? "代理已保存" : (res.error || "失败"));
+  if (!res.ok) toast(res.error || "失败");
+  else if (res.processProxy?.deferred || res.route?.deferred) {
+    toast(res.processProxy?.message || res.route?.message || "已保存，请用启动器重启 IDE");
+  } else if (res.processProxy?.dll) toast("已写入进程代理 DLL，请用启动器重启 IDE");
+  else if (res.route?.hits) toast(`已注入，并改了 ${res.route.hits} 处 API 地址`);
+  else toast("代理已保存");
+  if (res.processProxyStatus) {
+    const st = res.processProxyStatus;
+    $("proxyDetectInfo").textContent =
+      (st.installed ? `进程代理：已安装（${st.managed ? "本工具管理" : "未知来源"}）` : "进程代理：未安装") +
+      (st.hasDllSource ? `\nDLL 源：${st.dllSource}` : "\n缺少 version.dll 源文件");
+  }
   paintSettingsMeta(lastCursorStatus);
 };
 $("btnSavePath").onclick = async () => {
@@ -1308,6 +1339,9 @@ async function maybePromptShortcuts() {
     if (dlg && !dlg.open) dlg.showModal();
   } catch {}
 }
+
+$("proxyRoute")?.addEventListener("change", () => paintSettingsMeta(lastCursorStatus));
+$("proxyEnabled")?.addEventListener("change", () => paintSettingsMeta(lastCursorStatus));
 
 async function boot() {
   if (!api()) {

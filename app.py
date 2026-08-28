@@ -29,7 +29,15 @@ from launcher.cursor_process import (
     update_config,
     _load_config,
 )
-from launcher.cursor_proxy import ProxyConfig, apply_proxy, read_current_proxy
+from launcher.cursor_proxy import (
+    ProxyConfig,
+    apply_proxy,
+    proxy_chromium_args,
+    proxy_env,
+    read_current_proxy,
+)
+from launcher.bajie_route import apply_bajie_route
+from launcher.process_proxy import deploy_process_proxy, remove_process_proxy, status as process_proxy_status
 from launcher.proxy_detect import detect_local_proxies, probe_direct, probe_proxy
 from launcher.cursor_sessions import list_sessions, revoke_session, revoke_all_except
 from launcher.cursor_usage import fetch_model_usage, refresh_account_usage
@@ -454,11 +462,40 @@ class Api:
                     "error": "Cursor 已在运行。继续将启动新实例。",
                 }
             layout = resolve_install()
-            proxy_cfg = ProxyConfig.from_dict(_read_json("proxy.json", {}))
-            if proxy_cfg.apply_on_launch:
+            saved_proxy = _read_json("proxy.json", {})
+            proxy_cfg = ProxyConfig.from_dict(saved_proxy if isinstance(saved_proxy, dict) else {})
+            proxy_args: tuple[str, ...] = ()
+            proxy_env_extra: dict = {}
+            proxy_ready = isinstance(saved_proxy, dict) and saved_proxy and proxy_cfg.enabled
+            need_close = proxy_ready and (
+                proxy_cfg.bypass_gateway or proxy_cfg.process_hook
+            )
+            if need_close and is_cursor_running():
+                close_cursor(layout)
+                wait_state_db_ready()
+            routed = {"ok": True, "skipped": True}
+            hooked = {"ok": True, "skipped": True}
+            if proxy_ready:
                 applied = apply_proxy(proxy_cfg)
                 if not applied.get("ok"):
                     return {"ok": False, "error": applied.get("error") or "代理注入失败"}
+                routed = apply_bajie_route(layout.install_root, bypass=bool(proxy_cfg.bypass_gateway))
+                if not routed.get("ok"):
+                    return {"ok": False, "error": routed.get("error") or "改路由失败"}
+                if proxy_cfg.process_hook:
+                    hooked = deploy_process_proxy(
+                        layout.install_root,
+                        host=proxy_cfg.host,
+                        port=proxy_cfg.port,
+                        proxy_type=proxy_cfg.proxy_type,
+                        dll_source=proxy_cfg.dll_source or None,
+                    )
+                    if not hooked.get("ok"):
+                        return {"ok": False, "error": hooked.get("error") or "进程代理写入失败"}
+                else:
+                    hooked = remove_process_proxy(layout.install_root)
+                proxy_args = tuple(proxy_chromium_args(proxy_cfg))
+                proxy_env_extra = proxy_env(proxy_cfg)
 
             mode = (machine_mode or "bind").lower()
             if reset_machine_id:
@@ -503,7 +540,12 @@ class Api:
                 close_cursor(layout)
                 wait_state_db_ready()
 
-            start_cursor(layout, light=bool(light))
+            start_cursor(
+                layout,
+                extra_args=proxy_args,
+                light=bool(light),
+                env_extra=proxy_env_extra or None,
+            )
             return {
                 "ok": True,
                 "launched": True,
@@ -511,6 +553,8 @@ class Api:
                 "light": bool(light),
                 "workspace": str(light_workspace_dir()) if light else "",
                 "machineMode": mode if account_id else "none",
+                "route": routed,
+                "processProxy": hooked,
             }
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
@@ -605,7 +649,11 @@ class Api:
     def get_proxy(self) -> dict:
         saved = _read_json("proxy.json", ProxyConfig().to_dict())
         current = read_current_proxy()
-        return {"saved": saved, "cursorSettings": current}
+        try:
+            hook_status = process_proxy_status(resolve_install().install_root)
+        except Exception:
+            hook_status = {"ok": False, "installed": False, "hasDllSource": False}
+        return {"saved": saved, "cursorSettings": current, "processProxyStatus": hook_status}
 
     def detect_proxy(self, probe: bool = True) -> dict:
         try:
@@ -642,7 +690,71 @@ class Api:
             applied = apply_proxy(cfg)
             if not applied.get("ok"):
                 return {"ok": False, "error": applied.get("error") or "代理写入失败", "config": cfg.to_dict()}
-            return {"ok": True, "config": cfg.to_dict(), "applied": applied}
+            routed = {"ok": True, "skipped": True}
+            hooked = {"ok": True, "skipped": True}
+            running = is_cursor_running()
+            if cfg.enabled and cfg.bypass_gateway:
+                if running:
+                    routed = {
+                        "ok": True,
+                        "deferred": True,
+                        "message": "路由/进程代理会在下次用启动器打开 IDE 时写入（需关 Cursor）",
+                    }
+                else:
+                    layout = resolve_install()
+                    routed = apply_bajie_route(layout.install_root, bypass=True)
+                    if not routed.get("ok"):
+                        return {
+                            "ok": False,
+                            "error": routed.get("error") or "改路由失败",
+                            "config": cfg.to_dict(),
+                            "applied": applied,
+                        }
+            elif not cfg.bypass_gateway or not cfg.enabled:
+                if not running:
+                    try:
+                        layout = resolve_install()
+                        routed = apply_bajie_route(layout.install_root, bypass=False)
+                    except Exception:
+                        routed = {"ok": True, "skipped": True}
+            if cfg.enabled and cfg.process_hook:
+                if running:
+                    hooked = {
+                        "ok": True,
+                        "deferred": True,
+                        "message": "进程代理 DLL 会在下次用启动器打开 IDE 时写入",
+                    }
+                else:
+                    layout = resolve_install()
+                    hooked = deploy_process_proxy(
+                        layout.install_root,
+                        host=cfg.host,
+                        port=cfg.port,
+                        proxy_type=cfg.proxy_type,
+                        dll_source=cfg.dll_source or None,
+                    )
+                    if not hooked.get("ok"):
+                        return {
+                            "ok": False,
+                            "error": hooked.get("error") or "进程代理写入失败",
+                            "config": cfg.to_dict(),
+                            "applied": applied,
+                            "route": routed,
+                        }
+            elif not running:
+                try:
+                    layout = resolve_install()
+                    hooked = remove_process_proxy(layout.install_root)
+                except Exception:
+                    hooked = {"ok": True, "skipped": True}
+            return {
+                "ok": True,
+                "config": cfg.to_dict(),
+                "applied": applied,
+                "route": routed,
+                "processProxy": hooked,
+                "processProxyStatus": process_proxy_status(resolve_install().install_root),
+            }
         except Exception as exc:
             return {"ok": False, "error": str(exc), "config": cfg.to_dict()}
 

@@ -469,10 +469,26 @@ def trim_cursor_memory() -> dict:
     }
 
 
-def start_cursor(layout: CursorInstall, extra_args: tuple[str, ...] = (), *, light: bool = False) -> None:
-    args = launch_args(light=light)
-    if extra_args:
-        args = [*args, *extra_args]
+def _with_extra_args(args: list[str], extra_args: tuple[str, ...] | list[str], *, light: bool) -> list[str]:
+    extra = [str(a) for a in extra_args if a]
+    if not extra:
+        return args
+    if light and args:
+        return [*args[:-1], *extra, args[-1]]
+    return [*args, *extra]
+
+
+def start_cursor(
+    layout: CursorInstall,
+    extra_args: tuple[str, ...] = (),
+    *,
+    light: bool = False,
+    env_extra: dict[str, str] | None = None,
+) -> None:
+    args = _with_extra_args(launch_args(light=light), extra_args, light=light)
+    env = os.environ.copy()
+    if env_extra:
+        env.update({str(k): str(v) for k, v in env_extra.items() if v is not None})
     if sys.platform == "win32":
         subprocess.Popen(
             [str(layout.executable), *args],
@@ -481,6 +497,7 @@ def start_cursor(layout: CursorInstall, extra_args: tuple[str, ...] = (), *, lig
             stderr=subprocess.DEVNULL,
             close_fds=True,
             creationflags=0x00000200,
+            env=env,
         )
         return
     if sys.platform == "darwin":
@@ -496,6 +513,7 @@ def start_cursor(layout: CursorInstall, extra_args: tuple[str, ...] = (), *, lig
             [shutil.which("open") or "/usr/bin/open", "-a", str(bundle), "--args", *args],
             timeout=20,
             check=False,
+            env=env,
         )
         return
     raise RuntimeError("当前仅支持 Windows / macOS")

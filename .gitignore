@@ -18,6 +18,10 @@ Thumbs.db
 dev-references.local.md
 *.local.md
 
+# 进程代理 DLL（从 Antigravity-Proxy 复制，不随仓库分发）
+vendor/process-proxy/
+*.dll
+
 # 第三方反编译/探测产物
 _fly_extract/
 _probe_machine.py

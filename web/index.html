@@ -113,21 +113,25 @@
       <div class="settings-grid">
         <section class="settings-panel">
           <h3 class="settings-title">网络代理</h3>
-          <label class="check-row"><input type="checkbox" id="proxyEnabled" checked /> 启用代理</label>
-          <label class="check-row"><input type="checkbox" id="proxyOnLaunch" /> 启动 IDE 时自动注入</label>
-          <p class="hint settings-hint">默认关闭。勾选后每次启动会写入 settings.json；不影响 Cursor 网关插件的线路设置。</p>
-          <label class="field-label" for="proxyType">地址</label>
+          <label class="check-row"><input type="checkbox" id="proxyEnabled" checked /> 启用进程代理（version.dll，仅 Cursor，不用 TUN）</label>
+          <label class="field-label" for="proxyRoute">路由</label>
+          <select id="proxyRoute" aria-label="路由模式">
+            <option value="clash">经 Clash 访问官方 API</option>
+            <option value="gateway">走本机网关插件</option>
+          </select>
+          <p class="hint settings-hint">保存后请用启动器重启 IDE。走网关时 127.0.0.1:43111 仍直连；走 Clash 时会改回官方 API 地址。</p>
+          <label class="field-label" for="proxyType">Clash 地址</label>
           <div class="proxy-fields">
-            <select id="proxyType" aria-label="代理类型"><option value="http">HTTP</option><option value="socks5">SOCKS5</option></select>
+            <select id="proxyType" aria-label="代理类型"><option value="http">HTTP</option><option value="socks5" selected>SOCKS5</option></select>
             <input id="proxyHost" value="127.0.0.1" spellcheck="false" aria-label="代理主机" />
-            <input id="proxyPort" type="number" value="7890" min="1" max="65535" aria-label="代理端口" />
+            <input id="proxyPort" type="number" value="7891" min="1" max="65535" aria-label="代理端口" />
           </div>
           <div class="guard-actions">
             <button type="button" class="btn ghost" id="btnDetectProxy">检测本机代理</button>
             <button type="button" class="btn ghost" id="btnTestLatency">测延迟</button>
-            <button type="button" class="btn" id="btnSaveProxy">保存并注入</button>
+            <button type="button" class="btn" id="btnSaveProxy">保存</button>
           </div>
-          <pre class="mini" id="proxyDetectInfo">优先用 HTTP（对本工具更稳）；SOCKS5 也可。点「测延迟」看当前代理到 cursor.com 的耗时。</pre>
+          <pre class="mini" id="proxyDetectInfo">推荐 SOCKS5 127.0.0.1:7891。点「测延迟」确认 Clash 可用。</pre>
         </section>
         <section class="settings-panel">
           <h3 class="settings-title">Cursor 安装路径</h3>

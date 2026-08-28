@@ -9,7 +9,7 @@ Windows 桌面版 **Cursor 账号启动器**（非官方），基于 Python + py
 - 减负：轻量启动、运行中削减内存、关闭 IDE、压缩状态库
 - Grok Extra High 500k 上下文补丁（可选；改本机 Cursor 文件，需 Node.js）
 - 登录设备管理 / 会话守卫
-- 代理注入（仅写 Cursor `settings.json` 的代理相关项）
+- 代理：settings / argv / 环境变量 + **进程级 version.dll**（Antigravity 同款，仅 Cursor，无需 TUN）
 
 ## 快速开始
 
@@ -36,9 +36,13 @@ python app.py
 
 设置 → **打上 500k / 还原 256k**。会改本机 Cursor 安装目录中的扩展宿主文件，把 Grok Extra High 客户端看到的窗口从 256k 抬到 500k（不改官方计费）。需本机 Node.js；升级 Cursor 后需重打。改前请完全退出 IDE。
 
-### 代理
+### 代理（进程级，不用 TUN）
 
-保存后写入 `%APPDATA%\Cursor\User\settings.json`（仅代理键）。默认不在启动时注入；需要时勾选「启动 IDE 时自动注入」。默认 `127.0.0.1:7890`。
+启动器把 Antigravity-Proxy 同款的 `version.dll` 放到 Cursor 目录，只 hook Cursor 进程树 → Clash（推荐 SOCKS5 `127.0.0.1:7891`），**不需要开全局 TUN**。
+
+- **经 Clash 访问官方 API**：改回官方地址，流量进 Clash
+- **走本机网关插件**：保留网关路由，`127.0.0.1:43111` 仍直连
+- 保存后用启动器重启 IDE；`version.dll` 不随公开仓库分发
 
 ### Token / 设备
 
