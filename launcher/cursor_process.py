@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import shutil
 import subprocess
 import sys
 import time
+from ctypes import wintypes
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+from launcher.hidden_proc import run as run_hidden
 
 CURSOR_START_ARGS = ("--classic",)
 LIGHT_START_ARGS = (
@@ -174,6 +178,11 @@ def resolve_install(custom: str | None = None) -> CursorInstall:
     raise FileNotFoundError("未检测到 Cursor 安装，请在设置里指定 Cursor.exe 路径")
 
 
+def configured_cursor_path() -> str:
+    raw = _load_config().get("cursorPath")
+    return raw.strip() if isinstance(raw, str) and raw.strip() else ""
+
+
 def save_cursor_path(value: str) -> dict:
     if value.strip().casefold() in {"auto", "clear", "reset", ""}:
         data = update_config(cursorPath="")
@@ -183,21 +192,118 @@ def save_cursor_path(value: str) -> dict:
     return {"cursorPath": str(layout.install_root), "version": layout.version}
 
 
+class _PROCESSENTRY32W(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", wintypes.DWORD),
+        ("cntUsage", wintypes.DWORD),
+        ("th32ProcessID", wintypes.DWORD),
+        ("th32DefaultHeapID", ctypes.c_void_p),
+        ("th32ModuleID", wintypes.DWORD),
+        ("cntThreads", wintypes.DWORD),
+        ("th32ParentProcessID", wintypes.DWORD),
+        ("pcPriClassBase", ctypes.c_long),
+        ("dwFlags", wintypes.DWORD),
+        ("szExeFile", wintypes.WCHAR * 260),
+    ]
+
+
+class _PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+    _fields_ = [
+        ("cb", wintypes.DWORD),
+        ("PageFaultCount", wintypes.DWORD),
+        ("PeakWorkingSetSize", ctypes.c_size_t),
+        ("WorkingSetSize", ctypes.c_size_t),
+        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+        ("PagefileUsage", ctypes.c_size_t),
+        ("PeakPagefileUsage", ctypes.c_size_t),
+    ]
+
+
+def _win_pids_named(image: str) -> list[int]:
+    """用 Toolhelp 枚举进程，避免 tasklist 弹出黑框。"""
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    TH32CS_SNAPPROCESS = 0x00000002
+    INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+    kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32W)]
+    kernel32.Process32FirstW.restype = wintypes.BOOL
+    kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32W)]
+    kernel32.Process32NextW.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    snap = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+    if not snap or snap == INVALID_HANDLE_VALUE:
+        raise OSError("CreateToolhelp32Snapshot failed")
+    want = image.casefold()
+    pids: list[int] = []
+    entry = _PROCESSENTRY32W()
+    entry.dwSize = ctypes.sizeof(_PROCESSENTRY32W)
+    try:
+        more = kernel32.Process32FirstW(snap, ctypes.byref(entry))
+        while more:
+            if (entry.szExeFile or "").casefold() == want:
+                pids.append(int(entry.th32ProcessID))
+            more = kernel32.Process32NextW(snap, ctypes.byref(entry))
+        return pids
+    finally:
+        kernel32.CloseHandle(snap)
+
+
+def _working_set_kb(pid: int) -> int:
+    PROCESS_QUERY_LIMITED = 0x1000
+    PROCESS_QUERY_INFORMATION = 0x0400
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    psapi = ctypes.WinDLL("psapi", use_last_error=True)
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    psapi.GetProcessMemoryInfo.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(_PROCESS_MEMORY_COUNTERS),
+        wintypes.DWORD,
+    ]
+    psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED | PROCESS_QUERY_INFORMATION, False, int(pid))
+    if not handle:
+        return 0
+    try:
+        counters = _PROCESS_MEMORY_COUNTERS()
+        counters.cb = ctypes.sizeof(_PROCESS_MEMORY_COUNTERS)
+        if not psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb):
+            return 0
+        return int(counters.WorkingSetSize // 1024)
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _list_cursor_via_tasklist() -> list[dict]:
+    result = run_hidden(
+        ["tasklist", "/FI", "IMAGENAME eq Cursor.exe", "/FO", "CSV", "/NH"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=5,
+        check=False,
+    )
+    return parse_tasklist_csv(result.stdout or "")
+
+
 def is_cursor_running() -> bool:
     if sys.platform == "win32":
         try:
-            result = subprocess.run(
-                ["tasklist", "/FI", "IMAGENAME eq Cursor.exe", "/NH"],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=5,
-                check=False,
-            )
-            return "cursor.exe" in (result.stdout or "").lower()
+            return bool(_win_pids_named("Cursor.exe"))
         except Exception:
-            return False
+            try:
+                return bool(_list_cursor_via_tasklist())
+            except Exception:
+                return False
     if sys.platform == "darwin":
         try:
             result = subprocess.run(["pgrep", "-x", "Cursor"], capture_output=True, timeout=5, check=False)
@@ -209,7 +315,7 @@ def is_cursor_running() -> bool:
 
 def close_cursor(layout: CursorInstall | None = None) -> None:
     if sys.platform == "win32":
-        subprocess.run(["taskkill", "/F", "/T", "/IM", "Cursor.exe"], capture_output=True, timeout=10, check=False)
+        run_hidden(["taskkill", "/F", "/T", "/IM", "Cursor.exe"], capture_output=True, timeout=10, check=False)
         deadline = time.monotonic() + 8
         while time.monotonic() < deadline:
             if not is_cursor_running():
@@ -226,6 +332,141 @@ def close_cursor(layout: CursorInstall | None = None) -> None:
                 return
             time.sleep(0.25)
         subprocess.run(["pkill", "-9", "Cursor"], capture_output=True, timeout=5, check=False)
+
+
+def parse_tasklist_csv(text: str) -> list[dict]:
+    """解析 `tasklist /FO CSV /NH` 输出，只收 Cursor.exe。"""
+    import csv
+    import io
+
+    rows: list[dict] = []
+    reader = csv.reader(io.StringIO(text or ""))
+    for row in reader:
+        if len(row) < 5:
+            continue
+        name = (row[0] or "").strip()
+        if name.lower() != "cursor.exe":
+            continue
+        try:
+            pid = int((row[1] or "").strip())
+        except ValueError:
+            continue
+        digits = "".join(ch for ch in (row[4] or "") if ch.isdigit())
+        if not digits:
+            continue
+        kb = int(digits)
+        rows.append({"pid": pid, "name": name, "wsKb": kb, "wsMb": round(kb / 1024, 1)})
+    return rows
+
+
+def list_cursor_processes() -> list[dict]:
+    if sys.platform != "win32":
+        return []
+    try:
+        rows = []
+        for pid in _win_pids_named("Cursor.exe"):
+            kb = _working_set_kb(pid)
+            rows.append({"pid": pid, "name": "Cursor.exe", "wsKb": kb, "wsMb": round(kb / 1024, 1)})
+        return rows
+    except Exception:
+        try:
+            return _list_cursor_via_tasklist()
+        except Exception:
+            return []
+
+
+def _empty_working_set(pid: int) -> bool:
+    if sys.platform != "win32":
+        return False
+    import ctypes
+    from ctypes import wintypes
+
+    PROCESS_QUERY_INFORMATION = 0x0400
+    PROCESS_QUERY_LIMITED = 0x1000
+    PROCESS_SET_QUOTA = 0x0100
+    access = PROCESS_SET_QUOTA | PROCESS_QUERY_INFORMATION | PROCESS_QUERY_LIMITED
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    psapi = ctypes.WinDLL("psapi", use_last_error=True)
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    psapi.EmptyWorkingSet.argtypes = [wintypes.HANDLE]
+    psapi.EmptyWorkingSet.restype = wintypes.BOOL
+    handle = kernel32.OpenProcess(access, False, int(pid))
+    if not handle:
+        return False
+    try:
+        return bool(psapi.EmptyWorkingSet(handle))
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _try_remove_state_backup() -> dict:
+    from .local_cursor import state_db_path
+
+    db = Path(state_db_path())
+    backup = db.with_name(db.name + ".backup")
+    if not backup.is_file():
+        return {"removed": False, "mb": 0}
+    size_mb = round(backup.stat().st_size / (1024 * 1024), 1)
+    try:
+        backup.unlink()
+        return {"removed": True, "mb": size_mb}
+    except OSError as exc:
+        return {"removed": False, "mb": size_mb, "error": str(exc)}
+
+
+def trim_cursor_memory() -> dict:
+    """运行中回收 Cursor 工作集；顺带尝试删除未被占用的 state.vscdb.backup。"""
+    procs = list_cursor_processes()
+    before_mb = round(sum(p["wsMb"] for p in procs), 1)
+    trimmed = 0
+    failed = 0
+    for item in procs:
+        if _empty_working_set(item["pid"]):
+            trimmed += 1
+        else:
+            failed += 1
+    backup = _try_remove_state_backup()
+    if procs:
+        time.sleep(0.45)
+    after = list_cursor_processes()
+    after_mb = round(sum(p["wsMb"] for p in after), 1) if after else 0
+    freed_mb = round(max(0.0, before_mb - after_mb), 1)
+    if not procs and not backup.get("removed"):
+        return {
+            "ok": False,
+            "running": False,
+            "error": "当前没有 Cursor 进程。开着 IDE 时点「削减内存」可回收工作集。",
+            "beforeMb": 0,
+            "afterMb": 0,
+            "freedMb": 0,
+            "backup": backup,
+        }
+    parts = []
+    if procs:
+        parts.append(f"工作集 {before_mb}MB → {after_mb}MB")
+        if freed_mb:
+            parts.append(f"回收约 {freed_mb}MB")
+        else:
+            parts.append("工作集变化不大（闲置页可能已被系统收回）")
+    if backup.get("removed") and backup.get("mb"):
+        parts.append(f"已删 backup {backup['mb']}MB")
+    elif backup.get("mb") and not backup.get("removed"):
+        parts.append(f"backup {backup['mb']}MB 仍被占用，未删")
+    return {
+        "ok": True,
+        "running": bool(after or procs),
+        "beforeMb": before_mb,
+        "afterMb": after_mb,
+        "freedMb": freed_mb,
+        "trimmed": trimmed,
+        "failed": failed,
+        "processCount": len(procs),
+        "backup": backup,
+        "message": "；".join(parts) if parts else "已处理",
+    }
 
 
 def start_cursor(layout: CursorInstall, extra_args: tuple[str, ...] = (), *, light: bool = False) -> None:

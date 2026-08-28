@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
 from launcher.cursor_process import is_cursor_running, resolve_install
+from launcher.hidden_proc import run as run_hidden
 
 MARK_START = "/* __CTXWIN_PATCH_START__ */"
 FROM_TOKENS = 256000
@@ -70,23 +70,17 @@ def host_js_path(app_root: Path) -> Path:
     return app_root / "out" / "vs" / "workbench" / "api" / "node" / "extensionHostProcess.js"
 
 
+# 补丁脚本把 hook prepend 到文件头。只读开头，避免每次打开启动器都扫几十 MB。
+_PATCH_HEAD_BYTES = 512 * 1024
+
+
 def file_has_patch(path: Path) -> bool:
     if not path.is_file():
         return False
     needle = MARK_START.encode("ascii")
     with path.open("rb") as handle:
-        chunk = handle.read(256 * 1024)
-        if needle in chunk:
-            return True
-        while True:
-            more = handle.read(1024 * 1024)
-            if not more:
-                return False
-            # 标记可能跨块：保留尾部重叠
-            window = chunk[-len(needle) :] + more
-            if needle in window:
-                return True
-            chunk = more
+        head = handle.read(_PATCH_HEAD_BYTES)
+    return needle in head
 
 
 def ctxwin_status() -> dict:
@@ -139,7 +133,7 @@ def _run(cmd: str) -> dict:
             return {"ok": False, "error": f"找不到 extensionHostProcess.js：{host}"}
         env = os.environ.copy()
         env["CURSOR_APP_ROOT"] = str(app_root)
-        result = subprocess.run(
+        result = run_hidden(
             [str(node), str(script), cmd],
             capture_output=True,
             text=True,

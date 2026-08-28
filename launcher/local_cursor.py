@@ -226,6 +226,31 @@ def read_local_account() -> dict | None:
         conn.close()
 
 
+def peek_local_identity() -> dict:
+    """只读本机正在用的邮箱 / userId，不导入账号、不碰 token。"""
+    out = {"email": "", "userId": ""}
+    try:
+        conn = _open_db(readonly=True)
+    except Exception:
+        return out
+    try:
+        for field, key in (
+            ("email", "cursorAuth/cachedEmail"),
+            ("userId", "cursorAuth/cachedUserId"),
+        ):
+            row = conn.execute("SELECT value FROM ItemTable WHERE key=?", (key,)).fetchone()
+            if row and row[0]:
+                value = str(row[0]).strip()
+                if field == "userId" and value.startswith("auth0|"):
+                    value = value.split("|", 1)[-1]
+                out[field] = value
+        return out
+    except Exception:
+        return out
+    finally:
+        conn.close()
+
+
 def write_local_account(
     token: str,
     email: str,
@@ -352,20 +377,13 @@ def read_fingerprint() -> dict:
         pass
     if sys.platform == "win32":
         try:
-            import subprocess
+            import winreg
 
-            r = subprocess.run(
-                ["reg", "query", r"HKLM\SOFTWARE\Microsoft\Cryptography", "/v", "MachineGuid"],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=5,
-                check=False,
-            )
-            m = re.search(r"MachineGuid\s+REG_SZ\s+([0-9a-fA-F-]+)", r.stdout or "")
-            if m:
-                out["machineGuid"] = m.group(1)
+            access = winreg.KEY_READ | getattr(winreg, "KEY_WOW64_64KEY", 0)
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography", 0, access) as key:
+                value, _ = winreg.QueryValueEx(key, "MachineGuid")
+            if value:
+                out["machineGuid"] = str(value)
         except Exception:
             pass
     return out

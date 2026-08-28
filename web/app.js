@@ -8,6 +8,8 @@ let modelUsageCache = {};
 let sessions = [];
 let autoKeepIds = new Set();
 let keepReasons = {};
+let localIdentity = { email: "", userId: "" };
+let lastCursorStatus = null;
 let guardConfig = {
   enabled: false,
   mode: "whitelist",
@@ -371,28 +373,53 @@ function filteredAccounts() {
   });
 }
 
+function isLocalAccount(a) {
+  if (localIdentity.userId && a.id === localIdentity.userId) return true;
+  const email = (localIdentity.email || "").toLowerCase();
+  if (email && displayEmail(a).toLowerCase() === email) return true;
+  return false;
+}
+
+function ico(name) {
+  const paths = {
+    copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
+    refresh: '<path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 3v6h-6"/>',
+    devices: '<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/>',
+    trash: '<path d="M4 7h16M10 11v6M14 11v6M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/>',
+  };
+  return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name] || ""}</svg>`;
+}
+
 function renderAccountCard(a) {
   const email = displayEmail(a);
   const initial = (email[0] || "?").toUpperCase();
   const mClass = membershipClass(a.membershipType);
-  const badges = [`<span class="tag ${mClass}">${esc(membershipLabel(a.membershipType))}</span>`];
+  const local = isLocalAccount(a);
+  const badges = [];
+  if (local) badges.push('<span class="tag local">本机</span>');
+  badges.push(`<span class="tag ${mClass}">${esc(membershipLabel(a.membershipType))}</span>`);
   if (hasWsToken(a)) badges.push('<span class="tag pro">WS</span>');
   else badges.push('<span class="tag custom">JWT</span>');
   (a.tags || []).forEach((t) => badges.push(`<span class="tag custom">${esc(t)}</span>`));
+  if (a.hasPassword) badges.push('<span class="tag">密码</span>');
   const expiry = a.proExpiryMs ? `周期至 ${fmtDate(a.proExpiryMs)} · ${daysLeft(a.proExpiryMs)}` : "周期未知";
   const stats = `近30天 $${Number(a.periodCostUsd || 0).toFixed(2)} · ${a.requestCount30d || 0}次`;
   const apiPct = a.apiPercentUsed >= 0 ? a.apiPercentUsed : a.includedApiPct;
   const autoPct = a.autoPercentUsed >= 0 ? a.autoPercentUsed : a.includedTotalPct;
   const botPct = a.botPercent;
   const err = a.err ? `<div class="hint" style="color:var(--danger)">${esc(a.err)}</div>` : "";
+  const switchAction = local ? "launch-here" : "switch";
+  const switchLabel = local ? "启动" : "切换";
+  const switchTitle = local ? "当前就是这个账号，直接启动 IDE" : "写入此账号并启动 IDE";
 
-  return `<article class="acc-card" data-id="${esc(a.id)}">
+  return `<article class="acc-card${local ? " is-local" : ""}" data-id="${esc(a.id)}">
     <div class="acc-head">
       <input type="checkbox" class="acc-check" data-select="${esc(a.id)}" />
       <div class="acc-avatar">${esc(initial)}</div>
       <div class="acc-meta">
         <div class="acc-email" title="${esc(email)}">${esc(email)}</div>
-        <div class="acc-badges">${badges.join("")}${a.hasPassword ? '<span class="tag">🔑</span>' : ""}</div>
+        <div class="acc-badges">${badges.join("")}</div>
         <div class="acc-sub">${esc(expiry)}</div>
         <div class="acc-stats">${esc(stats)}</div>
       </div>
@@ -400,12 +427,12 @@ function renderAccountCard(a) {
     ${err}
     ${usageBlock(apiPct, autoPct, botPct)}
     <div class="acc-foot">
-      <button class="icon-btn" data-action="copy-token" data-id="${esc(a.id)}" title="复制 Token">📋</button>
-      <button class="icon-btn" data-action="detail" data-id="${esc(a.id)}" title="详情">ℹ</button>
-      <button class="icon-btn" data-action="refresh" data-id="${esc(a.id)}" title="刷新">↻</button>
-      <button class="icon-btn" data-action="devices" data-id="${esc(a.id)}" title="设备">📱</button>
-      <button class="btn primary btn-switch" data-action="switch" data-id="${esc(a.id)}">切换</button>
-      <button class="icon-btn danger" data-action="remove" data-id="${esc(a.id)}" title="删除">🗑</button>
+      <button class="icon-btn" data-action="copy-token" data-id="${esc(a.id)}" title="复制 Token">${ico("copy")}</button>
+      <button class="icon-btn" data-action="detail" data-id="${esc(a.id)}" title="详情">${ico("info")}</button>
+      <button class="icon-btn" data-action="refresh" data-id="${esc(a.id)}" title="刷新额度">${ico("refresh")}</button>
+      <button class="icon-btn" data-action="devices" data-id="${esc(a.id)}" title="登录设备">${ico("devices")}</button>
+      <button class="btn primary btn-switch" data-action="${switchAction}" data-id="${esc(a.id)}" title="${switchTitle}">${switchLabel}</button>
+      <button class="icon-btn danger" data-action="remove" data-id="${esc(a.id)}" title="删除">${ico("trash")}</button>
     </div>
   </article>`;
 }
@@ -422,6 +449,8 @@ function paintAccounts() {
   const rows = filteredAccounts();
   $("accGrid").innerHTML = rows.map(renderAccountCard).join("");
   $("emptyAccounts").hidden = rows.length > 0;
+  const sub = $("brandSub");
+  if (sub) sub.textContent = accounts.length ? `${accounts.length} 个账号` : "还没有账号";
 }
 
 function fillSelect(el, allLabel, items) {
@@ -430,17 +459,66 @@ function fillSelect(el, allLabel, items) {
   if ([...el.options].some((o) => o.value === cur)) el.value = cur;
 }
 
-async function refreshCursorStatus() {
+function paintSettingsMeta(status) {
+  const el = $("settingsMeta");
+  if (!el) return;
+  const bits = [];
+  const host = $("proxyHost")?.value;
+  const port = $("proxyPort")?.value;
+  const enabled = $("proxyEnabled")?.checked;
+  if (enabled === false) bits.push("代理关");
+  else if (host && port) bits.push(`${host}:${port}`);
+  if (status?.version) bits.push(`v${status.version}`);
+  el.textContent = bits.join(" · ");
+}
+
+function maybePaintLocalCards() {
+  const nextKey = `${localIdentity.userId}|${(localIdentity.email || "").toLowerCase()}`;
+  const prevKey = refreshCursorStatus._ident || "";
+  refreshCursorStatus._ident = nextKey;
+  if (accounts.length && prevKey !== nextKey) paintAccounts();
+}
+
+async function refreshCursorStatus(opts = {}) {
   const res = await api().cursor_status();
+  lastCursorStatus = res;
+  localIdentity = {
+    email: res.localEmail || "",
+    userId: res.localUserId || "",
+  };
   const pill = $("loginPill");
   if (!res.ok) {
     pill.textContent = "未检测到 Cursor";
-    $("cursorInfo").textContent = res.error || "请设置 Cursor 路径";
-    refreshCtxwin();
+    pill.classList.remove("ok");
+    pill.title = res.error || "请设置 Cursor 路径";
+    if ($("cursorInfo")) $("cursorInfo").textContent = res.error || "请设置 Cursor 路径";
+    paintSettingsMeta(res);
+    if (opts.ctxwin) refreshCtxwin();
+    maybePaintLocalCards();
     return;
   }
-  pill.textContent = res.running ? "已登录 · 运行中" : "已登录";
-  $("cursorInfo").textContent = `${res.executable || res.path} · v${res.version || "?"}`;
+  const mem = res.running && res.memoryMb != null ? `${Math.round(res.memoryMb)}MB` : "";
+  if (res.running) {
+    pill.textContent = mem ? `运行中 · ${mem}` : "运行中";
+    pill.classList.add("ok");
+    pill.title = `${res.processCount || "?"} 个进程 · 点击削减内存`;
+  } else {
+    pill.textContent = "未运行";
+    pill.classList.remove("ok");
+    pill.title = "Cursor 未运行";
+  }
+  const pathInput = $("cursorPath");
+  if (pathInput && document.activeElement !== pathInput) {
+    pathInput.value = res.configuredPath || "";
+    pathInput.placeholder = res.executable || "留空则自动检测 Cursor.exe";
+  }
+  if ($("cursorInfo")) {
+    const loc = [res.executable, res.version ? `v${res.version}` : ""].filter(Boolean).join(" · ");
+    const run = res.running
+      ? `${res.processCount || "?"} 进程 · ${mem || "?"}`
+      : "未运行";
+    $("cursorInfo").textContent = `${loc}\n${run}`;
+  }
   const compactBtn = $("btnCompactState");
   if (compactBtn) {
     compactBtn.classList.toggle("is-blocked", Boolean(res.running));
@@ -448,7 +526,9 @@ async function refreshCursorStatus() {
       ? "目前 Cursor 正在运行，状态库被占用，无法压缩"
       : "压缩状态库（先关闭 IDE）";
   }
-  refreshCtxwin();
+  paintSettingsMeta(res);
+  if (opts.ctxwin) refreshCtxwin();
+  maybePaintLocalCards();
 }
 
 async function loadProxy() {
@@ -459,6 +539,7 @@ async function loadProxy() {
   $("proxyType").value = cfg.proxy_type || cfg.proxyType || "http";
   $("proxyHost").value = cfg.host || "127.0.0.1";
   $("proxyPort").value = cfg.port || 7890;
+  paintSettingsMeta(lastCursorStatus);
 }
 
 function paintCtxwin(res) {
@@ -620,7 +701,7 @@ async function compactState() {
   const pre = await api().compact_precheck();
   if (!pre.ok) {
     toast(pre.error || "目前无法压缩");
-    if ($("lightInfo")) $("lightInfo").textContent = pre.error || "无法压缩";
+    if ($("cursorInfo")) $("cursorInfo").textContent = pre.error || "无法压缩";
     showCompactBanner({
       pct: 0,
       phase: "blocked",
@@ -651,7 +732,6 @@ function showCompactBanner(p) {
   if ($("compactPct")) $("compactPct").textContent = p.phase === "blocked" || p.phase === "error" ? "" : `${pct}%`;
   bar.classList.toggle("is-done", p.phase === "done");
   bar.classList.toggle("is-error", p.phase === "error" || p.phase === "blocked");
-  if ($("lightInfo") && p.message) $("lightInfo").textContent = p.message;
 }
 
 function hideCompactBannerLater() {
@@ -884,6 +964,7 @@ document.addEventListener("click", async (ev) => {
   if (action === "refresh") return refreshOne(id);
   if (action === "devices") return openDevices(id);
   if (action === "switch") return launch(id);
+  if (action === "launch-here") return launch(null);
   if (action === "remove") {
     if (!confirm("确定删除该账号？")) return;
     await api().remove_account(id);
@@ -955,14 +1036,37 @@ $("btnRefreshAll").onclick = async () => {
 };
 $("btnLaunchLocal").onclick = () => launch(null);
 $("btnLightLaunch").onclick = () => { closeIdeTools(); launch(null, true, true); };
+$("btnTrimMemory").onclick = () => { closeIdeTools(); trimMemory(); };
 $("btnCloseIde").onclick = () => { closeIdeTools(); closeIde(); };
 $("btnCompactState").onclick = () => { closeIdeTools(); compactState(); };
+$("loginPill").onclick = async () => {
+  if (lastCursorStatus?.running) return trimMemory();
+  await refreshCursorStatus();
+};
+
+function startStatusWatch() {
+  clearInterval(startStatusWatch._t);
+  startStatusWatch._t = setInterval(() => {
+    if (document.hidden || !api()) return;
+    refreshCursorStatus();
+  }, 20000);
+}
+
+async function trimMemory() {
+  toast("正在削减内存…");
+  const res = await api().trim_memory();
+  if (!res.ok) return toast(res.error || "削减失败");
+  toast(res.message || "已削减");
+  await refreshCursorStatus();
+}
 
 function closeIdeTools() {
   const el = $("ideTools");
   if (el) el.classList.remove("open");
   const menu = $("btnIdeMenu");
   if (menu) menu.setAttribute("aria-expanded", "false");
+  const tray = $("ideTray");
+  if (tray) tray.setAttribute("aria-hidden", "true");
 }
 function toggleIdeTools(ev) {
   ev.stopPropagation();
@@ -970,6 +1074,7 @@ function toggleIdeTools(ev) {
   const open = !el.classList.contains("open");
   el.classList.toggle("open", open);
   $("btnIdeMenu").setAttribute("aria-expanded", open ? "true" : "false");
+  $("ideTray").setAttribute("aria-hidden", open ? "false" : "true");
 }
 $("btnIdeMenu").onclick = toggleIdeTools;
 document.addEventListener("click", (ev) => {
@@ -1054,15 +1159,19 @@ $("btnSaveProxy").onclick = async () => {
     strict_ssl: false,
   });
   toast(res.ok ? "代理已保存" : (res.error || "失败"));
+  paintSettingsMeta(lastCursorStatus);
 };
 $("btnSavePath").onclick = async () => {
   const res = await api().set_cursor_path($("cursorPath").value);
   toast(res.ok ? "路径已保存" : (res.error || "失败"));
-  await refreshCursorStatus();
+  await refreshCursorStatus({ ctxwin: true });
 };
 $("btnCtxwinApply").onclick = () => runCtxwin("apply");
 $("btnCtxwinRestore").onclick = () => runCtxwin("restore");
 $("btnCtxwinRefresh").onclick = () => refreshCtxwin();
+document.querySelector(".settings-fold")?.addEventListener("toggle", (ev) => {
+  if (ev.target.open) refreshCtxwin();
+});
 $("detailBody").addEventListener("click", (ev) => {
   if (ev.target.id === "btnLoadModelUsage") {
     ev.preventDefault();
@@ -1127,7 +1236,9 @@ async function boot() {
     return setTimeout(boot, 120);
   }
   try {
-    await Promise.all([refreshCursorStatus(), loadProxy(), renderAccounts()]);
+    await Promise.all([refreshCursorStatus({ ctxwin: true }), loadProxy(), renderAccounts()]);
+    paintSettingsMeta(lastCursorStatus);
+    startStatusWatch();
   } catch (e) {
     const pill = $("loginPill");
     if (pill) pill.textContent = "启动失败";

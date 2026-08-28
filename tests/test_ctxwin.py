@@ -23,6 +23,12 @@ def test_mark_detected_past_first_chunk(tmp_path: Path):
     assert file_has_patch(target) is True
 
 
+def test_unpatched_large_file_only_reads_head(tmp_path: Path):
+    target = tmp_path / "extensionHostProcess.js"
+    target.write_bytes(b"x" * (600 * 1024))
+    assert file_has_patch(target) is False
+
+
 def test_window_token_sizes_match_script():
     assert FROM_TOKENS == 256000
     assert TO_TOKENS == 500000

@@ -18,11 +18,14 @@ from launcher.cursor_process import (
     close_cursor,
     compact_cursor_state,
     compact_precheck,
+    configured_cursor_path,
     is_cursor_running,
     light_workspace_dir,
+    list_cursor_processes,
     resolve_install,
     save_cursor_path,
     start_cursor,
+    trim_cursor_memory,
 )
 from launcher.cursor_proxy import ProxyConfig, apply_proxy, read_current_proxy
 from launcher.proxy_detect import detect_local_proxies, probe_direct, probe_proxy
@@ -31,6 +34,7 @@ from launcher.cursor_usage import fetch_model_usage, refresh_account_usage
 from launcher.session_keep import merge_keep_ids, pick_auto_keep_sessions, sessions_to_revoke
 from launcher.local_cursor import (
     generate_fingerprint,
+    peek_local_identity,
     read_fingerprint,
     read_local_account,
     reset_machine_ids,
@@ -361,17 +365,31 @@ class Api:
     # ---- 启动 / 切号 ----
 
     def cursor_status(self) -> dict:
+        identity = peek_local_identity()
         try:
             layout = resolve_install()
+            procs = list_cursor_processes()
+            total_mb = round(sum(p.get("wsMb") or 0 for p in procs), 1)
             return {
                 "ok": True,
-                "running": is_cursor_running(),
+                "running": bool(procs),
                 "path": str(layout.install_root),
                 "executable": str(layout.executable),
+                "configuredPath": configured_cursor_path(),
                 "version": layout.version,
+                "memoryMb": total_mb,
+                "processCount": len(procs),
+                "localEmail": identity.get("email") or "",
+                "localUserId": identity.get("userId") or "",
             }
         except Exception as exc:
-            return {"ok": False, "error": str(exc), "running": is_cursor_running()}
+            return {
+                "ok": False,
+                "error": str(exc),
+                "running": is_cursor_running(),
+                "localEmail": identity.get("email") or "",
+                "localUserId": identity.get("userId") or "",
+            }
 
     def set_cursor_path(self, path: str) -> dict:
         try:
@@ -490,6 +508,13 @@ class Api:
             return {"ok": True, "running": is_cursor_running(), "closed": True}
         except Exception as exc:
             return {"ok": False, "error": str(exc), "running": is_cursor_running()}
+
+    def trim_memory(self) -> dict:
+        """IDE 运行中也可调用：回收工作集，并尝试删除未被占用的状态库 backup。"""
+        try:
+            return trim_cursor_memory()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
 
     def compact_precheck(self) -> dict:
         try:

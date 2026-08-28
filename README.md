@@ -6,7 +6,7 @@ Windows 桌面版 **Cursor 账号启动器**（非官方），基于 Python + py
 
 - 多账号管理、额度查询、一键切号
 - IDE 模式启动（`--classic`）
-- 减负：轻量启动、关闭 IDE、压缩状态库（带进度）
+- 减负：轻量启动、运行中削减内存、关闭 IDE、压缩状态库
 - Grok Extra High 500k 上下文补丁（可选；改本机 Cursor 文件，需 Node.js）
 - 登录设备管理 / 会话守卫
 - 代理注入（仅写 Cursor `settings.json` 的代理相关项）
@@ -29,8 +29,8 @@ python app.py
 ### 启动 IDE
 
 - **启动 IDE**：默认 `--classic`，不改 settings（除非勾选代理自动注入）
-- **切换并启动**：关 Cursor → 写入所选账号 Token → 启动
-- **减负菜单**（顶栏展开）：轻量启动（关 GPU、空工作区）、关闭 IDE、压缩 `state.vscdb`（须先关 IDE）
+- **切换并启动**：关 Cursor → 写入所选账号 Token → 启动。当前本机账号显示「启动」，不会再切一次
+- **减负菜单**（顶栏三条杠）：轻量启动、削减内存（IDE 开着也能用；也可点顶栏运行状态）、关闭 IDE、压缩 `state.vscdb`（须先关 IDE）
 
 ### Grok 500k（可选）
 
