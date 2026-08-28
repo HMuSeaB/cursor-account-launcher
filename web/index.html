@@ -111,7 +111,7 @@
         </section>
         <section class="settings-panel settings-span">
           <h3 class="settings-title">Grok Extra High 500k 上下文</h3>
-          <p class="hint settings-hint">只改客户端看到的窗口上限（256k → 500k），减轻约 200k 就压缩的问题。这不是官方 1M，也加不出 Claude Options 里的 Context 200K/1M 开关。走 Cursor 网关时，插件里已有同名选项且默认开启；这里打的是 Cursor 本体文件补丁，升级 IDE 后会丢，需要重打。</p>
+          <p class="hint settings-hint">只改客户端看到的窗口上限（256k → 500k），减轻约 200k 就压缩的问题。需要本机 Node.js；改前请退出 Cursor。升级 IDE 后补丁会丢，需重打。若已用网关插件的同名开关，一般不必再打文件补丁。</p>
           <div class="guard-actions">
             <button type="button" class="btn" id="btnCtxwinApply">打上 500k</button>
             <button type="button" class="btn ghost" id="btnCtxwinRestore">还原 256k</button>
