@@ -5,8 +5,10 @@
  * 对话快照 ConversationTokenDetails.max_tokens、AvailableModels 里 grok-4.6 的
  * context_token_limit / context_token_limit_for_max_mode，以及 GetEffectiveTokenLimit。
  *
- * Connect 解包认 flags 0–3：先解压再改 256000→500000；回包去掉 gzip 位、保留 END_STREAM。
- * Agent 流按完整 Connect 帧改写，不在压缩字节上盲替 varint。
+ * Connect 解包认 flags 0–3：先解压再改；回包装明文、保留 END_STREAM。
+ * Agent 流按完整 Connect 帧改写（请求 + 响应），不在压缩字节上盲替 varint。
+ * 包内出现 grok-4.6 / Extra High 时，除 256000 外还会把 Auto 残留的 200000/204800 等
+ * 窗口字段改成 500000，这样中途从 Auto 切到 Grok 也能抬上限。
  *
  *   node patch-ctxwin.mjs apply
  *   node patch-ctxwin.mjs restore
@@ -164,14 +166,52 @@ function ctxwinInstall(G, FROM, TO) {
     return fieldBytes(field, 0, writeVarint(toVal));
   }
 
-  function rewriteAgentPayload(buf) {
+  function payloadLooksLikeGrok(buf) {
+    try {
+      var s = buf.toString("latin1").toLowerCase();
+      if (s.indexOf("grok") < 0) return false;
+      return (
+        s.indexOf("grok-4.6") >= 0 ||
+        s.indexOf("cursor-grok-4.6") >= 0 ||
+        s.indexOf("extra-high") >= 0 ||
+        s.indexOf("extra_high") >= 0 ||
+        s.indexOf("extra high") >= 0 ||
+        s.indexOf("-xhigh") >= 0 ||
+        s.indexOf("xhigh") >= 0
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function agentWindowSources(buf) {
+    // 官方 Grok 窗口；若已是 Grok 请求，再吞掉 Auto/Composer 残留上限
+    var list = [FROM];
+    if (payloadLooksLikeGrok(buf)) {
+      list.push(200000, 204800, 128000);
+    }
+    var toLen = writeVarint(TO).length;
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      if (writeVarint(list[i]).length === toLen) out.push(list[i]);
+    }
+    return out;
+  }
+
+  function rewriteAgentPayload(buf, sources) {
     var TOKEN_FIELDS = { 2: 1, 4: 1, 12: 1, 13: 1, 15: 1, 16: 1 };
+    if (!sources) sources = agentWindowSources(buf);
     return walkFields(buf, function (field, wt, val) {
       if (wt === 0 && TOKEN_FIELDS[field]) {
-        return rewriteVarintValue(field, FROM, TO, val);
+        for (var i = 0; i < sources.length; i++) {
+          var repl = rewriteVarintValue(field, sources[i], TO, val);
+          if (repl) return repl;
+        }
+        return null;
       }
       if (wt === 2) {
-        var inner = rewriteAgentPayload(val);
+        // 嵌套消息可能没有模型名字符串，沿用外层判定（中途切模型场景）
+        var inner = rewriteAgentPayload(val, sources);
         if (inner.equals(val)) return null;
         return fieldBytes(field, 2, inner);
       }
@@ -363,7 +403,7 @@ function ctxwinInstall(G, FROM, TO) {
         out.push(next);
       }
       if (hits && out.length) {
-        log("rewrite " + kind + " path=" + pathStr + " frames=" + out.length + " hits=" + hits);
+        log("rewrite-down " + kind + " path=" + pathStr + " frames=" + out.length + " hits=" + hits);
         hits = 0;
       }
       var ok = true;
@@ -372,6 +412,94 @@ function ctxwinInstall(G, FROM, TO) {
       }
       return ok;
     };
+    return stream;
+  }
+
+  function wrapWritable(stream, kind, pathStr) {
+    if (!stream || stream[MARK + "w"]) return stream;
+    var origWrite = stream.write;
+    var origEnd = stream.end;
+    if (typeof origWrite !== "function") return stream;
+    stream[MARK + "w"] = 1;
+    var pending = Buffer.alloc(0);
+    var hits = 0;
+
+    function take(chunk) {
+      if (!chunk || !chunk.length) return [];
+      pending = Buffer.concat([pending, Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)]);
+      var out = [];
+      while (pending.length >= 5) {
+        var flags = pending[0];
+        if (flags > 3) {
+          var raw = pending;
+          pending = Buffer.alloc(0);
+          var nextRaw = rewritePayload(raw, kind);
+          if (!nextRaw.equals(raw)) hits++;
+          out.push(nextRaw);
+          break;
+        }
+        var len = pending.readUInt32BE(1);
+        if (pending.length < 5 + len) break;
+        var frame = Buffer.from(pending.subarray(0, 5 + len));
+        pending = pending.subarray(5 + len);
+        var next = rewriteFrame(frame, kind);
+        if (!next.equals(frame)) hits++;
+        out.push(next);
+      }
+      if (hits) {
+        log("rewrite-up " + kind + " path=" + pathStr + " hits=" + hits);
+        hits = 0;
+      }
+      return out;
+    }
+
+    stream.write = function (chunk, encoding, cb) {
+      if (typeof encoding === "function") {
+        cb = encoding;
+        encoding = undefined;
+      }
+      if (chunk === undefined || chunk === null) {
+        return origWrite.call(this, chunk, encoding, cb);
+      }
+      var pieces = take(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding));
+      if (!pieces.length) {
+        if (typeof cb === "function") process.nextTick(cb);
+        return true;
+      }
+      var payload = Buffer.concat(pieces);
+      return origWrite.call(this, payload, undefined, cb);
+    };
+
+    stream.end = function (chunk, encoding, cb) {
+      if (typeof chunk === "function") {
+        cb = chunk;
+        chunk = undefined;
+        encoding = undefined;
+      } else if (typeof encoding === "function") {
+        cb = encoding;
+        encoding = undefined;
+      }
+      var parts = [];
+      if (chunk !== undefined && chunk !== null) {
+        var more = take(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding));
+        for (var i = 0; i < more.length; i++) parts.push(more[i]);
+      }
+      if (pending.length) {
+        var rest = rewritePayload(pending, kind);
+        pending = Buffer.alloc(0);
+        if (rest && rest.length) parts.push(rest);
+      }
+      if (parts.length) {
+        return origEnd.call(this, Buffer.concat(parts), undefined, cb);
+      }
+      return origEnd.call(this, cb);
+    };
+    return stream;
+  }
+
+  function wrapDuplex(stream, kind, pathStr) {
+    wrapReadable(stream, kind, pathStr);
+    wrapWritable(stream, kind, pathStr);
     return stream;
   }
 
@@ -415,7 +543,7 @@ function ctxwinInstall(G, FROM, TO) {
           var stream = origProtoRequest.apply(this, arguments);
           var p = pathFromHeaders(headers);
           var kind = kindFromPath(p);
-          if (kind) wrapReadable(stream, kind, p);
+          if (kind) wrapDuplex(stream, kind, p);
           return stream;
         };
         proto.request[MARK] = 1;
@@ -447,6 +575,7 @@ function ctxwinInstall(G, FROM, TO) {
       }
       var req = origHttps.apply(httpsMod, args);
       if (kind) {
+        wrapWritable(req, kind, url);
         req.on("response", function (res) {
           wrapRes(res);
         });
@@ -592,6 +721,37 @@ function cmdSelftest() {
   const snap2 = api.rewriteAgentPayload(snap);
   assert(snap2.indexOf(vTo) >= 0, "Agent payload 应含 500000 varint");
   assert(snap2.indexOf(vFrom) < 0, "Agent payload 不应再含 256000 varint");
+
+  // 中途 Auto→Grok：快照仍是 200000，但包里已有 grok-4.6
+  const vAuto = api.writeVarint(200000);
+  assert(vAuto.length === vTo.length, "200000 与 500000 varint 应等长");
+  const mid = Buffer.concat([
+    Buffer.from([0x0a, 8]),
+    Buffer.from("grok-4.6"),
+    Buffer.from([0x10]),
+    vAuto,
+  ]);
+  const mid2 = api.rewriteAgentPayload(mid);
+  assert(mid2.indexOf(vTo) >= 0, "含 grok 时 200000 应改成 500000");
+  assert(mid2.indexOf(vAuto) < 0, "含 grok 时不应再留 200000");
+
+  // 无 grok 时不要误改 200000（Composer/Auto）
+  const autoOnly = Buffer.concat([Buffer.from([0x10]), vAuto]);
+  const autoOnly2 = api.rewriteAgentPayload(autoOnly);
+  assert(autoOnly2.indexOf(vAuto) >= 0, "无 grok 时 200000 应保留");
+  assert(autoOnly2.indexOf(vTo) < 0, "无 grok 时不应改成 500000");
+
+  // 嵌套 tokenDetails：grok 名在外层，200k 在内层
+  const nestedInner = Buffer.concat([Buffer.from([0x10]), vAuto]);
+  const nested = Buffer.concat([
+    Buffer.from([0x0a, 8]),
+    Buffer.from("grok-4.6"),
+    Buffer.from([0x12, nestedInner.length]),
+    nestedInner,
+  ]);
+  const nested2 = api.rewriteAgentPayload(nested);
+  assert(nested2.indexOf(vTo) >= 0, "嵌套快照含 grok 时内层 200000 应改成 500000");
+  assert(nested2.indexOf(vAuto) < 0, "嵌套快照不应再留 200000");
 
   // gzip Connect frame flags=3 (gzip+END_STREAM)
   const gz = zlib.gzipSync(snap);
