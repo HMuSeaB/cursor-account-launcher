@@ -34,8 +34,18 @@ function loadPrefs() {
 function syncPrefButtons() {
   const theme = document.documentElement.getAttribute("data-theme") || "light";
   const usage = document.documentElement.getAttribute("data-usage") || "ring";
-  if ($("btnTheme")) $("btnTheme").textContent = theme === "dark" ? "日间" : "夜间";
-  if ($("btnUsageStyle")) $("btnUsageStyle").textContent = usage === "bar" ? "圆形" : "条形";
+  const themeBtn = $("btnTheme");
+  const usageBtn = $("btnUsageStyle");
+  if (themeBtn) {
+    const label = theme === "dark" ? "切换日间模式" : "切换夜间模式";
+    themeBtn.title = label;
+    themeBtn.setAttribute("aria-label", label);
+  }
+  if (usageBtn) {
+    const label = usage === "bar" ? "切换为圆形额度" : "切换为条形额度";
+    usageBtn.title = label;
+    usageBtn.setAttribute("aria-label", label);
+  }
 }
 
 function toggleTheme() {
@@ -554,10 +564,24 @@ async function runGuardNow() {
   await renderAccounts();
 }
 
-async function openDevices(accountId) {
+let devicesFromDetail = false;
+
+async function openDevices(accountId, fromDetail = false) {
   activeAccountId = accountId;
+  devicesFromDetail = fromDetail;
   $("devicesDialog").showModal();
   await loadSessions();
+}
+
+function closeDetailDialog() { $("detailDialog").close(); }
+async function closeDevicesDialog({ reopenDetail = true } = {}) {
+  $("devicesDialog").close();
+  if (reopenDetail && devicesFromDetail && detailAccountId) {
+    devicesFromDetail = false;
+    await openDetail(detailAccountId);
+    return;
+  }
+  devicesFromDetail = false;
 }
 
 async function loadSessions() {
@@ -837,8 +861,12 @@ $("detailBody").addEventListener("click", (ev) => {
     loadModelUsage(ev.target.textContent === "刷新");
   }
 });
-$("detailClose").onclick = () => $("detailDialog").close();
-$("devicesClose").onclick = () => $("devicesDialog").close();
+$("detailClose").onclick = closeDetailDialog;
+$("detailBack").onclick = closeDetailDialog;
+$("detailBack2").onclick = closeDetailDialog;
+$("devicesClose").onclick = () => closeDevicesDialog({ reopenDetail: false });
+$("devicesBack").onclick = () => closeDevicesDialog({ reopenDetail: true });
+$("devicesBack2").onclick = () => closeDevicesDialog({ reopenDetail: true });
 async function syncDetailWs() {
   if (!detailAccountId) return;
   toast("正在从本机同步 WS Token…");
@@ -853,7 +881,10 @@ $("btnDetailSyncWs").onclick = () => syncDetailWs();
 $("btnDetailSave").onclick = () => saveDetailMeta();
 $("btnDetailRefresh").onclick = () => detailAccountId && refreshOne(detailAccountId);
 $("btnDetailSwitch").onclick = () => detailAccountId && launch(detailAccountId);
-$("btnDetailDevices").onclick = () => { $("detailDialog").close(); detailAccountId && openDevices(detailAccountId); };
+$("btnDetailDevices").onclick = () => {
+  $("detailDialog").close();
+  if (detailAccountId) openDevices(detailAccountId, true);
+};
 $("btnRefreshSessions").onclick = () => loadSessions();
 $("btnKickOthers").onclick = () => kickOthers();
 $("btnSaveGuard").onclick = () => saveGuard();

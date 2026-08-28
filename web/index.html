@@ -18,10 +18,20 @@
         <span class="pill ok" id="loginPill">检测中</span>
       </div>
       <div class="topbar-actions">
-        <button class="btn ghost" id="btnTheme" title="切换夜间模式" type="button">夜间</button>
-        <button class="btn ghost" id="btnUsageStyle" title="切换额度样式" type="button">条形</button>
-        <button class="btn ghost" id="btnRefreshAll">刷新全部</button>
-        <button class="btn primary" id="btnLaunchLocal">启动 IDE</button>
+        <button class="btn ghost icon-only" id="btnTheme" type="button" title="切换夜间模式" aria-label="切换夜间模式">
+          <svg class="ico-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 14.5A8.5 8.5 0 0 1 9.5 3 7 7 0 1 0 21 14.5z"/></svg>
+          <svg class="ico-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        </button>
+        <button class="btn ghost icon-only" id="btnUsageStyle" type="button" title="切换额度样式" aria-label="切换额度样式">
+          <svg class="ico-bars" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9M12 19V5M20 19v-7"/></svg>
+          <svg class="ico-ring" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 8 8"/></svg>
+        </button>
+        <button class="btn ghost icon-only" id="btnRefreshAll" type="button" title="刷新全部" aria-label="刷新全部">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 3v6h-6"/></svg>
+        </button>
+        <button class="btn primary icon-only" id="btnLaunchLocal" type="button" title="启动 IDE" aria-label="启动 IDE">
+          <svg class="filled" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+        </button>
       </div>
     </header>
 
@@ -84,32 +94,35 @@
       <div class="modal-head">
         <div>
           <h2>添加账号</h2>
-          <p class="hint">支持 access_token；设备管理需 ws token（user_xxx::eyJ…）</p>
+          <p class="hint" style="margin:4px 0 0">支持 access_token；设备管理需 ws token（user_xxx::eyJ…）</p>
         </div>
         <button type="button" class="icon-btn modal-close" id="btnAddCancel" aria-label="关闭">×</button>
       </div>
-      <label class="field-label">Token</label>
-      <textarea id="tokenInput" spellcheck="false" placeholder="每行一个 token，或整段 Cookie"></textarea>
-      <div class="field-grid">
-        <div>
-          <label class="field-label">邮箱</label>
-          <input id="addEmail" placeholder="可选" spellcheck="false" />
-        </div>
-        <div>
-          <label class="field-label">密码</label>
-          <input id="addPassword" type="password" placeholder="本地加密保存" />
-        </div>
-        <div>
-          <label class="field-label">分组</label>
-          <input id="addGroup" placeholder="未分组" spellcheck="false" />
-        </div>
-        <div>
-          <label class="field-label">标签</label>
-          <input id="addTags" placeholder="逗号分隔" spellcheck="false" />
+      <div class="modal-scroll">
+        <label class="field-label">Token</label>
+        <textarea id="tokenInput" spellcheck="false" placeholder="每行一个 token，或整段 Cookie"></textarea>
+        <div class="field-grid">
+          <div>
+            <label class="field-label">邮箱</label>
+            <input id="addEmail" placeholder="可选" spellcheck="false" />
+          </div>
+          <div>
+            <label class="field-label">密码</label>
+            <input id="addPassword" type="password" placeholder="本地加密保存" />
+          </div>
+          <div>
+            <label class="field-label">分组</label>
+            <input id="addGroup" placeholder="未分组" spellcheck="false" />
+          </div>
+          <div>
+            <label class="field-label">标签</label>
+            <input id="addTags" placeholder="逗号分隔" spellcheck="false" />
+          </div>
         </div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn ghost" id="btnImport">从文件导入</button>
+        <span class="spacer"></span>
         <button type="button" class="btn ghost" id="btnAddCancel2">取消</button>
         <button type="button" class="btn primary" id="btnAdd">添加</button>
       </div>
@@ -119,13 +132,22 @@
   <dialog id="detailDialog" class="modal">
     <div class="modal-box detail-box">
       <div class="modal-head">
-        <h2>账号详情</h2>
-        <button type="button" class="icon-btn modal-close" id="detailClose">×</button>
+        <div class="modal-head-left">
+          <button type="button" class="btn ghost icon-only" id="detailBack" title="返回列表" aria-label="返回列表">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/><path d="M9 12h12"/></svg>
+          </button>
+          <h2>账号详情</h2>
+        </div>
+        <button type="button" class="icon-btn modal-close" id="detailClose" aria-label="关闭">×</button>
       </div>
-      <div id="detailBody" class="detail-body"></div>
+      <div class="modal-scroll">
+        <div id="detailBody" class="detail-body"></div>
+      </div>
       <div class="modal-actions">
+        <button type="button" class="btn ghost" id="detailBack2">← 返回</button>
         <button type="button" class="btn" id="btnDetailDevices">登录设备</button>
         <button type="button" class="btn primary" id="btnDetailSwitch">切换并启动</button>
+        <span class="spacer"></span>
         <button type="button" class="btn ghost" id="btnDetailSyncWs">同步本机 WS</button>
         <button type="button" class="btn" id="btnDetailSave">保存</button>
         <button type="button" class="btn ghost" id="btnDetailRefresh">刷新额度</button>
@@ -136,38 +158,47 @@
   <dialog id="devicesDialog" class="modal">
     <div class="modal-box">
       <div class="modal-head">
-        <h2>登录设备 <span class="badge" id="sessionCount">0</span></h2>
-        <button type="button" class="icon-btn modal-close" id="devicesClose">×</button>
+        <div class="modal-head-left">
+          <button type="button" class="btn ghost icon-only" id="devicesBack" title="返回" aria-label="返回">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/><path d="M9 12h12"/></svg>
+          </button>
+          <h2>登录设备 <span class="badge" id="sessionCount">0</span></h2>
+        </div>
+        <button type="button" class="icon-btn modal-close" id="devicesClose" aria-label="关闭">×</button>
       </div>
-      <p class="hint" id="guardHint">「踢其它」只清 Web/其它端，Desktop 全部默认保留</p>
-      <section class="guard-panel card">
-        <div class="guard-head">
-          <h3>会话守卫</h3>
-          <span class="guard-status" id="guardStatus">未启用</span>
+      <div class="modal-scroll">
+        <p class="hint" id="guardHint">「踢其它」只清 Web/其它端，Desktop 全部默认保留</p>
+        <section class="guard-panel card">
+          <div class="guard-head">
+            <h3>会话守卫</h3>
+            <span class="guard-status" id="guardStatus">未启用</span>
+          </div>
+          <label class="check-row"><input type="checkbox" id="guardEnabled" /> 启用定时巡检</label>
+          <div class="guard-fields">
+            <label class="field-label" for="guardMode">模式</label>
+            <select id="guardMode">
+              <option value="whitelist">保留名单（踢未勾选）</option>
+              <option value="auto_kick">自动踢新设备</option>
+            </select>
+            <label class="field-label" for="guardInterval">间隔（分钟）</label>
+            <input id="guardInterval" type="number" min="1" max="120" value="5" />
+          </div>
+          <div class="guard-actions">
+            <button type="button" class="btn" id="btnSaveGuard">保存守卫</button>
+            <button type="button" class="btn ghost" id="btnRunGuard">立即巡检</button>
+          </div>
+          <p class="hint guard-note" id="guardModeHint">勾选下方设备为保留名单；定时踢掉未勾选的会话。</p>
+        </section>
+        <div class="kick-bar">
+          <button class="btn danger" id="btnKickOthers">踢掉其它设备</button>
+          <span class="kick-summary" id="kickSummary"></span>
         </div>
-        <label class="check-row"><input type="checkbox" id="guardEnabled" /> 启用定时巡检</label>
-        <div class="guard-fields">
-          <label class="field-label" for="guardMode">模式</label>
-          <select id="guardMode">
-            <option value="whitelist">保留名单（踢未勾选）</option>
-            <option value="auto_kick">自动踢新设备</option>
-          </select>
-          <label class="field-label" for="guardInterval">间隔（分钟）</label>
-          <input id="guardInterval" type="number" min="1" max="120" value="5" />
-        </div>
-        <div class="guard-actions">
-          <button type="button" class="btn" id="btnSaveGuard">保存守卫</button>
-          <button type="button" class="btn ghost" id="btnRunGuard">立即巡检</button>
-        </div>
-        <p class="hint guard-note" id="guardModeHint">勾选下方设备为保留名单；定时踢掉未勾选的会话。</p>
-      </section>
-      <div class="kick-bar">
-        <button class="btn danger" id="btnKickOthers">踢掉其它设备</button>
-        <span class="kick-summary" id="kickSummary"></span>
+        <p class="session-error hint" id="sessionLoadError" hidden></p>
+        <div class="device-list" id="sessionBody"></div>
       </div>
-      <p class="session-error hint" id="sessionLoadError" hidden></p>
-      <div class="device-list" id="sessionBody"></div>
       <div class="modal-actions">
+        <button type="button" class="btn ghost" id="devicesBack2">← 返回</button>
+        <span class="spacer"></span>
         <button type="button" class="btn ghost" id="btnRefreshSessions">刷新</button>
       </div>
     </div>
