@@ -22,7 +22,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-或直接使用 [Releases](https://github.com/HMuSeaB/cursor-account-launcher/releases) 里的 `CursorLauncher.exe`。
+或直接使用 [Releases](https://github.com/HMuSeaB/cursor-account-launcher/releases) 里的安装包 `CursorLauncherSetup.exe`（安装时可勾选「创建桌面快捷方式」），或不经安装的 `CursorLauncher.exe`。绿色版 exe 首次打开也会询问是否放到桌面。
 
 ## 使用说明
 
@@ -56,7 +56,12 @@ python app.py
 .\build.ps1
 ```
 
-产物：`dist\CursorLauncher.exe`。exe 正在运行时请先关闭再打包。
+产物：
+
+- `dist\CursorLauncher.exe`（绿色版）
+- `dist\CursorLauncherSetup.exe`（需本机 [Inno Setup 6](https://jrsoftware.org/isinfo.php)；安装向导有「创建桌面快捷方式」选项，默认勾选，可取消）
+
+exe 正在运行时请先关闭再打包。图标由 `scripts/make_icon.py` 在打包前生成。
 
 **系统要求：** Windows 10/11 + [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/)
 

@@ -4,13 +4,14 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Cursor Launcher</title>
+  <link rel="icon" href="icon.png" type="image/png" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div class="shell">
     <header class="topbar">
       <div class="brand">
-        <span class="brand-mark"></span>
+        <img class="brand-mark" src="icon.png" width="36" height="36" alt="" />
         <div>
           <h1>Cursor 账号</h1>
           <p class="brand-sub" id="brandSub">启动器</p>
@@ -106,7 +107,7 @@
 
     <details class="card settings-fold">
       <summary>
-        <span>代理、路径与上下文</span>
+        <span>代理、路径与快捷方式</span>
         <span class="settings-fold-meta" id="settingsMeta"></span>
       </summary>
       <div class="settings-grid">
@@ -135,6 +136,15 @@
           <button type="button" class="btn" id="btnSavePath">保存路径</button>
           <p class="hint settings-hint">右上角三条杠：轻量启动、削减内存、关闭 IDE、压缩状态库。顶栏状态可点一下削减内存。</p>
           <pre class="mini" id="cursorInfo">—</pre>
+        </section>
+        <section class="settings-panel" id="shortcutPanel" hidden>
+          <h3 class="settings-title">快捷方式</h3>
+          <p class="hint settings-hint">放到桌面或开始菜单，方便下次打开。安装包里也可以勾选「创建桌面快捷方式」。</p>
+          <div class="guard-actions">
+            <button type="button" class="btn" id="btnShortcutDesktop">放到桌面</button>
+            <button type="button" class="btn ghost" id="btnShortcutStart">放到开始菜单</button>
+          </div>
+          <pre class="mini" id="shortcutInfo">—</pre>
         </section>
         <section class="settings-panel settings-span">
           <h3 class="settings-title">Grok Extra High 500k 上下文</h3>
@@ -261,6 +271,26 @@
         <button type="button" class="btn ghost" id="devicesBack2">← 返回</button>
         <span class="spacer"></span>
         <button type="button" class="btn ghost" id="btnRefreshSessions">刷新</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="shortcutDialog" class="modal">
+    <div class="modal-box shortcut-box">
+      <div class="modal-head">
+        <div>
+          <h2>创建快捷方式</h2>
+          <p class="hint" style="margin:4px 0 0">方便从桌面打开。以后也可以在设置里补。</p>
+        </div>
+      </div>
+      <div class="modal-scroll">
+        <label class="check-row"><input type="checkbox" id="scPromptDesktop" checked /> 桌面快捷方式</label>
+        <label class="check-row" style="margin-top:10px"><input type="checkbox" id="scPromptStart" /> 开始菜单</label>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="btnShortcutSkip">以后再说</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn primary" id="btnShortcutCreate">创建</button>
       </div>
     </div>
   </dialog>

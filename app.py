@@ -46,6 +46,11 @@ from launcher.local_cursor import (
 )
 from launcher.window_state import attach_window_persistence, load_window_geom
 from launcher.session_guard import SessionGuardService
+from launcher.shortcuts import (
+    create_shortcuts as make_shortcut_links,
+    mark_shortcut_prompted,
+    shortcut_status as get_shortcut_status,
+)
 from launcher.token_utils import parse_token
 
 
@@ -757,6 +762,24 @@ class Api:
             result["keepIds"] = sorted(keep)
             result["targetCount"] = len(targets)
             return result
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def shortcut_status(self) -> dict:
+        try:
+            return get_shortcut_status()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "canCreate": False}
+
+    def create_shortcuts(self, desktop: bool = False, start_menu: bool = False) -> dict:
+        try:
+            return make_shortcut_links(desktop=bool(desktop), start_menu=bool(start_menu))
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def skip_shortcut_prompt(self) -> dict:
+        try:
+            return mark_shortcut_prompted()
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 

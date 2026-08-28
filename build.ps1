@@ -14,9 +14,20 @@ if (-not (Test-Path $python)) {
 }
 
 Write-Output "[build] Installing/updating dependencies..."
-& $pip install -q -r requirements.txt "pyinstaller>=6.0"
+& $pip install -q -r requirements.txt "pyinstaller>=6.0" pillow
 if ($LASTEXITCODE -ne 0) {
     Write-Error "pip install failed (exit $LASTEXITCODE)"
+}
+
+Write-Output "[build] Rendering app icon..."
+& $python (Join-Path $PSScriptRoot "scripts\make_icon.py")
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "make_icon.py failed (exit $LASTEXITCODE)"
+}
+
+$icon = Join-Path $PSScriptRoot "assets\icon.ico"
+if (-not (Test-Path $icon)) {
+    Write-Error "Missing $icon"
 }
 
 Write-Output "[build] Running PyInstaller (about 1-3 min)..."
@@ -26,14 +37,38 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $exe = Join-Path $PSScriptRoot "dist\CursorLauncher.exe"
-if (Test-Path $exe) {
-    $size = [math]::Round((Get-Item $exe).Length / 1MB, 1)
-    Write-Output ""
-    Write-Output "[build] SUCCESS"
-    Write-Output "  Path: $exe"
-    Write-Output "  Size: ${size} MB"
-    Write-Output ""
-    Write-Output "Run dist\CursorLauncher.exe directly (Python not required)."
-} else {
+if (-not (Test-Path $exe)) {
     Write-Error "Build finished but exe not found: $exe"
 }
+
+$size = [math]::Round((Get-Item $exe).Length / 1MB, 1)
+Write-Output ""
+Write-Output "[build] SUCCESS"
+Write-Output "  Path: $exe"
+Write-Output "  Size: ${size} MB"
+
+$isccCandidates = @(
+    (Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe"),
+    (Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"),
+    (Join-Path $env:ProgramFiles "Inno Setup 6\ISCC.exe")
+)
+$iscc = $isccCandidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+if ($iscc) {
+    Write-Output "[build] Compiling installer..."
+    & $iscc (Join-Path $PSScriptRoot "installer\cursor-launcher.iss")
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "ISCC failed (exit $LASTEXITCODE)"
+    }
+    $setup = Join-Path $PSScriptRoot "dist\CursorLauncherSetup.exe"
+    if (Test-Path $setup) {
+        $setupSize = [math]::Round((Get-Item $setup).Length / 1MB, 1)
+        Write-Output "  Installer: $setup"
+        Write-Output "  Size: ${setupSize} MB"
+    }
+} else {
+    Write-Output "[build] Inno Setup 6 not found; skipped installer (exe is still ready)."
+}
+
+Write-Output ""
+Write-Output "Portable: dist\CursorLauncher.exe"
+Write-Output "Installer: dist\CursorLauncherSetup.exe (optional desktop shortcut checkbox)."

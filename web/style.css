@@ -111,13 +111,17 @@ html[data-theme="dark"] body {
 
 .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .brand-mark {
-  width: 10px; height: 36px; border-radius: 999px;
-  background: linear-gradient(180deg, #57534e 0%, #1c1917 100%);
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   flex-shrink: 0;
+  display: block;
+  box-shadow: inset 0 0 0 1px rgba(28, 25, 23, 0.12);
 }
 html[data-theme="dark"] .brand-mark {
-  background: linear-gradient(180deg, #a8a29e 0%, #57534e 100%);
+  box-shadow: inset 0 0 0 1px rgba(250, 249, 247, 0.16);
 }
+.shortcut-box { width: min(420px, calc(100vw - 28px)); }
 .modal-head-left {
   display: flex;
   align-items: center;
@@ -313,6 +317,11 @@ textarea { min-height: 96px; resize: vertical; }
 }
 .btn:hover { background: var(--btn-bg-hover); }
 .btn:active { transform: translateY(1px); }
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  transform: none;
+}
 .btn.primary {
   background: var(--primary);
   color: var(--primary-fg);

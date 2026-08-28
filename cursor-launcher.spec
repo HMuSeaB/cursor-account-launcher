@@ -13,7 +13,7 @@ a = Analysis(
     ["app.py"],
     pathex=[],
     binaries=webview_binaries,
-    datas=[("web", "web"), ("scripts", "scripts"), *webview_datas],
+    datas=[("web", "web"), ("scripts", "scripts"), ("assets", "assets"), *webview_datas],
     hiddenimports=[
         "webview",
         "webview.platforms.winforms",
@@ -51,4 +51,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon="assets/icon.ico",
 )

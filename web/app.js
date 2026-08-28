@@ -1180,8 +1180,30 @@ $("btnSavePath").onclick = async () => {
 $("btnCtxwinApply").onclick = () => runCtxwin("apply");
 $("btnCtxwinRestore").onclick = () => runCtxwin("restore");
 $("btnCtxwinRefresh").onclick = () => refreshCtxwin();
+$("btnShortcutDesktop").onclick = () => createChosenShortcuts(true, false);
+$("btnShortcutStart").onclick = () => createChosenShortcuts(false, true);
+$("btnShortcutSkip").onclick = async () => {
+  try { await api().skip_shortcut_prompt(); } catch {}
+  $("shortcutDialog")?.close();
+};
+$("btnShortcutCreate").onclick = async () => {
+  const desktop = $("scPromptDesktop")?.checked;
+  const startMenu = $("scPromptStart")?.checked;
+  if (!desktop && !startMenu) {
+    toast("请至少选一项");
+    return;
+  }
+  const res = await createChosenShortcuts(desktop, startMenu);
+  if (res?.ok) $("shortcutDialog")?.close();
+};
+$("shortcutDialog")?.addEventListener("cancel", () => {
+  try { api()?.skip_shortcut_prompt(); } catch {}
+});
 document.querySelector(".settings-fold")?.addEventListener("toggle", (ev) => {
-  if (ev.target.open) refreshCtxwin();
+  if (ev.target.open) {
+    refreshCtxwin();
+    refreshShortcutStatus();
+  }
 });
 $("detailBody").addEventListener("click", (ev) => {
   if (ev.target.id === "btnLoadModelUsage") {
@@ -1239,6 +1261,54 @@ window.addEventListener("guard-event", (ev) => {
   }
 });
 
+function shortcutLabel(st) {
+  const bits = [];
+  if (st.hasDesktop) bits.push("桌面已有");
+  if (st.hasStartMenu) bits.push("开始菜单已有");
+  return bits.length ? bits.join(" · ") : "还没有快捷方式";
+}
+
+async function refreshShortcutStatus() {
+  const panel = $("shortcutPanel");
+  const info = $("shortcutInfo");
+  if (!panel || !api()?.shortcut_status) return;
+  try {
+    const st = await api().shortcut_status();
+    if (!st?.canCreate) {
+      panel.hidden = true;
+      return;
+    }
+    panel.hidden = false;
+    if (info) info.textContent = st.error ? st.error : shortcutLabel(st);
+    const desk = $("btnShortcutDesktop");
+    const start = $("btnShortcutStart");
+    if (desk) desk.disabled = !!st.hasDesktop;
+    if (start) start.disabled = !!st.hasStartMenu;
+  } catch {
+    panel.hidden = true;
+  }
+}
+
+async function createChosenShortcuts(desktop, startMenu) {
+  const fn = api()?.create_shortcuts;
+  if (!fn) return { ok: false, error: "API 未就绪" };
+  const res = await fn(!!desktop, !!startMenu);
+  toast(res.ok ? (res.message || "已创建") : (res.error || "失败"));
+  await refreshShortcutStatus();
+  return res;
+}
+
+async function maybePromptShortcuts() {
+  if (!api()?.shortcut_status) return;
+  try {
+    const st = await api().shortcut_status();
+    await refreshShortcutStatus();
+    if (!st?.canCreate || st.prompted || st.hasDesktop || st.hasStartMenu) return;
+    const dlg = $("shortcutDialog");
+    if (dlg && !dlg.open) dlg.showModal();
+  } catch {}
+}
+
 async function boot() {
   if (!api()) {
     const pill = $("loginPill");
@@ -1250,6 +1320,7 @@ async function boot() {
     await Promise.all([refreshCursorStatus({ ctxwin: true }), loadProxy(), renderAccounts()]);
     paintSettingsMeta(lastCursorStatus);
     startStatusWatch();
+    await maybePromptShortcuts();
   } catch (e) {
     const pill = $("loginPill");
     if (pill) pill.textContent = "启动失败";
