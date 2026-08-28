@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cursor Launcher</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <h1>Cursor 账号</h1>
+        <span class="pill ok" id="loginPill">检测中</span>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn ghost" id="btnRefreshAll">刷新全部</button>
+        <button class="btn primary" id="btnLaunchLocal">启动 IDE</button>
+      </div>
+    </header>
+
+    <section class="toolbar panel">
+      <input id="searchInput" type="search" placeholder="搜索邮箱、名称、备注…" />
+      <select id="filterGroup"><option value="">全部分组</option></select>
+      <select id="filterTag"><option value="">全部标签</option></select>
+      <select id="filterPlan">
+        <option value="">全部套餐</option>
+        <option value="ultra">Ultra</option>
+        <option value="pro">Pro</option>
+        <option value="free">Free</option>
+        <option value="trial">Trial</option>
+      </select>
+      <button class="btn" id="btnAddOpen">+ 添加账号</button>
+      <button class="btn ghost" id="btnDetect">探测本机</button>
+    </section>
+
+    <section class="panel accounts-wrap">
+      <div class="acc-grid" id="accGrid"></div>
+      <p class="empty" id="emptyAccounts">还没有账号，点「+ 添加账号」或「探测本机」。</p>
+    </section>
+
+    <details class="panel settings-fold">
+      <summary>代理 / Cursor 路径</summary>
+      <div class="settings-grid">
+        <div>
+          <label class="row"><input type="checkbox" id="proxyEnabled" checked /> 启用代理</label>
+          <div class="row">
+            <select id="proxyType"><option value="http">HTTP</option><option value="socks5">SOCKS5</option></select>
+            <input id="proxyHost" value="127.0.0.1" spellcheck="false" />
+            <input id="proxyPort" type="number" value="7890" min="1" max="65535" />
+          </div>
+          <div class="actions">
+            <button class="btn" id="btnSaveProxy">保存并注入</button>
+          </div>
+        </div>
+        <div>
+          <input id="cursorPath" spellcheck="false" placeholder="Cursor.exe 路径（留空自动检测）" />
+          <div class="actions"><button class="btn" id="btnSavePath">保存路径</button></div>
+          <pre class="mini" id="cursorInfo">—</pre>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <!-- 添加账号 -->
+  <dialog id="addDialog" class="modal">
+    <form method="dialog" class="modal-box">
+      <h2>添加账号</h2>
+      <p class="hint">支持 access_token 或 user_xxx::eyJ…（ws token，设备管理需要）</p>
+      <textarea id="tokenInput" spellcheck="false" placeholder="粘贴 token，每行一个"></textarea>
+      <div class="row split">
+        <input id="addEmail" placeholder="邮箱（可选，可刷新后自动填充）" spellcheck="false" />
+        <input id="addPassword" type="password" placeholder="密码（可选，本地加密保存）" />
+      </div>
+      <div class="row split">
+        <input id="addGroup" placeholder="分组，默认「未分组」" spellcheck="false" />
+        <input id="addTags" placeholder="标签，逗号分隔，如 已售,勿用" spellcheck="false" />
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="btnImport">从文件导入</button>
+        <button type="button" class="btn" value="cancel">取消</button>
+        <button type="button" class="btn primary" id="btnAdd">添加</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 账号详情 -->
+  <dialog id="detailDialog" class="modal">
+    <div class="modal-box detail-box">
+      <div class="detail-head">
+        <h2>账号详情</h2>
+        <button type="button" class="icon-btn" id="detailClose">×</button>
+      </div>
+      <div id="detailBody" class="detail-body"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn" id="btnDetailDevices">登录设备</button>
+        <button type="button" class="btn primary" id="btnDetailSwitch">切换并启动 IDE</button>
+        <button type="button" class="btn" id="btnDetailSave">保存备注/密码</button>
+        <button type="button" class="btn ghost" id="btnDetailRefresh">刷新额度</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 登录设备 -->
+  <dialog id="devicesDialog" class="modal">
+    <div class="modal-box">
+      <div class="detail-head">
+        <h2>登录设备 <span class="badge" id="sessionCount">0</span></h2>
+        <button type="button" class="icon-btn" id="devicesClose">×</button>
+      </div>
+      <p class="hint" id="guardHint">自动保护本机 Web + Desktop，不会误踢自己。</p>
+      <div class="actions kick-bar">
+        <button class="btn danger" id="btnKickOthers">踢掉其它设备</button>
+        <span class="kick-summary" id="kickSummary"></span>
+      </div>
+      <div class="device-list" id="sessionBody"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="btnRefreshSessions">刷新</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div class="toast" id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>
