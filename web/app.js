@@ -51,6 +51,8 @@ function relativeAge(v) {
   if (days === 1) return "1天前";
   return `${days}天前`;
 }
+
+function daysLeft(ms) {
   if (!ms) return "";
   const d = Math.ceil((ms - Date.now()) / 86400000);
   if (d < 0) return "已过期";
@@ -750,7 +752,19 @@ window.addEventListener("guard-event", (ev) => {
 });
 
 async function boot() {
-  if (!api()) return setTimeout(boot, 120);
-  await Promise.all([refreshCursorStatus(), loadProxy(), renderAccounts()]);
+  if (!api()) {
+    const pill = $("loginPill");
+    if (pill && boot._tries > 40) pill.textContent = "API 未就绪";
+    boot._tries = (boot._tries || 0) + 1;
+    return setTimeout(boot, 120);
+  }
+  try {
+    await Promise.all([refreshCursorStatus(), loadProxy(), renderAccounts()]);
+  } catch (e) {
+    const pill = $("loginPill");
+    if (pill) pill.textContent = "启动失败";
+    toast("界面初始化失败：" + String(e));
+  }
 }
+boot._tries = 0;
 boot();
