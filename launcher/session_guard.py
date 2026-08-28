@@ -73,11 +73,13 @@ class SessionGuardService:
         return self._run_whitelist(account_id, token, sessions, cfg)
 
     def _run_whitelist(self, account_id: str, token: str, sessions: list[dict], cfg: dict) -> dict:
-        keep = set(cfg.get("keepSessionIds") or [])
+        from .session_keep import CLIENT_TYPE, merge_keep_ids
+
+        keep = merge_keep_ids(sessions, token, cfg.get("keepSessionIds") or [])
         revoked, kept, errors = [], [], []
         for session in sessions:
             sid = session["id"]
-            if session.get("isCurrent") or sid in keep:
+            if session.get("isCurrent") or sid in keep or session.get("sessionType") == CLIENT_TYPE:
                 kept.append(sid)
                 continue
             try:

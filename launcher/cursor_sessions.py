@@ -224,6 +224,9 @@ def revoke_all_except(
     for session in all_sessions:
         if session.get("isCurrent"):
             protected.add(session["id"])
+        # 硬保护 Desktop，防止调用方漏传 keep
+        if session.get("sessionType") == "SESSION_TYPE_CLIENT":
+            protected.add(session["id"])
 
     revoked: list[str] = []
     skipped: list[str] = []

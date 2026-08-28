@@ -429,8 +429,8 @@ function updateGuardHint() {
   const enabled = $("guardEnabled")?.checked ?? guardConfig.enabled;
   if ($("guardHint")) {
     $("guardHint").textContent = enabled
-      ? (mode === "auto_kick" ? "守卫已启用 · 自动踢掉新登录设备" : "守卫已启用 · 保留名单外会话将被踢掉")
-      : "自动保护本机 Web + Desktop";
+      ? (mode === "auto_kick" ? "守卫已启用 · 自动踢新 Web（Desktop 不踢）" : "守卫已启用 · 踢未勾选的 Web（Desktop 保留）")
+      : "「踢其它」只清 Web/其它端，Desktop 全部默认保留";
   }
   if ($("guardModeHint")) {
     $("guardModeHint").textContent = mode === "auto_kick"
@@ -526,13 +526,17 @@ function renderSessions() {
     return;
   }
   body.innerHTML = sessions.map((s) => {
-    const protectedRow = s.isCurrent || autoKeepIds.has(s.id);
+    const isDesktop = s.sessionType === "SESSION_TYPE_CLIENT";
+    const protectedRow = s.isCurrent || autoKeepIds.has(s.id) || isDesktop;
     const keepChecked = protectedRow || keepSet.has(s.id);
     const canToggle = !protectedRow;
+    const badge = s.isCurrent
+      ? '<span class="tag">本机</span>'
+      : (isDesktop ? '<span class="tag pro">保护</span>' : "");
     return `<div class="device-item ${protectedRow ? "protected" : ""}">
       <input type="checkbox" data-keep="${esc(s.id)}" ${keepChecked ? "checked" : ""} ${canToggle ? "" : "disabled"} />
       <div>
-        <strong>${esc(s.typeLabel)}</strong> ${s.isCurrent ? '<span class="tag">本机</span>' : ""}
+        <strong>${esc(s.typeLabel)}</strong> ${badge}
         <div class="hint">${esc(keepReasons[s.id] || fmtTime(s.createdAt))}</div>
       </div>
       ${protectedRow ? "" : `<button class="btn sm danger" data-kick="${esc(s.id)}" data-type="${esc(s.sessionType || "")}">Revoke</button>`}
@@ -543,23 +547,41 @@ function renderSessions() {
 
 function updateKickSummary() {
   const keep = new Set(collectKeepSessionIds());
-  const kickCount = sessions.filter((s) => !keep.has(s.id) && !s.isCurrent).length;
-  $("kickSummary").textContent = kickCount ? `将踢掉 ${kickCount} 台，保留 ${keep.size} 台` : "没有需要踢掉的设备";
+  // 与后端一致：Desktop 永不批量踢
+  const kickTargets = sessions.filter(
+    (s) => !keep.has(s.id) && !s.isCurrent && s.sessionType !== "SESSION_TYPE_CLIENT"
+  );
+  const kickCount = kickTargets.length;
+  $("kickSummary").textContent = kickCount
+    ? `将踢掉 ${kickCount} 台 Web/其它端，Desktop 全部保留`
+    : "没有需要踢掉的设备（Desktop 已保护）";
   $("btnKickOthers").disabled = kickCount === 0;
 }
 
-$("sessionBody")?.addEventListener("change", (ev) => {
-  if (ev.target.matches("[data-keep]")) updateKickSummary();
-});
-
 async function kickOthers() {
   if (!activeAccountId) return;
-  const keep = [...document.querySelectorAll("[data-keep]")].filter((el) => el.checked).map((el) => el.getAttribute("data-keep"));
+  const keep = collectKeepSessionIds();
+  const targets = sessions.filter(
+    (s) => !keep.includes(s.id) && !s.isCurrent && s.sessionType !== "SESSION_TYPE_CLIENT"
+  );
+  if (!targets.length) return toast("没有可踢的设备");
+  const preview = targets
+    .slice(0, 8)
+    .map((s) => `· ${s.typeLabel} ${fmtTime(s.createdAt)}`)
+    .join("\n");
+  const more = targets.length > 8 ? `\n…另有 ${targets.length - 8} 台` : "";
+  if (!confirm(`将踢掉 ${targets.length} 台（不含任何 Desktop）：\n${preview}${more}\n\nDesktop 本机不会被踢。确定？`)) {
+    return;
+  }
   const res = await api().revoke_other_sessions(activeAccountId, keep);
   toast(res.ok ? `已踢 ${(res.revoked || []).length} 台` : (res.error || "失败"));
   await loadSessions();
   await renderAccounts();
 }
+
+$("sessionBody")?.addEventListener("change", (ev) => {
+  if (ev.target.matches("[data-keep]")) updateKickSummary();
+});
 
 document.addEventListener("click", async (ev) => {
   const t = ev.target.closest("[data-action], [data-copy], [data-kick], .copy-link");

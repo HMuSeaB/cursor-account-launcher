@@ -13,7 +13,7 @@ from launcher.cursor_process import close_cursor, is_cursor_running, resolve_ins
 from launcher.cursor_proxy import ProxyConfig, apply_proxy, read_current_proxy
 from launcher.cursor_sessions import list_sessions, revoke_session, revoke_all_except
 from launcher.cursor_usage import fetch_model_usage, refresh_account_usage
-from launcher.session_keep import pick_auto_keep_sessions, sessions_to_revoke
+from launcher.session_keep import merge_keep_ids, pick_auto_keep_sessions, sessions_to_revoke
 from launcher.local_cursor import read_local_account, reset_machine_ids, write_local_account
 from launcher.session_guard import SessionGuardService
 from launcher.token_utils import parse_token
@@ -427,9 +427,21 @@ class Api:
         item = self._store.get(account_id)
         if not item:
             return {"ok": False, "error": "账号不存在"}
+        token = item["token"]
+        from launcher.token_utils import session_id_from_token
+
+        current_id = session_id_from_token(token)
+        if current_id and session_id == current_id:
+            return {"ok": False, "error": "不能踢掉当前 Token 对应的会话，否则会掉号"}
+        if session_type == "SESSION_TYPE_CLIENT":
+            return {
+                "ok": False,
+                "error": "Desktop 默认受保护，防止误踢本机。请到网页 Cursor 设置里手动 Revoke。",
+                "protected": True,
+            }
         try:
             revoke_session(
-                item["token"],
+                token,
                 session_id,
                 session_type,
                 proxies=self._session_proxies(),
@@ -490,10 +502,8 @@ class Api:
         proxies = self._session_proxies()
         try:
             sessions = list_sessions(token, proxies=proxies)
-            if keep_session_ids:
-                keep = set(keep_session_ids)
-            else:
-                keep = set(pick_auto_keep_sessions(sessions, token)["keepIds"])
+            # 用户勾选 ∪ 自动保护（全部 Desktop + Token 会话），禁止用空名单覆盖保护
+            keep = merge_keep_ids(sessions, token, keep_session_ids)
             targets = sessions_to_revoke(sessions, keep)
             if not targets:
                 return {"ok": True, "revoked": [], "message": "没有需要踢掉的设备", "keepIds": sorted(keep)}

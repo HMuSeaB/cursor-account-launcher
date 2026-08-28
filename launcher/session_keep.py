@@ -1,4 +1,4 @@
-"""会话保留策略：只留本机 Web + Desktop，不误踢自己。"""
+"""会话保留策略：绝不误踢本机 Desktop / Token 对应会话。"""
 
 from __future__ import annotations
 
@@ -21,14 +21,21 @@ def _time_key(session: dict) -> str:
 
 
 def pick_auto_keep_sessions(sessions: list[dict], token: str) -> dict:
-    """自动选出应保留的会话：本机 Desktop（token 对应）+ 最近活跃的 Web 各 1 个。"""
+    """选出默认应保留的会话。
+
+    安全策略（JWT 往往对不上 sessionId，不能只留「最新 Desktop」）：
+    - Token 对应会话（若能解析）
+    - 标记为 isCurrent 的会话
+    - **全部** Desktop App（SESSION_TYPE_CLIENT）——「踢其它」默认只清 Web/其它端
+    - 最近一条 Web（方便网页端继续用）
+    """
     current_id = session_id_from_token(token)
     keep_ids: set[str] = set()
     reasons: dict[str, str] = {}
 
     if current_id:
         keep_ids.add(current_id)
-        reasons[current_id] = "本机 Desktop（Token 会话）"
+        reasons[current_id] = "本机 Token 会话"
 
     for session in sessions:
         sid = session.get("id")
@@ -41,29 +48,39 @@ def pick_auto_keep_sessions(sessions: list[dict], token: str) -> dict:
     web_sessions = [s for s in sessions if s.get("sessionType") == WEB_TYPE]
     client_sessions = [s for s in sessions if s.get("sessionType") == CLIENT_TYPE]
 
+    for desktop in client_sessions:
+        sid = desktop["id"]
+        keep_ids.add(sid)
+        if sid not in reasons:
+            reasons[sid] = "Desktop App（默认保留，防误踢本机）"
+
     if web_sessions:
         newest_web = max(web_sessions, key=_time_key)
         keep_ids.add(newest_web["id"])
         if newest_web["id"] not in reasons:
             reasons[newest_web["id"]] = "最近活跃的 Web 会话"
 
-    if client_sessions:
-        desktop = None
-        if current_id:
-            desktop = next((s for s in client_sessions if s["id"] == current_id), None)
-        if not desktop:
-            desktop = next((s for s in client_sessions if s.get("isCurrent")), None)
-        if not desktop:
-            desktop = max(client_sessions, key=_time_key)
-        keep_ids.add(desktop["id"])
-        if desktop["id"] not in reasons:
-            reasons[desktop["id"]] = "本机 Desktop 客户端"
-
     return {
         "keepIds": sorted(keep_ids),
         "reasons": reasons,
         "currentSessionId": current_id,
     }
+
+
+def merge_keep_ids(
+    sessions: list[dict],
+    token: str,
+    user_keep_ids: list[str] | set[str] | None = None,
+) -> set[str]:
+    """用户勾选 ∪ 自动保护名单。自动保护不可被取消。"""
+    auto = pick_auto_keep_sessions(sessions, token)
+    keep = set(auto["keepIds"])
+    if user_keep_ids:
+        keep.update(str(x) for x in user_keep_ids if x)
+    for session in sessions:
+        if session.get("isCurrent") and session.get("id"):
+            keep.add(session["id"])
+    return keep
 
 
 def sessions_to_revoke(sessions: list[dict], keep_ids: set[str]) -> list[dict]:
@@ -73,6 +90,9 @@ def sessions_to_revoke(sessions: list[dict], keep_ids: set[str]) -> list[dict]:
         if not sid or sid in keep_ids:
             continue
         if session.get("isCurrent"):
+            continue
+        # 硬保护：即使用户取消勾选，也不批量踢 Desktop
+        if session.get("sessionType") == CLIENT_TYPE:
             continue
         out.append(session)
     return out
