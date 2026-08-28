@@ -41,7 +41,16 @@ function fmtDate(v) {
   return Number.isNaN(d.getTime()) ? "-" : d.toLocaleDateString("zh-CN");
 }
 
-function daysLeft(ms) {
+function relativeAge(v) {
+  if (!v) return "";
+  const n = Number(v);
+  const ms = Number.isFinite(n) && n > 0 ? (n > 1e12 ? n : n * 1000) : Date.parse(v);
+  if (!Number.isFinite(ms)) return "";
+  const days = Math.floor((Date.now() - ms) / 86400000);
+  if (days <= 0) return "今天";
+  if (days === 1) return "1天前";
+  return `${days}天前`;
+}
   if (!ms) return "";
   const d = Math.ceil((ms - Date.now()) / 86400000);
   if (d < 0) return "已过期";
@@ -411,9 +420,11 @@ async function launch(accountId, force = false) {
     if (st.running && !confirm("Cursor 已在运行，仍要启动新实例？")) return;
     force = st.running;
   }
+  // 默认 bind：同账号复用机器码，避免每切一次多一台 Desktop
+  const machineMode = accountId ? "bind" : "none";
   if (accountId) toast("正在切号并启动 IDE…");
   else toast("正在启动 IDE…");
-  const res = await api().launch_ide(accountId || null, false, force);
+  const res = await api().launch_ide(accountId || null, false, force, machineMode);
   if (res.alreadyRunning && !force) {
     if (confirm(res.error || "Cursor 已在运行，仍要启动新实例？")) {
       return launch(accountId, true);
@@ -533,11 +544,16 @@ function renderSessions() {
     const badge = s.isCurrent
       ? '<span class="tag">本机</span>'
       : (isDesktop ? '<span class="tag pro">保护</span>' : "");
+    const when = s.createdAt
+      ? `${fmtTime(s.createdAt)} · ${relativeAge(s.createdAt)}`
+      : "";
+    const reason = keepReasons[s.id] || "";
     return `<div class="device-item ${protectedRow ? "protected" : ""}">
       <input type="checkbox" data-keep="${esc(s.id)}" ${keepChecked ? "checked" : ""} ${canToggle ? "" : "disabled"} />
       <div>
         <strong>${esc(s.typeLabel)}</strong> ${badge}
-        <div class="hint">${esc(keepReasons[s.id] || fmtTime(s.createdAt))}</div>
+        <div class="hint">${esc(when || "登录时间未知")}</div>
+        ${reason ? `<div class="hint">${esc(reason)}</div>` : ""}
       </div>
       ${protectedRow ? "" : `<button class="btn sm danger" data-kick="${esc(s.id)}" data-type="${esc(s.sessionType || "")}">Revoke</button>`}
     </div>`;

@@ -1,4 +1,4 @@
-"""读写本机 Cursor 登录态与机器码。"""
+"""读写本机 Cursor 登录态与机器码（对齐 FlyCursor / BajieAsk 指纹字段）。"""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import os
 import re
 import sqlite3
 import sys
+import time
 import uuid
 
 from .token_utils import parse_token
@@ -31,6 +32,13 @@ USER_ID_KEYS = (
     "cursorAuth/userId",
     "cursorAuth/openIdUserId",
     "cursorAuth/authId",
+)
+
+FINGERPRINT_STORAGE_KEYS = (
+    "telemetry.machineId",
+    "telemetry.macMachineId",
+    "telemetry.devDeviceId",
+    "telemetry.sqmId",
 )
 
 
@@ -88,6 +96,45 @@ def _normalize_session_token(raw: str | None) -> str | None:
     if len(parts) != 2 or len(parts[1]) < 40:
         return None
     return f"{parts[0].strip()}::{parts[1].strip()}"
+
+
+def _open_db(readonly: bool = False) -> sqlite3.Connection:
+    path = state_db_path()
+    if not os.path.isfile(path):
+        raise RuntimeError("未找到本机 Cursor state.vscdb")
+    if readonly:
+        uri = "file:{}?mode=ro".format(path.replace("\\", "/"))
+        try:
+            conn = sqlite3.connect(uri, uri=True, timeout=8)
+        except Exception:
+            conn = sqlite3.connect(path, timeout=8)
+    else:
+        conn = sqlite3.connect(path, timeout=15)
+    conn.execute("PRAGMA busy_timeout=15000")
+    return conn
+
+
+def wait_state_db_ready(timeout_seconds: float = 12.0) -> None:
+    """Cursor 退出后等 state.vscdb 可写，避免半关着写库导致切号失败。"""
+    path = state_db_path()
+    if not os.path.isfile(path):
+        raise RuntimeError("未找到本机 Cursor state.vscdb")
+    deadline = time.monotonic() + timeout_seconds
+    last_err = None
+    while time.monotonic() < deadline:
+        try:
+            conn = sqlite3.connect(path, timeout=2)
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute("SELECT 1 FROM ItemTable LIMIT 1")
+                conn.commit()
+            finally:
+                conn.close()
+            return
+        except Exception as exc:
+            last_err = exc
+            time.sleep(0.25)
+    raise RuntimeError(f"state.vscdb 仍被占用，请完全退出 Cursor 后再试（{last_err}）")
 
 
 def _read_db_values(conn: sqlite3.Connection) -> dict[str, str]:
@@ -153,16 +200,10 @@ def read_local_account() -> dict | None:
     path = state_db_path()
     if not os.path.isfile(path):
         return None
-    uri = "file:{}?mode=ro".format(path.replace("\\", "/"))
     try:
-        conn = sqlite3.connect(uri, uri=True, timeout=8)
-        conn.execute("PRAGMA busy_timeout=8000")
+        conn = _open_db(readonly=True)
     except Exception:
-        try:
-            conn = sqlite3.connect(path, timeout=8)
-            conn.execute("PRAGMA busy_timeout=8000")
-        except Exception:
-            return None
+        return None
     try:
         values = _read_db_values(conn)
         access = values.get("token")
@@ -179,16 +220,33 @@ def read_local_account() -> dict | None:
             "email": email,
             "membership": values.get("membership"),
             "refreshToken": values.get("refresh"),
+            "fingerprint": read_fingerprint(),
         }
     finally:
         conn.close()
 
 
-def write_local_account(access_token: str, email: str, refresh_token: str | None = None) -> None:
-    path = state_db_path()
-    if not os.path.isfile(path):
-        raise RuntimeError("未找到本机 Cursor state.vscdb")
-    conn = sqlite3.connect(path, timeout=8)
+def write_local_account(
+    token: str,
+    email: str,
+    refresh_token: str | None = None,
+    membership: str | None = None,
+    *,
+    keep_refresh_if_missing: bool = True,
+) -> dict:
+    """写入本机登录态。token 可为 JWT 或 user_xxx::jwt。
+
+    对齐 FlyCursor 会写的关键键；切号时若删掉 refreshToken，Cursor 常会重新鉴权并多出 Desktop。
+    """
+    wait_state_db_ready()
+    user_id, jwt, claims = parse_token(token)
+    email = (email or claims.get("email") or "").strip()
+    membership = (membership or "").strip() or None
+    ws = _normalize_session_token(token)
+    if not ws and user_id:
+        ws = f"{user_id}::{jwt}"
+
+    conn = _open_db(readonly=False)
     try:
         cur = conn.cursor()
 
@@ -198,17 +256,41 @@ def write_local_account(access_token: str, email: str, refresh_token: str | None
                 (key, value),
             )
 
-        put("cursorAuth/accessToken", access_token)
+        put("cursorAuth/accessToken", jwt)
         put("cursorAuth/cachedEmail", email or "")
-        put("cursor.accessToken", access_token)
+        put("cursorAuth/email", email or "")
+        put("cursor.accessToken", jwt)
         put("cursor.email", email or "")
+        put("cursorAuth/cachedUserId", user_id)
+        put("cursorAuth/userId", user_id)
+        put("cursorAuth/authId", f"auth0|{user_id}" if not user_id.startswith("auth0|") else user_id)
+        put("cursorAuth/isLoggedIn", "true")
+        put("cursorAuth/isAuthenticated", "true")
+        put("cursorAuth/isAuthorized", "true")
+        if membership:
+            put("cursorAuth/stripeMembershipType", membership)
+
         if refresh_token:
             put("cursorAuth/refreshToken", refresh_token)
-        else:
+        elif not keep_refresh_if_missing:
             cur.execute("DELETE FROM ItemTable WHERE key=?", ("cursorAuth/refreshToken",))
+        # keep_refresh_if_missing=True：保留库里旧 refresh（同账号续登更稳）
+
+        if ws:
+            put("cursorAuth/workosCursorSessionToken", ws)
+            put("cursorAuth/cachedWorkosSessionToken", ws)
+
         conn.commit()
     finally:
         conn.close()
+
+    # 回读校验
+    local = read_local_account()
+    if not local or not local.get("accessToken"):
+        raise RuntimeError("写入后无法读回 accessToken，切号可能失败")
+    if local["accessToken"] != jwt:
+        raise RuntimeError("写入校验失败：accessToken 未生效")
+    return {"ok": True, "userId": user_id, "email": email, "hasWsToken": bool(ws)}
 
 
 def _rand_hex64() -> str:
@@ -216,44 +298,150 @@ def _rand_hex64() -> str:
 
 
 def _atomic_write(path: str, data: bytes) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "wb") as handle:
         handle.write(data)
     os.replace(tmp, path)
 
 
-def reset_machine_ids() -> dict:
-    service_id = str(uuid.uuid4())
-    ids = {
-        "telemetry.machineId": _rand_hex64(),
-        "telemetry.macMachineId": _rand_hex64(),
-        "telemetry.devDeviceId": str(uuid.uuid4()),
-        "telemetry.sqmId": "{" + str(uuid.uuid4()).upper() + "}",
+def read_fingerprint() -> dict:
+    """读取本机 6 项设备指纹（FlyCursor / BajieAsk 同款字段）。"""
+    out = {
+        "machineId": None,
+        "telemetryMachineId": None,
+        "macMachineId": None,
+        "devDeviceId": None,
+        "sqmId": None,
+        "serviceMachineId": None,
+        "machineGuid": None,
     }
-    sj = storage_json_path()
     try:
-        data = json.load(open(sj, "r", encoding="utf-8")) if os.path.isfile(sj) else {}
-    except Exception:
-        data = {}
-    if not isinstance(data, dict):
-        data = {}
-    data.update(ids)
-    _atomic_write(sj, json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
-
-    db = state_db_path()
-    if os.path.isfile(db):
-        conn = sqlite3.connect(db, timeout=8)
-        try:
-            conn.execute(
-                "INSERT OR REPLACE INTO ItemTable (key, value) VALUES (?, ?)",
-                ("storage.serviceMachineId", service_id),
-            )
-            conn.commit()
-        finally:
-            conn.close()
-    try:
-        _atomic_write(machineid_path(), service_id.encode("utf-8"))
+        if os.path.isfile(machineid_path()):
+            mid = open(machineid_path(), "r", encoding="utf-8").read().strip()
+            if mid:
+                out["machineId"] = mid
+                out["serviceMachineId"] = mid
     except Exception:
         pass
-    return {"serviceMachineId": service_id}
+    try:
+        sj = storage_json_path()
+        if os.path.isfile(sj):
+            data = json.load(open(sj, "r", encoding="utf-8"))
+            if isinstance(data, dict):
+                out["telemetryMachineId"] = data.get("telemetry.machineId") or None
+                out["macMachineId"] = data.get("telemetry.macMachineId") or None
+                out["devDeviceId"] = data.get("telemetry.devDeviceId") or None
+                out["sqmId"] = data.get("telemetry.sqmId") or None
+    except Exception:
+        pass
+    try:
+        conn = _open_db(readonly=True)
+        try:
+            row = conn.execute(
+                "SELECT value FROM ItemTable WHERE key=?",
+                ("storage.serviceMachineId",),
+            ).fetchone()
+            if row and row[0]:
+                out["serviceMachineId"] = str(row[0]).strip()
+                if not out["machineId"]:
+                    out["machineId"] = out["serviceMachineId"]
+        finally:
+            conn.close()
+    except Exception:
+        pass
+    if sys.platform == "win32":
+        try:
+            import subprocess
+
+            r = subprocess.run(
+                ["reg", "query", r"HKLM\SOFTWARE\Microsoft\Cryptography", "/v", "MachineGuid"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=5,
+                check=False,
+            )
+            m = re.search(r"MachineGuid\s+REG_SZ\s+([0-9a-fA-F-]+)", r.stdout or "")
+            if m:
+                out["machineGuid"] = m.group(1)
+        except Exception:
+            pass
+    return out
+
+
+def generate_fingerprint() -> dict:
+    service_id = str(uuid.uuid4())
+    return {
+        "machineId": service_id,
+        "telemetryMachineId": _rand_hex64(),
+        "macMachineId": str(uuid.uuid4()),
+        "devDeviceId": str(uuid.uuid4()),
+        "sqmId": "{" + str(uuid.uuid4()).upper() + "}",
+        "serviceMachineId": service_id,
+        # 默认不改系统 MachineGuid（需管理员且副作用大）；FlyCursor 可选改
+        "machineGuid": None,
+    }
+
+
+def write_fingerprint(ids: dict) -> dict:
+    """写入账号绑定的机器码。缺字段则跳过该项。"""
+    wait_state_db_ready()
+    errors: list[str] = []
+    telemetry_mid = ids.get("telemetryMachineId") or ids.get("machineId")
+    storage_patch = {}
+    if telemetry_mid:
+        storage_patch["telemetry.machineId"] = str(telemetry_mid)
+    for src, key in (
+        ("macMachineId", "telemetry.macMachineId"),
+        ("devDeviceId", "telemetry.devDeviceId"),
+        ("sqmId", "telemetry.sqmId"),
+    ):
+        if ids.get(src):
+            storage_patch[key] = str(ids[src])
+
+    if storage_patch:
+        sj = storage_json_path()
+        try:
+            data = json.load(open(sj, "r", encoding="utf-8")) if os.path.isfile(sj) else {}
+        except Exception:
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        data.update(storage_patch)
+        try:
+            _atomic_write(sj, json.dumps(data, ensure_ascii=False, indent=4).encode("utf-8"))
+        except Exception as exc:
+            errors.append(f"storage.json: {exc}")
+
+    service_id = ids.get("serviceMachineId") or ids.get("machineId")
+    if service_id:
+        try:
+            conn = _open_db(readonly=False)
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO ItemTable (key, value) VALUES (?, ?)",
+                    ("storage.serviceMachineId", str(service_id)),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as exc:
+            errors.append(f"serviceMachineId: {exc}")
+        try:
+            _atomic_write(machineid_path(), str(service_id).encode("utf-8"))
+        except Exception as exc:
+            errors.append(f"machineid: {exc}")
+
+    return {"ok": not errors, "errors": errors, "ids": {k: ids.get(k) for k in (
+        "machineId", "telemetryMachineId", "macMachineId", "devDeviceId", "sqmId", "serviceMachineId"
+    )}}
+
+
+def reset_machine_ids() -> dict:
+    """生成并写入新指纹（会产生新 Desktop 设备）。"""
+    ids = generate_fingerprint()
+    result = write_fingerprint(ids)
+    result["serviceMachineId"] = ids["serviceMachineId"]
+    return result

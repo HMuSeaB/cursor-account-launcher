@@ -64,10 +64,12 @@ class AccountStore(_BaseStore):
             "_prio": it.get("_prio", 5),
             "email": it.get("email") or "",
             "passwordEnc": it.get("passwordEnc") or "",
+            "refreshTokenEnc": it.get("refreshTokenEnc") or "",
             "group": it.get("group") or "未分组",
             "tags": list(it.get("tags") or []),
             "remark": it.get("remark") or "",
             "createdAt": int(it.get("createdAt") or time.time() * 1000),
+            "deviceIds": dict(it.get("deviceIds") or {}) if isinstance(it.get("deviceIds"), dict) else {},
         }
         for key in _USAGE_FIELDS:
             if key in it:
@@ -110,6 +112,8 @@ class AccountStore(_BaseStore):
                 "tags": [],
                 "remark": "",
                 "createdAt": int(time.time() * 1000),
+                "deviceIds": {},
+                "refreshTokenEnc": "",
             }
         elif priority >= existing.get("_prio", 0):
             existing["token"] = token.strip()
@@ -134,8 +138,11 @@ class AccountStore(_BaseStore):
             if key in item:
                 out[key] = item[key]
         out["hasWsToken"] = _has_ws_token(item.get("token"))
+        out["hasDeviceIds"] = bool((item.get("deviceIds") or {}).get("machineId") or (item.get("deviceIds") or {}).get("serviceMachineId"))
+        out["hasRefreshToken"] = bool(item.get("refreshTokenEnc"))
         if include_token:
             out["token"] = item.get("token") or ""
+            out["deviceIds"] = dict(item.get("deviceIds") or {})
         return out
 
     def list(self) -> list[dict]:
@@ -200,6 +207,58 @@ class AccountStore(_BaseStore):
         if password is not None:
             self.set_password(account_id, password)
         return self._public_view(self._items[account_id])
+
+    def set_refresh_token(self, account_id: str, refresh_token: str) -> None:
+        with self._lock:
+            item = self._items.get(account_id)
+            if not item:
+                return
+            text = (refresh_token or "").strip()
+            if not text:
+                item["refreshTokenEnc"] = ""
+            else:
+                enc = _dpapi(text.encode("utf-8"), protect=True)
+                item["refreshTokenEnc"] = base64.b64encode(enc).decode("ascii") if enc else text
+            self._save()
+
+    def get_refresh_token(self, account_id: str) -> str:
+        item = self._items.get(account_id)
+        if not item or not item.get("refreshTokenEnc"):
+            return ""
+        raw = item["refreshTokenEnc"]
+        try:
+            dec = _dpapi(base64.b64decode(raw), protect=False)
+            return dec.decode("utf-8") if dec else raw
+        except Exception:
+            return raw
+
+    def set_device_ids(self, account_id: str, device_ids: dict) -> dict | None:
+        with self._lock:
+            item = self._items.get(account_id)
+            if not item:
+                return None
+            cleaned = {}
+            for key in (
+                "machineId",
+                "telemetryMachineId",
+                "macMachineId",
+                "devDeviceId",
+                "sqmId",
+                "serviceMachineId",
+                "machineGuid",
+            ):
+                val = device_ids.get(key) if device_ids else None
+                if val:
+                    cleaned[key] = str(val)
+            item["deviceIds"] = cleaned
+            self._save()
+            return self._public_view(item)
+
+    def get_device_ids(self, account_id: str) -> dict:
+        item = self._items.get(account_id)
+        if not item:
+            return {}
+        return dict(item.get("deviceIds") or {})
 
     def update_token(self, account_id: str, token: str) -> dict | None:
         text = (token or "").strip()

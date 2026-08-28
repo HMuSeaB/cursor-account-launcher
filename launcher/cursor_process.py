@@ -182,9 +182,10 @@ def is_cursor_running() -> bool:
 def close_cursor(layout: CursorInstall | None = None) -> None:
     if sys.platform == "win32":
         subprocess.run(["taskkill", "/F", "/T", "/IM", "Cursor.exe"], capture_output=True, timeout=10, check=False)
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + 8
         while time.monotonic() < deadline:
             if not is_cursor_running():
+                time.sleep(0.35)  # 进程退出后再等落盘
                 return
             time.sleep(0.2)
         return
@@ -193,6 +194,7 @@ def close_cursor(layout: CursorInstall | None = None) -> None:
         deadline = time.monotonic() + 8
         while time.monotonic() < deadline:
             if not is_cursor_running():
+                time.sleep(0.35)
                 return
             time.sleep(0.25)
         subprocess.run(["pkill", "-9", "Cursor"], capture_output=True, timeout=5, check=False)

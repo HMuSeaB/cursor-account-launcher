@@ -17,3 +17,7 @@ Thumbs.db
 # 本地开发备忘，不上传
 dev-references.local.md
 *.local.md
+
+# 第三方反编译/探测产物
+_fly_extract/
+_probe_machine.py

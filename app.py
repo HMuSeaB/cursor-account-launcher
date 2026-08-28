@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 
 import webview
 
@@ -14,7 +15,15 @@ from launcher.cursor_proxy import ProxyConfig, apply_proxy, read_current_proxy
 from launcher.cursor_sessions import list_sessions, revoke_session, revoke_all_except
 from launcher.cursor_usage import fetch_model_usage, refresh_account_usage
 from launcher.session_keep import merge_keep_ids, pick_auto_keep_sessions, sessions_to_revoke
-from launcher.local_cursor import read_local_account, reset_machine_ids, write_local_account
+from launcher.local_cursor import (
+    generate_fingerprint,
+    read_fingerprint,
+    read_local_account,
+    reset_machine_ids,
+    wait_state_db_ready,
+    write_fingerprint,
+    write_local_account,
+)
 from launcher.session_guard import SessionGuardService
 from launcher.token_utils import parse_token
 
@@ -172,6 +181,15 @@ class Api:
         email = acct.get("email")
         if account_id and email and "@" in email:
             self._store.set_label(account_id, email)
+        if account_id and acct.get("refreshToken"):
+            self._store.set_refresh_token(account_id, acct["refreshToken"])
+        # 探测时绑定当前机器码，后续切回该号可复用，避免多出 Desktop
+        if account_id:
+            fp = acct.get("fingerprint") or read_fingerprint()
+            if fp.get("machineId") or fp.get("serviceMachineId"):
+                existing = self._store.get_device_ids(account_id)
+                if not existing.get("machineId") and not existing.get("serviceMachineId"):
+                    self._store.set_device_ids(account_id, fp)
         return {
             "ok": True,
             "id": account_id,
@@ -208,6 +226,12 @@ class Api:
         updated = self._store.update_token(account_id, ws)
         if not updated:
             return {"ok": False, "error": "更新 token 失败"}
+        if local.get("refreshToken"):
+            self._store.set_refresh_token(account_id, local["refreshToken"])
+        fp = local.get("fingerprint") or read_fingerprint()
+        if fp.get("machineId") or fp.get("serviceMachineId"):
+            if not self._store.get_device_ids(account_id):
+                self._store.set_device_ids(account_id, fp)
         detail = self._store.get_detail(account_id) or updated
         return {"ok": True, "account": detail, "hasWsToken": True}
 
@@ -347,7 +371,15 @@ class Api:
         account_id: str | None = None,
         reset_machine_id: bool = False,
         force: bool = False,
+        machine_mode: str = "bind",
     ) -> dict:
+        """切号启动。
+
+        machine_mode:
+          - bind（默认）：恢复/绑定该账号机器码，同号不新开 Desktop
+          - none：不动机器码
+          - reset：随机新机器码（会多一台 Desktop，等同 FlyCursor 重置）
+        """
         try:
             if not account_id and is_cursor_running() and not force:
                 return {
@@ -362,18 +394,55 @@ class Api:
                 if not applied.get("ok"):
                     return {"ok": False, "error": applied.get("error") or "代理注入失败"}
 
+            mode = (machine_mode or "bind").lower()
+            if reset_machine_id:
+                mode = "reset"
+
             if account_id:
                 item = self._store.get(account_id)
                 if not item:
                     return {"ok": False, "error": "账号不存在"}
                 user_id, jwt, claims = parse_token(item["token"])
-                email = item.get("label") or claims.get("email") or user_id
+                email = item.get("label") or item.get("email") or claims.get("email") or user_id
+                refresh = self._store.get_refresh_token(account_id) or None
+                membership = item.get("membershipType") or None
+
                 close_cursor(layout)
-                write_local_account(jwt, email)
-                if reset_machine_id:
+                wait_state_db_ready()
+
+                # 机器码：默认按账号绑定（FlyCursor 同思路）
+                if mode == "reset":
                     reset_machine_ids()
+                    self._store.set_device_ids(account_id, read_fingerprint())
+                elif mode == "bind":
+                    bound = self._store.get_device_ids(account_id)
+                    if bound.get("machineId") or bound.get("serviceMachineId") or bound.get("telemetryMachineId"):
+                        write_fingerprint(bound)
+                    else:
+                        # 首次：绑定当前本机指纹，避免无意义重置
+                        fp = read_fingerprint()
+                        if not (fp.get("machineId") or fp.get("serviceMachineId")):
+                            fp = generate_fingerprint()
+                            write_fingerprint(fp)
+                        self._store.set_device_ids(account_id, fp)
+
+                write_local_account(
+                    item["token"],
+                    email,
+                    refresh_token=refresh,
+                    membership=str(membership) if membership else None,
+                    keep_refresh_if_missing=True,
+                )
+                # 稍等落盘再启动，减少偶发「登不上」
+                time.sleep(0.4)
+
             start_cursor(layout)
-            return {"ok": True, "launched": True, "classic": True}
+            return {
+                "ok": True,
+                "launched": True,
+                "classic": True,
+                "machineMode": mode if account_id else "none",
+            }
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
