@@ -50,7 +50,12 @@ class Api:
         self._store = AccountStore()
         self._guard_store = SessionGuardStore()
         self._window: webview.Window | None = None
-        self._guard = SessionGuardService(self._store, self._guard_store, self._on_guard_event)
+        self._guard = SessionGuardService(
+            self._store,
+            self._guard_store,
+            self._on_guard_event,
+            proxies_fn=self._session_proxies,
+        )
         self._guard.start()
 
     def _on_guard_event(self, payload: dict) -> None:
@@ -68,6 +73,9 @@ class Api:
             return {}
         url = cfg.http_proxy_url()
         return {"http": url, "https": url}
+
+    def _session_proxies(self) -> dict:
+        return self._request_proxies()
 
     # ---- 账号 ----
 
@@ -401,10 +409,8 @@ class Api:
         if not item:
             return {"ok": False, "error": "账号不存在"}
         token = item["token"]
-        if "::" not in token and "%3A%3A" not in token:
-            return {"ok": False, "error": "会话 API 需要 ws token（user_xxx::eyJ...），请用完整会话 token 导入"}
         try:
-            sessions = list_sessions(token)
+            sessions = list_sessions(token, proxies=self._session_proxies())
             guard = self._guard_store.get(account_id)
             picked = pick_auto_keep_sessions(sessions, token)
             return {
@@ -422,7 +428,12 @@ class Api:
         if not item:
             return {"ok": False, "error": "账号不存在"}
         try:
-            revoke_session(item["token"], session_id, session_type)
+            revoke_session(
+                item["token"],
+                session_id,
+                session_type,
+                proxies=self._session_proxies(),
+            )
             return {"ok": True}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
@@ -449,7 +460,7 @@ class Api:
             item = self._store.get(account_id)
             if item:
                 try:
-                    sessions = list_sessions(item["token"])
+                    sessions = list_sessions(item["token"], proxies=self._session_proxies())
                     self._guard_store.set_baseline(account_id, [s["id"] for s in sessions])
                     guard = self._guard_store.get(account_id)
                 except Exception:
@@ -464,10 +475,8 @@ class Api:
         if not item:
             return {"ok": False, "error": "账号不存在"}
         token = item["token"]
-        if "::" not in token and "%3A%3A" not in token:
-            return {"ok": False, "error": "会话 API 需要 ws token（user_xxx::eyJ...），请用完整会话 token 导入"}
         try:
-            sessions = list_sessions(token)
+            sessions = list_sessions(token, proxies=self._session_proxies())
             picked = pick_auto_keep_sessions(sessions, token)
             return {"ok": True, "sessions": sessions, "keepIds": picked["keepIds"], "reasons": picked["reasons"]}
         except Exception as exc:
@@ -478,10 +487,9 @@ class Api:
         if not item:
             return {"ok": False, "error": "账号不存在"}
         token = item["token"]
-        if "::" not in token and "%3A%3A" not in token:
-            return {"ok": False, "error": "会话 API 需要 ws token（user_xxx::eyJ...）"}
+        proxies = self._session_proxies()
         try:
-            sessions = list_sessions(token)
+            sessions = list_sessions(token, proxies=proxies)
             if keep_session_ids:
                 keep = set(keep_session_ids)
             else:
@@ -489,7 +497,7 @@ class Api:
             targets = sessions_to_revoke(sessions, keep)
             if not targets:
                 return {"ok": True, "revoked": [], "message": "没有需要踢掉的设备", "keepIds": sorted(keep)}
-            result = revoke_all_except(token, keep, sessions=sessions)
+            result = revoke_all_except(token, keep, sessions=sessions, proxies=proxies)
             result["keepIds"] = sorted(keep)
             result["targetCount"] = len(targets)
             return result

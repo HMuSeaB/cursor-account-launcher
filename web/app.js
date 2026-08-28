@@ -204,8 +204,8 @@ function tokenDetailSection(a) {
     </div>
     <textarea class="token-box" readonly spellcheck="false" rows="4">${esc(tok)}</textarea>
     <p class="hint token-hint ${ws ? "" : "warn"}">${ws
-      ? "设备管理 / 踢设备需要 user_xxx::eyJ… 格式"
-      : "当前为 JWT；点下方「同步本机 WS」或重新探测本机"}</p>
+      ? "设备管理 / 踢设备需要 user_xxx::eyJ… 格式（推荐）"
+      : "当前为 JWT，可直接拉设备列表；同步 WS 后可更准确标记本机"}</p>
   </div>`;
 }
 
@@ -485,8 +485,24 @@ async function openDevices(accountId) {
 
 async function loadSessions() {
   if (!activeAccountId) return;
+  const errEl = $("sessionLoadError");
+  if (errEl) {
+    errEl.hidden = true;
+    errEl.textContent = "";
+  }
   const res = await api().list_sessions(activeAccountId);
-  if (!res.ok) return toast(res.error || "拉取设备失败");
+  if (!res.ok) {
+    sessions = [];
+    $("sessionCount").textContent = "0";
+    $("sessionBody").innerHTML = "";
+    if (errEl) {
+      errEl.hidden = false;
+      errEl.textContent = res.error || "拉取设备失败";
+    }
+    updateKickSummary();
+    toast(res.error || "拉取设备失败");
+    return;
+  }
   sessions = res.sessions || [];
   autoKeepIds = new Set(res.autoKeepIds || []);
   keepReasons = res.keepReasons || {};
@@ -504,6 +520,11 @@ function renderSessions() {
   $("sessionCount").textContent = String(sessions.length);
   const keepSet = new Set(guardConfig.keepSessionIds || []);
   const body = $("sessionBody");
+  if (!sessions.length) {
+    body.innerHTML = '<p class="device-empty">暂无登录设备</p>';
+    updateKickSummary();
+    return;
+  }
   body.innerHTML = sessions.map((s) => {
     const protectedRow = s.isCurrent || autoKeepIds.has(s.id);
     const keepChecked = protectedRow || keepSet.has(s.id);

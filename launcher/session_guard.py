@@ -19,13 +19,23 @@ class SessionGuardService:
         accounts: AccountStore,
         guard_store: SessionGuardStore,
         on_event: Callable[[dict], None] | None = None,
+        proxies_fn: Callable[[], dict] | None = None,
     ) -> None:
         self._accounts = accounts
         self._guard_store = guard_store
         self._on_event = on_event
+        self._proxies_fn = proxies_fn
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._errors: dict[str, int] = {}
+
+    def _proxies(self) -> dict:
+        if not self._proxies_fn:
+            return {}
+        try:
+            return self._proxies_fn() or {}
+        except Exception:
+            return {}
 
     def _emit(self, payload: dict) -> None:
         if self._on_event:
@@ -52,7 +62,7 @@ class SessionGuardService:
         token = account["token"]
         mode = cfg.get("mode") or "whitelist"
         try:
-            sessions = list_sessions(token)
+            sessions = list_sessions(token, proxies=self._proxies())
         except Exception as exc:
             self._bump_error(account_id)
             return {"ok": False, "error": str(exc), "mode": mode}
@@ -71,7 +81,7 @@ class SessionGuardService:
                 kept.append(sid)
                 continue
             try:
-                revoke_session(token, sid, session.get("sessionType"))
+                revoke_session(token, sid, session.get("sessionType"), proxies=self._proxies())
                 revoked.append(sid)
             except Exception as exc:
                 errors.append({"id": sid, "error": str(exc)})
@@ -109,14 +119,14 @@ class SessionGuardService:
         for session in new_sessions:
             sid = session["id"]
             try:
-                revoke_session(token, sid, session.get("sessionType"))
+                revoke_session(token, sid, session.get("sessionType"), proxies=self._proxies())
                 revoked.append(sid)
             except Exception as exc:
                 errors.append({"id": sid, "error": str(exc)})
 
         if revoked:
             try:
-                sessions = list_sessions(token)
+                sessions = list_sessions(token, proxies=self._proxies())
             except Exception:
                 sessions = [s for s in sessions if s["id"] not in revoked]
         baseline = {s["id"] for s in sessions}

@@ -465,6 +465,21 @@ textarea { min-height: 96px; resize: vertical; }
 }
 .guard-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .guard-note { margin: 0; }
+.session-error {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  background: rgba(220, 38, 38, 0.06);
+  color: #b91c1c;
+}
+.device-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+}
 
 .settings-fold { padding: 14px 16px 16px; }
 .settings-fold summary {
