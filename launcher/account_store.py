@@ -19,6 +19,11 @@ from .accounts import (
 )
 from .token_utils import parse_token
 
+
+def _has_ws_token(token: str | None) -> bool:
+    text = str(token or "")
+    return "::" in text or "%3a%3a" in text.lower()
+
 _USAGE_FIELDS = (
     "email",
     "membershipType",
@@ -128,6 +133,7 @@ class AccountStore(_BaseStore):
         for key in _USAGE_FIELDS:
             if key in item:
                 out[key] = item[key]
+        out["hasWsToken"] = _has_ws_token(item.get("token"))
         if include_token:
             out["token"] = item.get("token") or ""
         return out

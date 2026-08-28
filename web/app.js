@@ -4,6 +4,7 @@ const api = () => window.pywebview?.api;
 let accounts = [];
 let activeAccountId = null;
 let detailAccountId = null;
+let modelUsageCache = {};
 let sessions = [];
 let autoKeepIds = new Set();
 let keepReasons = {};
@@ -80,12 +81,127 @@ function pct(v) {
   return Number.isFinite(n) && n >= 0 ? Math.min(100, Math.round(n)) : 0;
 }
 
+function fmtTokens(n) {
+  const v = Number(n) || 0;
+  if (v >= 1e9) return `${(v / 1e9).toFixed(1)}B`;
+  if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+  if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
+  return String(v);
+}
+
+function modelUsageRows(rows, mode) {
+  if (!rows || !rows.length) {
+    return `<p class="hint">暂无数据</p>`;
+  }
+  return rows.map((r) => {
+    const p = pct(r.tokenPct);
+    const meta = mode === "cost"
+      ? `$${Number(r.costUsd || 0).toFixed(2)} · ${p}%`
+      : `${fmtTokens(r.tokens)} tokens · ${p}%`;
+    return `<div class="model-row">
+      <div class="model-row-head"><span class="model-name" title="${esc(r.model)}">${esc(r.model)}</span><span class="model-meta">${meta}</span></div>
+      <div class="progress-bar sm"><div class="progress-fill ${mode === "cost" ? "pink" : "green"}" style="width:${p}%"></div></div>
+    </div>`;
+  }).join("");
+}
+
+function modelUsageContent(mu) {
+  if (!mu || (!mu.included && !mu.onDemand)) {
+    return `<p class="hint">本周期暂无模型明细</p>`;
+  }
+  const range = mu.periodStartMs && mu.periodEndMs
+    ? `${fmtDate(mu.periodStartMs)} ~ ${fmtDate(mu.periodEndMs)}`
+    : "当前计费周期";
+  const inc = mu.included || {};
+  const od = mu.onDemand || {};
+  const totalInc = fmtTokens(inc.totalTokens || 0);
+  let html = `<p class="hint">${esc(range)} · 套餐内 ${totalInc} tokens</p>`;
+  if ((inc.cursorModels || []).length) {
+    html += `<h4 class="model-group-title">Cursor Models</h4>${modelUsageRows(inc.cursorModels, "tokens")}`;
+  }
+  if ((inc.otherModels || []).length) {
+    html += `<h4 class="model-group-title">Other Models</h4>${modelUsageRows(inc.otherModels, "tokens")}`;
+  }
+  if ((od.models || []).length) {
+    html += `<h4 class="model-group-title">On-Demand · $${Number(od.totalUsd || 0).toFixed(2)}</h4>${modelUsageRows(od.models, "cost")}`;
+  }
+  if (!(inc.cursorModels || []).length && !(inc.otherModels || []).length && !(od.models || []).length) {
+    html = `<p class="hint">本周期暂无模型明细</p>`;
+  }
+  return html;
+}
+
+function modelUsageBlock() {
+  return `<div class="detail-section model-usage">
+    <div class="section-head"><h3>模型用量</h3><button type="button" class="btn sm" id="btnLoadModelUsage">查看</button></div>
+    <div id="modelUsagePanel"><p class="hint">点击「查看」拉取当前周期各模型 token 统计（同 Cursor Billing）</p></div>
+  </div>`;
+}
+
+function setModelUsageButton(loaded) {
+  const btn = $("btnLoadModelUsage");
+  if (!btn) return;
+  btn.textContent = loaded ? "刷新" : "查看";
+  btn.disabled = false;
+}
+
+function renderModelUsagePanel(mu) {
+  const panel = $("modelUsagePanel");
+  if (panel) panel.innerHTML = modelUsageContent(mu);
+  setModelUsageButton(true);
+}
+
+async function loadModelUsage(force = false) {
+  if (!detailAccountId) return;
+  if (!force && modelUsageCache[detailAccountId]) {
+    renderModelUsagePanel(modelUsageCache[detailAccountId]);
+    return;
+  }
+  const btn = $("btnLoadModelUsage");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "加载中…";
+  }
+  const res = await api().fetch_account_model_usage(detailAccountId);
+  if (!res.ok) {
+    if (btn) setModelUsageButton(Boolean(modelUsageCache[detailAccountId]));
+    const panel = $("modelUsagePanel");
+    if (panel) panel.innerHTML = `<p class="hint">${esc(res.error || "加载失败")}</p>`;
+    toast(res.error || "模型用量加载失败");
+    return;
+  }
+  modelUsageCache[detailAccountId] = res.modelUsage;
+  renderModelUsagePanel(res.modelUsage);
+  toast("模型用量已加载");
+}
+
 function ringHtml(label, value, color) {
   const p = pct(value);
   const r = 22;
   const c = 2 * Math.PI * r;
   const off = c * (1 - p / 100);
   return `<div class="ring-item"><div class="ring"><svg width="52" height="52" viewBox="0 0 52 52"><circle class="ring-bg" cx="26" cy="26" r="${r}"></circle><circle class="ring-fg" cx="26" cy="26" r="${r}" stroke="${color}" stroke-dasharray="${c}" stroke-dashoffset="${off}"></circle></svg><div class="ring-val">${p >= 0 ? p : "—"}</div></div><div class="ring-label">${esc(label)}</div></div>`;
+}
+
+function hasWsToken(a) {
+  const t = a?.token || "";
+  return a?.hasWsToken || t.includes("::") || t.toLowerCase().includes("%3a%3a");
+}
+
+function tokenDetailRows(a) {
+  const tok = a.token || "";
+  if (hasWsToken(a)) {
+    return `
+      <div class="k">WS Token</div>
+      <div class="v token-box-wrap"><textarea class="token-box" readonly spellcheck="false">${esc(tok)}</textarea></div>
+      <button type="button" class="copy-link" data-copy="${esc(tok)}">复制</button>
+      <div class="k">说明</div><div class="v hint token-hint">设备管理 / 踢设备需要此格式（user_xxx::eyJ…）</div><span></span>`;
+  }
+  return `
+    <div class="k">Token</div>
+    <div class="v token-box-wrap"><textarea class="token-box" readonly spellcheck="false">${esc(tok)}</textarea></div>
+    <button type="button" class="copy-link" data-copy="${esc(tok)}">复制</button>
+    <div class="k">说明</div><div class="v hint token-hint warn">当前为 access_token，设备管理需完整 WS Token</div><span></span>`;
 }
 
 function progressBlock(title, used, max, percent, colorClass, legend) {
@@ -122,6 +238,8 @@ function renderAccountCard(a) {
   const initial = (email[0] || "?").toUpperCase();
   const mClass = membershipClass(a.membershipType);
   const badges = [`<span class="tag ${mClass}">${esc(membershipLabel(a.membershipType))}</span>`];
+  if (hasWsToken(a)) badges.push('<span class="tag pro">WS</span>');
+  else badges.push('<span class="tag custom">JWT</span>');
   (a.tags || []).forEach((t) => badges.push(`<span class="tag custom">${esc(t)}</span>`));
   const expiry = a.proExpiryMs ? `周期至 ${fmtDate(a.proExpiryMs)} · ${daysLeft(a.proExpiryMs)}` : "周期未知";
   const stats = `近30天 $${Number(a.periodCostUsd || 0).toFixed(2)} · ${a.requestCount30d || 0}次`;
@@ -189,6 +307,7 @@ async function loadProxy() {
   const res = await api().get_proxy();
   const cfg = res.saved || {};
   $("proxyEnabled").checked = cfg.enabled !== false;
+  $("proxyOnLaunch").checked = cfg.apply_on_launch === true || cfg.applyOnLaunch === true;
   $("proxyType").value = cfg.proxy_type || cfg.proxyType || "http";
   $("proxyHost").value = cfg.host || "127.0.0.1";
   $("proxyPort").value = cfg.port || 7890;
@@ -214,7 +333,7 @@ function renderDetail(a) {
         <div class="k">标签</div><div class="v"><input id="detailTags" value="${esc((a.tags || []).join(","))}" placeholder="逗号分隔" /></div><span></span>
         <div class="k">备注</div><div class="v"><input id="detailRemark" value="${esc(a.remark || "")}" /></div><span></span>
         <div class="k">密码</div><div class="v"><input id="detailPassword" type="password" value="${esc(a.password || "")}" placeholder="本地加密保存" /></div><span></span>
-        <div class="k">AccessToken</div><div class="v">${esc((a.token || "").slice(0, 48))}…</div><button class="copy-link" data-copy="${esc(a.token || "")}">复制</button>
+        ${tokenDetailRows(a)}
         <div class="k">套餐</div><div class="v"><span class="tag ${membershipClass(a.membershipType)}">${esc(membershipLabel(a.membershipType))}</span> ${expiryDays ? `周期至 ${fmtDate(a.proExpiryMs)} · ${expiryDays}` : ""}</div><span></span>
         <div class="k">最近刷新</div><div class="v">${esc(fmtTime(a.lastRefreshed))}</div><span></span>
       </div>
@@ -226,8 +345,12 @@ function renderDetail(a) {
       <div class="usage-card"><h4>Auto 模式</h4><div>${pct(a.autoPercentUsed)}%</div><div class="progress-bar" style="margin-top:8px"><div class="progress-fill green" style="width:${pct(a.autoPercentUsed)}%"></div></div><div class="hint">${esc(a.autoModelMessage || "—")}</div></div>
       <div class="usage-card"><h4>高级模型</h4><div>${pct(a.apiPercentUsed)}%</div><div class="progress-bar" style="margin-top:8px"><div class="progress-fill purple" style="width:${pct(a.apiPercentUsed)}%"></div></div><div class="hint">${esc(a.namedModelMessage || "—")}</div></div>
     </div></div>
+    ${modelUsageBlock()}
     ${a.onDemandUsd ? `<div class="detail-section"><div class="progress-head"><strong>按需用量</strong><span>$${Number(a.onDemandUsd).toFixed(2)}</span></div></div>` : ""}
   `;
+  if (modelUsageCache[a.id]) {
+    renderModelUsagePanel(modelUsageCache[a.id]);
+  }
 }
 
 async function saveDetailMeta() {
@@ -382,8 +505,7 @@ $("btnDetect").onclick = async () => {
     toast(res.error || "失败");
     return;
   }
-  const wsHint = res.hasWsToken ? "（含 ws token，可用设备管理）" : "（仅 access_token，设备管理需 ws token）";
-  toast(`已探测 ${res.email || ""} ${wsHint}`);
+  toast(`已探测 ${res.email || ""} ${res.hasWsToken ? "（含 WS Token，详情里可复制）" : "（仅 JWT，设备管理需 WS Token）"}`);
   if (res.id) await api().refresh_account(res.id);
   await renderAccounts();
 };
@@ -397,6 +519,7 @@ $("btnLaunchLocal").onclick = () => launch(null);
 $("btnSaveProxy").onclick = async () => {
   const res = await api().save_proxy({
     enabled: $("proxyEnabled").checked,
+    apply_on_launch: $("proxyOnLaunch").checked,
     proxy_type: $("proxyType").value,
     host: $("proxyHost").value,
     port: Number($("proxyPort").value || 7890),
@@ -409,6 +532,12 @@ $("btnSavePath").onclick = async () => {
   toast(res.ok ? "路径已保存" : (res.error || "失败"));
   await refreshCursorStatus();
 };
+$("detailBody").addEventListener("click", (ev) => {
+  if (ev.target.id === "btnLoadModelUsage") {
+    ev.preventDefault();
+    loadModelUsage(ev.target.textContent === "刷新");
+  }
+});
 $("detailClose").onclick = () => $("detailDialog").close();
 $("devicesClose").onclick = () => $("devicesDialog").close();
 $("btnDetailSave").onclick = () => saveDetailMeta();

@@ -12,7 +12,7 @@ from launcher.account_store import AccountStore, SessionGuardStore
 from launcher.cursor_process import close_cursor, is_cursor_running, resolve_install, save_cursor_path, start_cursor
 from launcher.cursor_proxy import ProxyConfig, apply_proxy, read_current_proxy
 from launcher.cursor_sessions import list_sessions, revoke_session, revoke_all_except
-from launcher.cursor_usage import refresh_account_usage
+from launcher.cursor_usage import fetch_model_usage, refresh_account_usage
 from launcher.session_keep import pick_auto_keep_sessions, sessions_to_revoke
 from launcher.local_cursor import read_local_account, reset_machine_ids, write_local_account
 from launcher.session_guard import SessionGuardService
@@ -104,6 +104,23 @@ class Api:
         account = self._store.update_usage_snapshot(account_id, result)
         return {"ok": True, "account": account}
 
+    def fetch_account_model_usage(self, account_id: str) -> dict:
+        item = self._store.get(account_id)
+        if not item:
+            return {"ok": False, "error": "账号不存在"}
+        result = fetch_model_usage(item["token"], proxies=self._request_proxies())
+        if not result.get("ok"):
+            return {"ok": False, "error": result.get("error") or "获取失败"}
+        return {
+            "ok": True,
+            "modelUsage": {
+                "periodStartMs": result.get("periodStartMs"),
+                "periodEndMs": result.get("periodEndMs"),
+                "included": result.get("included"),
+                "onDemand": result.get("onDemand"),
+            },
+        }
+
     def refresh_all_accounts(self) -> dict:
         refreshed = []
         errors = []
@@ -152,6 +169,7 @@ class Api:
             "id": account_id,
             "email": email,
             "hasWsToken": bool(acct.get("hasWsToken")),
+            "wsToken": acct.get("wsToken") or "",
             "accounts": self._store.list(),
         }
 
@@ -187,7 +205,10 @@ class Api:
         try:
             layout = resolve_install()
             proxy_cfg = ProxyConfig.from_dict(_read_json("proxy.json", {}))
-            apply_proxy(proxy_cfg)
+            if proxy_cfg.apply_on_launch:
+                applied = apply_proxy(proxy_cfg)
+                if not applied.get("ok"):
+                    return {"ok": False, "error": applied.get("error") or "代理注入失败"}
 
             if account_id:
                 item = self._store.get(account_id)
@@ -216,6 +237,8 @@ class Api:
         _write_json("proxy.json", cfg.to_dict())
         try:
             applied = apply_proxy(cfg)
+            if not applied.get("ok"):
+                return {"ok": False, "error": applied.get("error") or "代理写入失败", "config": cfg.to_dict()}
             return {"ok": True, "config": cfg.to_dict(), "applied": applied}
         except Exception as exc:
             return {"ok": False, "error": str(exc), "config": cfg.to_dict()}
@@ -344,7 +367,7 @@ def main() -> None:
         width=1080,
         height=760,
         min_size=(900, 640),
-        background_color="#E8F0FE",
+        background_color="#ECEAE6",
     )
     api._window = window
     webview.start()

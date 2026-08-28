@@ -19,6 +19,8 @@ DASH_TEAMS = "https://cursor.com/api/dashboard/teams"
 DASH_TEAM = "https://cursor.com/api/dashboard/team"
 SAND_USAGE = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus"
 AGG_USAGE = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetAggregatedUsageEvents"
+MONTHLY_INVOICE = "https://cursor.com/api/dashboard/get-monthly-invoice"
+AGG_USAGE_DASH = "https://cursor.com/api/dashboard/get-aggregated-usage-events"
 
 
 def _session_token(raw: str) -> str:
@@ -178,16 +180,200 @@ def _cookie_headers(session_token: str) -> dict[str, str]:
     }
 
 
-def _dashboard_post_headers(session_token: str) -> dict[str, str]:
+def _dashboard_post_headers(session_token: str, referer: str = "https://cursor.com/dashboard/billing") -> dict[str, str]:
     headers = _cookie_headers(session_token)
     headers.update(
         {
             "Accept": "*/*",
             "Origin": "https://cursor.com",
-            "Referer": "https://cursor.com/cn/dashboard",
+            "Referer": referer,
         }
     )
     return headers
+
+
+def _as_int(value: Any) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str) and value.strip():
+        try:
+            return int(float(value.strip()))
+        except ValueError:
+            return 0
+    return 0
+
+
+def _model_group(model: str) -> str:
+    name = (model or "").lower()
+    if name == "auto" or name.startswith(("cursor-", "composer-")):
+        return "cursor"
+    return "other"
+
+
+def _parse_model_aggregations(aggregations: list[Any]) -> dict[str, Any]:
+    """把 get-aggregated-usage-events 的 aggregations 整理成 billing 页同款结构。"""
+    included_cursor: list[dict] = []
+    included_other: list[dict] = []
+    on_demand: list[dict] = []
+    included_tokens = 0
+    on_demand_usd = 0.0
+
+    for item in aggregations:
+        if not isinstance(item, dict):
+            continue
+        model = str(item.get("modelIntent") or item.get("model") or "").strip()
+        if not model:
+            continue
+        tokens = (
+            _as_int(item.get("inputTokens"))
+            + _as_int(item.get("outputTokens"))
+            + _as_int(item.get("cacheReadTokens"))
+            + _as_int(item.get("cacheWriteTokens"))
+        )
+        cents = float(item.get("totalCents") or 0)
+        tier = item.get("tier")
+        if tier in (2, "2"):
+            is_on_demand = False
+        elif tier is not None:
+            is_on_demand = True
+        else:
+            is_on_demand = cents > 0 and tokens == 0
+        if not is_on_demand and cents <= 0 and tokens <= 0:
+            continue
+
+        row = {
+            "model": model,
+            "tokens": tokens,
+            "costUsd": round(cents / 100.0, 2),
+            "group": _model_group(model),
+        }
+        if is_on_demand:
+            on_demand.append(row)
+            on_demand_usd += cents / 100.0
+        else:
+            if row["group"] == "cursor":
+                included_cursor.append(row)
+            else:
+                included_other.append(row)
+            included_tokens += tokens
+
+    for bucket in (included_cursor, included_other, on_demand):
+        bucket.sort(key=lambda x: x.get("tokens") or x.get("costUsd") or 0, reverse=True)
+
+    total_included = included_tokens or 1
+    for bucket in (included_cursor, included_other):
+        for row in bucket:
+            row["tokenPct"] = round((row["tokens"] / total_included) * 100, 1)
+
+    on_total_tokens = sum(r["tokens"] for r in on_demand) or sum(
+        1 for r in on_demand if r.get("costUsd")
+    )
+    on_base = on_total_tokens if on_total_tokens else len(on_demand) or 1
+    for row in on_demand:
+        if row["tokens"] > 0:
+            row["tokenPct"] = round((row["tokens"] / on_base) * 100, 1)
+        elif on_demand_usd > 0:
+            row["tokenPct"] = round((row["costUsd"] / on_demand_usd) * 100, 1)
+
+    return {
+        "included": {
+            "cursorModels": included_cursor,
+            "otherModels": included_other,
+            "totalTokens": included_tokens,
+        },
+        "onDemand": {
+            "models": on_demand,
+            "totalUsd": round(on_demand_usd, 2),
+        },
+    }
+
+
+def fetch_model_usage(token: str, proxies: dict | None = None) -> dict[str, Any]:
+    """拉取当前计费周期的按模型 token / 费用明细（对齐 cursor.com/dashboard/billing）。"""
+    session = _session_token(token)
+    headers = _dashboard_post_headers(session)
+
+    period_start_ms = 0
+    period_end_ms = int(time.time() * 1000)
+    try:
+        inv_resp = requests.post(
+            MONTHLY_INVOICE,
+            headers=headers,
+            json={"useCurrentCycle": True},
+            timeout=TIMEOUT,
+            proxies=proxies or {},
+        )
+        if inv_resp.ok:
+            inv = inv_resp.json()
+            if isinstance(inv, dict):
+                period_start_ms = _as_int(inv.get("periodStartMs"))
+                end_ms = _as_int(inv.get("periodEndMs"))
+                if end_ms > 0:
+                    period_end_ms = end_ms
+    except Exception:
+        pass
+
+    if period_start_ms <= 0:
+        merged = fetch_usage_summary(token, proxies=proxies)
+        period_start_ms = _to_ms(merged.get("billingCycleStart"))
+        end_ms = _to_ms(merged.get("billingCycleEnd"))
+        if end_ms > 0:
+            period_end_ms = end_ms
+    if period_start_ms <= 0:
+        period_start_ms = period_end_ms - 30 * 86400000
+
+    aggregations: list[Any] = []
+    try:
+        agg_resp = requests.post(
+            AGG_USAGE_DASH,
+            headers=headers,
+            json={"teamId": -1, "startDate": period_start_ms},
+            timeout=TIMEOUT,
+            proxies=proxies or {},
+        )
+        if agg_resp.ok:
+            body = agg_resp.json()
+            if isinstance(body, dict) and isinstance(body.get("aggregations"), list):
+                aggregations = body["aggregations"]
+    except Exception:
+        pass
+
+    if not aggregations:
+        _, jwt, _ = parse_token(token)
+        try:
+            api2_resp = requests.post(
+                AGG_USAGE,
+                headers={**_bearer_headers(jwt), "connect-protocol-version": "1"},
+                json={"startDate": str(period_start_ms), "endDate": str(period_end_ms)},
+                timeout=TIMEOUT,
+                proxies=proxies or {},
+            )
+            if api2_resp.ok:
+                body = api2_resp.json()
+                if isinstance(body, dict) and isinstance(body.get("aggregations"), list):
+                    aggregations = body["aggregations"]
+        except Exception:
+            pass
+
+    if not aggregations:
+        return {
+            "ok": False,
+            "error": "暂无模型用量数据",
+            "periodStartMs": period_start_ms,
+            "periodEndMs": period_end_ms,
+        }
+
+    breakdown = _parse_model_aggregations(aggregations)
+    return {
+        "ok": True,
+        "periodStartMs": period_start_ms,
+        "periodEndMs": period_end_ms,
+        **breakdown,
+    }
 
 
 def _pick_email(data: dict | None) -> str:

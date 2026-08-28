@@ -46,20 +46,26 @@
     <details class="card settings-fold">
       <summary>代理与 Cursor 路径</summary>
       <div class="settings-grid">
-        <div>
+        <section class="settings-panel">
+          <h3 class="settings-title">网络代理</h3>
           <label class="check-row"><input type="checkbox" id="proxyEnabled" checked /> 启用代理</label>
-          <div class="field-row">
-            <select id="proxyType"><option value="http">HTTP</option><option value="socks5">SOCKS5</option></select>
-            <input id="proxyHost" value="127.0.0.1" spellcheck="false" />
-            <input id="proxyPort" type="number" value="7890" min="1" max="65535" />
+          <label class="check-row"><input type="checkbox" id="proxyOnLaunch" /> 启动 IDE 时自动注入</label>
+          <p class="hint settings-hint">默认关闭。勾选后每次启动会写入 settings.json；不影响 Cursor 网关插件的线路设置。</p>
+          <label class="field-label" for="proxyType">地址</label>
+          <div class="proxy-fields">
+            <select id="proxyType" aria-label="代理类型"><option value="http">HTTP</option><option value="socks5">SOCKS5</option></select>
+            <input id="proxyHost" value="127.0.0.1" spellcheck="false" aria-label="代理主机" />
+            <input id="proxyPort" type="number" value="7890" min="1" max="65535" aria-label="代理端口" />
           </div>
-          <button class="btn" id="btnSaveProxy">保存并注入</button>
-        </div>
-        <div>
-          <input id="cursorPath" spellcheck="false" placeholder="Cursor.exe 路径（留空自动检测）" />
-          <button class="btn" id="btnSavePath">保存路径</button>
+          <button type="button" class="btn" id="btnSaveProxy">保存并注入</button>
+        </section>
+        <section class="settings-panel">
+          <h3 class="settings-title">Cursor 安装路径</h3>
+          <label class="field-label" for="cursorPath">可执行文件</label>
+          <input id="cursorPath" spellcheck="false" placeholder="留空则自动检测 Cursor.exe" />
+          <button type="button" class="btn" id="btnSavePath">保存路径</button>
           <pre class="mini" id="cursorInfo">—</pre>
-        </div>
+        </section>
       </div>
     </details>
   </div>

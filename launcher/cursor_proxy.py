@@ -17,6 +17,7 @@ class ProxyConfig:
     host: str = "127.0.0.1"
     port: int = 7890
     strict_ssl: bool = False
+    apply_on_launch: bool = False
 
     def http_proxy_url(self) -> str:
         scheme = "socks5" if self.proxy_type == "socks5" else "http"
@@ -34,7 +35,15 @@ class ProxyConfig:
             host=str(data.get("host") or "127.0.0.1"),
             port=int(data.get("port") or 7890),
             strict_ssl=bool(data.get("strict_ssl", data.get("strictSsl", False))),
+            apply_on_launch=bool(data.get("apply_on_launch", data.get("applyOnLaunch", False))),
         )
+
+
+def _strip_json_comments(text: str) -> str:
+    """去掉 VS Code settings 的整行 // 注释；不能匹配字符串里的 http://。"""
+    if text.startswith("\ufeff"):
+        text = text.lstrip("\ufeff")
+    return re.sub(r"^\s*//.*$", "", text, flags=re.MULTILINE)
 
 
 def _load_settings() -> dict[str, Any]:
@@ -42,9 +51,8 @@ def _load_settings() -> dict[str, Any]:
     if not path or not __import__("os").path.isfile(path):
         return {}
     try:
-        text = open(path, "r", encoding="utf-8").read()
-        # VS Code settings 支持注释，简单去掉 // 行注释
-        text = re.sub(r"//.*?$", "", text, flags=re.MULTILINE)
+        text = open(path, "r", encoding="utf-8-sig").read()
+        text = _strip_json_comments(text)
         data = json.loads(text)
         return data if isinstance(data, dict) else {}
     except Exception:
@@ -64,8 +72,17 @@ def _save_settings(data: dict[str, Any]) -> None:
 
 
 def apply_proxy(config: ProxyConfig) -> dict:
-    """写入 Cursor User/settings.json 代理项。"""
+    """写入 Cursor User/settings.json 代理项（仅改代理相关键，保留其它配置）。"""
+    path = settings_json_path()
+    import os
+
     settings = _load_settings()
+    if not settings and path and os.path.isfile(path):
+        return {
+            "ok": False,
+            "error": "无法解析 settings.json，已跳过写入以免覆盖 cursorYc 等现有配置",
+            "path": path,
+        }
     if not config.enabled:
         for key in ("http.proxy", "http.proxySupport", "http.proxyStrictSSL", "cursorGateway.downloadProxy"):
             settings.pop(key, None)

@@ -1,4 +1,4 @@
-# 打包 Cursor Launcher 为单文件 exe
+# Build Cursor Launcher as a single-file exe (UTF-8 BOM required for PS 5.1)
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
@@ -6,26 +6,34 @@ $python = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
 $pip = Join-Path $PSScriptRoot ".venv\Scripts\pip.exe"
 
 if (-not (Test-Path $python)) {
-    Write-Host "未找到 .venv，正在创建虚拟环境…" -ForegroundColor Yellow
+    Write-Output "[build] Creating virtual environment..."
     python -m venv .venv
+    if (-not (Test-Path $python)) {
+        Write-Error "Failed to create .venv. Is Python on PATH?"
+    }
 }
 
-Write-Host "安装/更新打包依赖…" -ForegroundColor Cyan
-& $pip install -q -r requirements.txt pyinstaller>=6.0
+Write-Output "[build] Installing/updating dependencies..."
+& $pip install -q -r requirements.txt "pyinstaller>=6.0"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "pip install failed (exit $LASTEXITCODE)"
+}
 
-Write-Host "开始 PyInstaller 打包（约 1–3 分钟）…" -ForegroundColor Cyan
+Write-Output "[build] Running PyInstaller (about 1-3 min)..."
 & $python -m PyInstaller cursor-launcher.spec --noconfirm --clean
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "PyInstaller failed (exit $LASTEXITCODE)"
+}
 
 $exe = Join-Path $PSScriptRoot "dist\CursorLauncher.exe"
 if (Test-Path $exe) {
     $size = [math]::Round((Get-Item $exe).Length / 1MB, 1)
-    Write-Host ""
-    Write-Host "打包成功！" -ForegroundColor Green
-    Write-Host "  路径: $exe"
-    Write-Host "  大小: ${size} MB"
-    Write-Host ""
-    Write-Host "双击 dist\CursorLauncher.exe 即可运行，无需安装 Python。"
+    Write-Output ""
+    Write-Output "[build] SUCCESS"
+    Write-Output "  Path: $exe"
+    Write-Output "  Size: ${size} MB"
+    Write-Output ""
+    Write-Output "Run dist\CursorLauncher.exe directly (Python not required)."
 } else {
-    Write-Host "打包失败，请查看上方 PyInstaller 输出。" -ForegroundColor Red
-    exit 1
+    Write-Error "Build finished but exe not found: $exe"
 }
