@@ -686,6 +686,39 @@ $("btnRefreshAll").onclick = async () => {
   await renderAccounts();
 };
 $("btnLaunchLocal").onclick = () => launch(null);
+$("btnDetectProxy").onclick = async () => {
+  toast("正在检测本机代理…");
+  $("proxyDetectInfo").textContent = "检测中…";
+  try {
+    const res = await api().detect_proxy(true);
+    if (!res.ok) {
+      $("proxyDetectInfo").textContent = res.error || "检测失败";
+      return toast(res.error || "检测失败");
+    }
+    const rec = res.recommended;
+    const lines = (res.candidates || []).map((c) => {
+      const mark = c.reachable ? "✓" : (c.open ? "○" : "×");
+      return `${mark} ${c.proxy_type}://${c.host}:${c.port}  ${c.label || ""}`;
+    });
+    if (rec) {
+      $("proxyEnabled").checked = true;
+      $("proxyType").value = rec.proxy_type || "http";
+      $("proxyHost").value = rec.host || "127.0.0.1";
+      $("proxyPort").value = rec.port || 7890;
+      $("proxyDetectInfo").textContent =
+        `已填入推荐：${rec.proxy_type}://${rec.host}:${rec.port}（${rec.label || ""}）\n` +
+        (res.hint || "") + "\n" + lines.join("\n");
+      toast(`已填入 ${rec.proxy_type}://${rec.host}:${rec.port}，请点「保存并注入」`);
+    } else {
+      $("proxyDetectInfo").textContent =
+        "未发现可用本地代理。请先打开 Clash / v2rayN 等。\n" + (res.hint || "") + "\n" + lines.join("\n");
+      toast("未发现可用代理");
+    }
+  } catch (e) {
+    $("proxyDetectInfo").textContent = String(e);
+    toast("检测失败：" + String(e));
+  }
+};
 $("btnSaveProxy").onclick = async () => {
   const res = await api().save_proxy({
     enabled: $("proxyEnabled").checked,

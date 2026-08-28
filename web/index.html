@@ -59,7 +59,11 @@
             <input id="proxyHost" value="127.0.0.1" spellcheck="false" aria-label="代理主机" />
             <input id="proxyPort" type="number" value="7890" min="1" max="65535" aria-label="代理端口" />
           </div>
-          <button type="button" class="btn" id="btnSaveProxy">保存并注入</button>
+          <div class="guard-actions">
+            <button type="button" class="btn ghost" id="btnDetectProxy">检测本机代理</button>
+            <button type="button" class="btn" id="btnSaveProxy">保存并注入</button>
+          </div>
+          <pre class="mini" id="proxyDetectInfo">优先用 HTTP（对本工具更稳）；SOCKS5 也可。</pre>
         </section>
         <section class="settings-panel">
           <h3 class="settings-title">Cursor 安装路径</h3>

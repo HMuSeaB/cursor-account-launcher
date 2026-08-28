@@ -20,7 +20,8 @@ class ProxyConfig:
     apply_on_launch: bool = False
 
     def http_proxy_url(self) -> str:
-        scheme = "socks5" if self.proxy_type == "socks5" else "http"
+        # socks5h：DNS 走代理，减少本地解析导致的握手异常
+        scheme = "socks5h" if self.proxy_type == "socks5" else "http"
         return f"{scheme}://{self.host}:{self.port}"
 
     def to_dict(self) -> dict:

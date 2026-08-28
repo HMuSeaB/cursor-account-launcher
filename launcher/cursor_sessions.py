@@ -161,32 +161,46 @@ def _cookie_from_account_token(token: str) -> str:
 
 def list_sessions(token: str, proxies: dict | None = None) -> list[dict]:
     session_token = _session_token_string(token)
-    resp = requests.get(
-        SESSIONS_URL,
-        headers=_list_headers(session_token),
-        timeout=TIMEOUT,
-        proxies=proxies or {},
-    )
-    body = resp.text
-    if "authenticator.cursor.sh" in resp.url:
-        raise RuntimeError("会话已失效，cursor.com 跳转到登录页")
-    if not resp.ok:
-        msg = _error_message(body)
-        raise RuntimeError(msg or f"拉取会话失败 HTTP {resp.status_code}")
-    data = resp.json()
-    if isinstance(data, dict) and data.get("error"):
-        raise RuntimeError(_error_message(body) or "拉取会话失败")
-    current_id = session_id_from_token(token)
-    items = data.get("sessions") if isinstance(data, dict) else None
-    if not isinstance(items, list):
-        return []
-    out = []
-    for item in items:
-        if isinstance(item, dict):
-            normalized = _normalize_session(item, current_id)
-            if normalized:
-                out.append(normalized)
-    return out
+    last_err: Exception | None = None
+    for attempt in range(3):
+        try:
+            resp = requests.get(
+                SESSIONS_URL,
+                headers=_list_headers(session_token),
+                timeout=TIMEOUT,
+                proxies=proxies or {},
+            )
+            body = resp.text
+            if "authenticator.cursor.sh" in resp.url:
+                raise RuntimeError("会话已失效，cursor.com 跳转到登录页")
+            if not resp.ok:
+                msg = _error_message(body)
+                raise RuntimeError(msg or f"拉取会话失败 HTTP {resp.status_code}")
+            data = resp.json()
+            if isinstance(data, dict) and data.get("error"):
+                raise RuntimeError(_error_message(body) or "拉取会话失败")
+            current_id = session_id_from_token(token)
+            items = data.get("sessions") if isinstance(data, dict) else None
+            if not isinstance(items, list):
+                return []
+            out = []
+            for item in items:
+                if isinstance(item, dict):
+                    normalized = _normalize_session(item, current_id)
+                    if normalized:
+                        out.append(normalized)
+            return out
+        except Exception as exc:
+            last_err = exc
+            text = str(exc).lower()
+            # SSL / 连接抖动：自动重试
+            if attempt < 2 and any(
+                k in text for k in ("ssl", "handshake", "max retries", "connection", "timed out", "timeout")
+            ):
+                time.sleep(0.6 * (attempt + 1))
+                continue
+            raise
+    raise RuntimeError(str(last_err) if last_err else "拉取会话失败")
 
 
 def revoke_session(token: str, session_id: str, session_type: str | None = None, proxies: dict | None = None) -> None:

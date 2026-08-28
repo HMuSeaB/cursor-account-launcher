@@ -12,6 +12,7 @@ import webview
 from launcher.account_store import AccountStore, SessionGuardStore
 from launcher.cursor_process import close_cursor, is_cursor_running, resolve_install, save_cursor_path, start_cursor
 from launcher.cursor_proxy import ProxyConfig, apply_proxy, read_current_proxy
+from launcher.proxy_detect import detect_local_proxies
 from launcher.cursor_sessions import list_sessions, revoke_session, revoke_all_except
 from launcher.cursor_usage import fetch_model_usage, refresh_account_usage
 from launcher.session_keep import merge_keep_ids, pick_auto_keep_sessions, sessions_to_revoke
@@ -452,6 +453,12 @@ class Api:
         saved = _read_json("proxy.json", ProxyConfig().to_dict())
         current = read_current_proxy()
         return {"saved": saved, "cursorSettings": current}
+
+    def detect_proxy(self, probe: bool = True) -> dict:
+        try:
+            return detect_local_proxies(probe=bool(probe))
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
 
     def save_proxy(self, config: dict) -> dict:
         cfg = ProxyConfig.from_dict(config)
