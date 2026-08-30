@@ -8,60 +8,35 @@
 from __future__ import annotations
 
 import os
-import re
 import shutil
 from pathlib import Path
 
-BAJIE_PREFIX = "https://127.0.0.1:43111/__bajie/"
-BAJIE_RE = re.compile(re.escape(BAJIE_PREFIX) + r"([^\"']+)")
-WORKBENCH_REL = (
-    Path("resources") / "app" / "out" / "vs" / "workbench" / "workbench.desktop.main.js",
-    Path("resources") / "app" / "out" / "vs" / "workbench" / "workbench.glass.main.js",
-)
+from launcher.cursor_install import workbench_files
+from launcher.workbench.layers import BAJIE_PREFIX, strip_gateway_urls
+from launcher.workbench.manager import WorkbenchWriteError, commit_changes
 
 
-def _backup_dir() -> Path:
+def _legacy_backup_dir() -> Path:
     base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
     path = Path(base) / "CursorLauncher" / "bajie-backups"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
-def strip_bajie_urls(text: str) -> tuple[str, int]:
-    count = 0
-
-    def repl(match: re.Match[str]) -> str:
-        nonlocal count
-        count += 1
-        return "https://" + match.group(1)
-
-    return BAJIE_RE.sub(repl, text), count
-
-
-def workbench_files(install_root: Path) -> list[Path]:
-    root = Path(install_root)
-    return [root / rel for rel in WORKBENCH_REL]
-
-
 def detect_patch(install_root: Path) -> dict:
     """检测 workbench 里是否已有网关补丁（43111/__bajie）。"""
-    files = [p for p in workbench_files(install_root) if p.is_file()]
+    from launcher.workbench.layers import scan_files
+
+    files = workbench_files(install_root)
     if not files:
         return {"ok": False, "patched": False, "hits": 0, "hasBackup": False, "error": "找不到 workbench"}
-    backups = _backup_dir()
-    hits = 0
-    for path in files:
-        try:
-            raw = path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        _, n = strip_bajie_urls(raw)
-        hits += n
+    scan = scan_files(files)
+    backups = _legacy_backup_dir()
     has_backup = any((backups / p.name).is_file() for p in files)
     return {
         "ok": True,
-        "patched": hits > 0,
-        "hits": hits,
+        "patched": scan.gateway_hits > 0,
+        "hits": scan.gateway_hits,
         "hasBackup": has_backup,
         "files": len(files),
     }
@@ -69,42 +44,81 @@ def detect_patch(install_root: Path) -> dict:
 
 def apply_bajie_route(install_root: Path, *, bypass: bool) -> dict:
     """bypass=True：改回官方 URL；False：从备份恢复插件改过的文件。"""
-    files = [p for p in workbench_files(install_root) if p.is_file()]
+    from launcher.cursor_install import app_root as resolve_app_root
+
+    files = workbench_files(install_root)
     if not files:
         return {"ok": False, "error": "找不到 workbench 文件，无法改路由", "changed": 0}
-    backups = _backup_dir()
+    app_root_path = resolve_app_root(install_root)
+    backups = _legacy_backup_dir()
     changed = 0
     hits = 0
     restored = 0
     try:
-        for path in files:
-            bak = backups / path.name
-            if bypass:
+        if bypass:
+            pending: dict[Path, str] = {}
+            for path in files:
                 raw = path.read_text(encoding="utf-8")
+                bak = backups / path.name
                 if BAJIE_PREFIX in raw and not bak.is_file():
                     shutil.copy2(path, bak)
-                new, n = strip_bajie_urls(raw)
+                new, n = strip_gateway_urls(raw)
                 hits += n
-                if n:
-                    tmp = path.with_suffix(path.suffix + ".tmp")
-                    tmp.write_text(new, encoding="utf-8")
-                    tmp.replace(path)
-                    changed += 1
-            else:
-                if bak.is_file():
-                    shutil.copy2(bak, path)
-                    restored += 1
-        if not bypass and restored == 0:
+                if n and new != raw:
+                    pending[path] = new
+            snapshot = None
+            if pending:
+                wb_result = commit_changes(
+                    app_root_path,
+                    files,
+                    pending,
+                    layer="gateway-bypass",
+                    reason="strip-bajie-for-clash",
+                    skip_preflight=True,
+                )
+                changed = len([n for n in wb_result.get("changed", []) if n.endswith(".js")])
+                snapshot = wb_result.get("snapshot")
+            return {
+                "ok": True,
+                "bypass": True,
+                "changed": changed,
+                "hits": hits,
+                "restored": 0,
+                "snapshot": snapshot,
+                "files": [str(p) for p in files],
+            }
+
+        for path in files:
+            bak = backups / path.name
+            if bak.is_file():
+                shutil.copy2(bak, path)
+                restored += 1
+        if restored == 0:
+            from launcher.workbench.diagnostic import restore_workbench_layer
+
+            unified = restore_workbench_layer(target="legacy-bajie")
+            if unified.get("ok") and unified.get("restored"):
+                return {
+                    "ok": True,
+                    "bypass": False,
+                    "changed": 0,
+                    "hits": 0,
+                    "restored": len(unified["restored"]),
+                    "message": unified.get("message"),
+                    "source": unified.get("source"),
+                }
             return {"ok": False, "error": "没有 workbench 备份，无法还原", "restored": 0}
         return {
             "ok": True,
-            "bypass": bypass,
-            "changed": changed,
-            "hits": hits,
+            "bypass": False,
+            "changed": 0,
+            "hits": 0,
             "restored": restored,
-            "message": (f"已还原 {restored} 个 workbench 文件" if restored else None),
+            "message": f"已还原 {restored} 个 workbench 文件",
             "files": [str(p) for p in files],
         }
+    except WorkbenchWriteError as exc:
+        return {"ok": False, "error": str(exc), "changed": changed}
     except PermissionError:
         return {
             "ok": False,
@@ -113,3 +127,7 @@ def apply_bajie_route(install_root: Path, *, bypass: bool) -> dict:
         }
     except OSError as exc:
         return {"ok": False, "error": str(exc), "changed": changed}
+
+
+# 兼容旧 import
+strip_bajie_urls = strip_gateway_urls

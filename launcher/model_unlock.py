@@ -29,18 +29,24 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from launcher.cursor_install import app_root as install_app_root
+from launcher.cursor_install import workbench_files as install_workbench_files
 from launcher.local_cursor import state_db_path, wait_state_db_ready
 from launcher.cursor_process import _load_config, is_cursor_running, resolve_install, update_config
+from launcher.workbench.manager import WorkbenchWriteError, commit_changes, write_atomic
 
-MARKER_MODEL = "/*MODEL_UNLOCK_V1*/"
-MARKER_MEM = "/*MODEL_MEM_PRO_V1*/"
-MARKER_MAX = "/*MODEL_MAXMODE_V1*/"
-MARKER_FETCH = "/*MODEL_MEMBERSHIP_SPOOF_V1*/"
-MARKER_FULL = "/*MODEL_FULL_PICKER_V1*/"
-MARKER_TREAT = "/*MODEL_NO_TREATMENT_V1*/"
-MARKER_NAMED = "/*MODEL_NAMED_VIEW_V1*/"
-MARKER_CATALOG = "/*MODEL_CATALOG_V1*/"
-MARKER_SHOW_MAX = "/*MODEL_SHOW_MAX_V1*/"
+from launcher.workbench.markers import (
+    MARKER_CATALOG,
+    MARKER_FETCH,
+    MARKER_FULL,
+    MARKER_MAX,
+    MARKER_MEM,
+    MARKER_MODEL,
+    MARKER_NAMED,
+    MARKER_SHOW_MAX,
+    MARKER_TREAT,
+    MAX_MEM_INJECT,
+)
 
 WORKBENCH_REL = (
     Path("out") / "vs" / "workbench" / "workbench.desktop.main.js",
@@ -151,7 +157,6 @@ MEM_PRO_RE = re.compile(
     r"(this\.storageService\.get\()"
 )
 MEM_INJECTED_RE = re.compile(_MEM_QUOTED + r"\|\|" + re.escape(MARKER_MEM))
-MAX_MEM_INJECT = 4
 
 APPLICATION_USER_DB_KEY = (
     "src.vs.platform.reactivestorage.browser.reactiveStorageServiceImpl.persistentStorage.applicationUser"
@@ -234,7 +239,7 @@ def _product_checksum(data: bytes) -> str:
 
 
 def _workbench_files(app_root: Path) -> list[Path]:
-    return [app_root / rel for rel in WORKBENCH_REL if (app_root / rel).is_file()]
+    return install_workbench_files(app_root_path=app_root)
 
 
 def apply_show_max_to_content(content: str) -> tuple[str, UnlockStats]:
@@ -609,7 +614,7 @@ def status() -> dict[str, Any]:
         return UnlockStatus(
             ok=False, installed=False, running=running, error=str(exc)
         ).__dict__
-    app_root = Path(layout.install_root) / "resources" / "app"
+    app_root = install_app_root(layout.install_root)
     files = _workbench_files(app_root)
     if not files:
         return UnlockStatus(
@@ -725,7 +730,7 @@ def repair_corrupted() -> dict[str, Any]:
         layout = resolve_install()
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
-    app_root = Path(layout.install_root) / "resources" / "app"
+    app_root = install_app_root(layout.install_root)
     files = _workbench_files(app_root)
     if not files:
         return {"ok": False, "error": "找不到 workbench 文件"}
@@ -770,7 +775,7 @@ def repair_corrupted() -> dict[str, Any]:
 
     try:
         for path, data in changed.items():
-            _write_atomic(path, data)
+            write_atomic(path, data)
     except (PermissionError, OSError) as exc:
         return {"ok": False, "error": str(exc)}
 
@@ -792,13 +797,12 @@ def apply(membership_level: str | None = None, *, max_only: bool = False) -> dic
         layout = resolve_install()
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
-    app_root = Path(layout.install_root) / "resources" / "app"
+    app_root = install_app_root(layout.install_root)
     files = _workbench_files(app_root)
     if not files:
         return {"ok": False, "error": "找不到 workbench 文件"}
 
-    bak = _snapshot(files)
-    changed: dict[Path, bytes] = {}
+    pending: dict[Path, str] = {}
     total = UnlockStats()
     try:
         for path in files:
@@ -808,16 +812,15 @@ def apply(membership_level: str | None = None, *, max_only: bool = False) -> dic
             )
             _accumulate(total, stats)
             if next_text != original:
-                changed[path] = next_text.encode("utf-8")
+                pending[path] = next_text
     except ModelUnlockError as exc:
-        return {"ok": False, "error": str(exc), "backup": str(bak)}
+        return {"ok": False, "error": str(exc)}
 
     storage_sync: dict[str, Any] | None = None
-    if not changed:
+    if not pending:
         st = status()
         st["ok"] = True
         st["skipped"] = True
-        st["backup"] = str(bak)
         st["stats"] = total.__dict__
         st["message"] = (
             "MAX 开关补丁已是最新，无需重打。请确认已用启动器重启 IDE。"
@@ -831,22 +834,21 @@ def apply(membership_level: str | None = None, *, max_only: bool = False) -> dic
                 st["message"] += f" 已同步侧边栏为 {membership['label']}。"
         return st
 
-    product_next = _sync_product_checksums(app_root, changed)
-    product_path = app_root / "product.json"
-    if product_next is not None and product_path.is_file():
-        changed[product_path] = product_next
-
+    layer = "model-unlock-max" if max_only else "model-unlock-full"
     try:
-        for path, data in changed.items():
-            _write_atomic(path, data)
-    except PermissionError:
-        return {"ok": False, "error": "没有写入权限，请用管理员运行启动器", "backup": str(bak)}
-    except OSError as exc:
-        return {"ok": False, "error": str(exc), "backup": str(bak)}
+        wb_result = commit_changes(
+            app_root,
+            files,
+            pending,
+            layer=layer,
+            reason="apply",
+        )
+    except WorkbenchWriteError as exc:
+        return {"ok": False, "error": str(exc)}
 
     st = status()
     st["ok"] = True
-    st["backup"] = str(bak)
+    st["backup"] = wb_result.get("snapshot")
     st["stats"] = total.__dict__
     storage_sync = sync_storage_membership(membership["key"]) if not max_only else None
     st["storageSync"] = storage_sync
@@ -873,45 +875,41 @@ def restore() -> dict[str, Any]:
         layout = resolve_install()
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
-    app_root = Path(layout.install_root) / "resources" / "app"
+    app_root = install_app_root(layout.install_root)
     files = _workbench_files(app_root)
     if not files:
         return {"ok": False, "error": "找不到 workbench 文件"}
 
-    bak = _snapshot(files)
-    changed: dict[Path, bytes] = {}
+    pending: dict[Path, str] = {}
     total = UnlockStats()
     for path in files:
         original = path.read_text(encoding="utf-8")
         next_text, stats = remove_from_content(original)
         _accumulate(total, stats)
         if next_text != original:
-            changed[path] = next_text.encode("utf-8")
+            pending[path] = next_text
 
-    if not changed:
+    if not pending:
         return {
             "ok": True,
             "skipped": True,
             "message": "未发现本启动器的模型解锁标记，无需还原",
-            "backup": str(bak),
         }
 
-    product_next = _sync_product_checksums(app_root, changed)
-    product_path = app_root / "product.json"
-    if product_next is not None and product_path.is_file():
-        changed[product_path] = product_next
-
     try:
-        for path, data in changed.items():
-            _write_atomic(path, data)
-    except PermissionError:
-        return {"ok": False, "error": "没有写入权限", "backup": str(bak)}
-    except OSError as exc:
-        return {"ok": False, "error": str(exc), "backup": str(bak)}
+        wb_result = commit_changes(
+            app_root,
+            files,
+            pending,
+            layer="model-unlock",
+            reason="restore",
+        )
+    except WorkbenchWriteError as exc:
+        return {"ok": False, "error": str(exc)}
 
     st = status()
     st["ok"] = True
-    st["backup"] = str(bak)
+    st["backup"] = wb_result.get("snapshot")
     st["stats"] = total.__dict__
     storage_sync = sync_storage_membership(DEFAULT_MEMBERSHIP)
     st["storageSync"] = storage_sync
