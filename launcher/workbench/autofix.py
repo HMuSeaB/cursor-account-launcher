@@ -73,7 +73,8 @@ def plan_autofix(diag: dict | None = None) -> dict:
         "ready": len([s for s in steps if not s.get("manual")]) == 0,
         "steps": steps,
         "needsClosed": any(s.get("needsClosed") for s in steps if not s.get("manual")),
-        "diagnostic": report,
+        # 禁止把完整 diagnostic 嵌回来：run_full_diagnostic 会把本结果挂到 report["autofix"]，
+        # 再嵌 diagnostic=report 会形成环，pywebview/json 序列化报 Circular reference。
     }
 
 
@@ -119,7 +120,17 @@ def run_autofix(*, close_ide: bool = False) -> dict:
             elif sid == "ctxwin":
                 res = ctxwin_apply()
             elif sid == "proxy":
-                pref = ((plan.get("diagnostic") or {}).get("proxy") or {}).get("preference") or {}
+                import json
+                import os
+                from pathlib import Path
+
+                pref_path = Path(os.environ.get("LOCALAPPDATA") or "") / "CursorLauncher" / "proxy.json"
+                pref: dict = {}
+                if pref_path.is_file():
+                    try:
+                        pref = json.loads(pref_path.read_text(encoding="utf-8"))
+                    except Exception:
+                        pref = {}
                 cfg = ProxyConfig.from_dict(
                     {
                         **pref,
