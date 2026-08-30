@@ -680,18 +680,36 @@ async function runCtxwin(kind) {
 function paintModelUnlock(res) {
   const info = $("modelUnlockInfo");
   const applyBtn = $("btnModelUnlockApply");
+  const applyMaxBtn = $("btnModelUnlockApplyMax");
   const restoreBtn = $("btnModelUnlockRestore");
+  const repairBtn = $("btnModelUnlockRepair");
+  const syncBtn = $("btnModelUnlockSyncStorage");
+  const select = $("modelUnlockMembership");
   if (!info) return;
   if (!res || !res.ok) {
     info.textContent = res?.error || "无法检测解锁状态";
     if (applyBtn) applyBtn.classList.add("is-blocked");
+    if (applyMaxBtn) applyMaxBtn.classList.add("is-blocked");
     if (restoreBtn) restoreBtn.classList.add("is-blocked");
+    if (syncBtn) syncBtn.classList.add("is-blocked");
+    if (repairBtn) repairBtn.classList.add("is-blocked");
     return;
   }
+  if (select && res.membershipLevel && select.value !== res.membershipLevel) {
+    select.value = res.membershipLevel;
+  }
   const hits = res.hits || {};
+  const maxReady = (hits.showMax || 0) > 0;
+  const storage = res.storageMembership || {};
+  const storageLine = storage.ok
+    ? `本地缓存：stripe=${storage.stripeMembershipType || "—"} · 侧边栏=${storage.applicationUserMembershipType || "—"}`
+    : "";
   const lines = [
-    res.installed ? "状态：已解锁模型选择器（未改 Sand 身份）" : "状态：未解锁（免费号可能只能选 Auto）",
-    `命中：FREE锁×${hits.modelLock || 0} · 会员短路×${hits.memPro || 0} · Max×${hits.maxMode || 0} · fetch×${hits.fetchSpoof || 0}`,
+    maxReady
+      ? "状态：MAX 开关已解锁"
+      : (res.installed ? "状态：部分解锁，请点「仅解锁 MAX」" : "状态：无 MAX 开关（token 计价会被 hideMaxToggle 藏掉）"),
+    `命中：FREE×${hits.modelLock || 0} · 显示MAX×${hits.showMax || 0} · 命名视图×${hits.namedView || 0} · 目录×${hits.catalog || 0} · 绑卡×${hits.maxMode || 0} · 会员×${hits.memPro || 0} · fetch×${hits.fetchSpoof || 0}`,
+    storageLine,
     res.version ? `Cursor v${res.version}` : "",
     res.running ? "IDE 正在运行，改文件前请先关闭" : "IDE 未运行，可以改文件",
   ].filter(Boolean);
@@ -699,12 +717,68 @@ function paintModelUnlock(res) {
   info.textContent = lines.join("\n");
   if (applyBtn) {
     applyBtn.classList.toggle("is-blocked", !res.can_apply);
-    applyBtn.title = res.running ? "请先关闭 IDE" : "解除客户端模型锁（不依赖 Sand）";
+    applyBtn.title = res.running ? "请先关闭 IDE" : "FREE 锁 + 会员 fetch + MAX + 命名视图（改动较多）";
+  }
+  if (applyMaxBtn) {
+    applyMaxBtn.classList.toggle("is-blocked", !res.can_apply);
+    applyMaxBtn.title = res.running ? "请先关闭 IDE" : "只显示 MAX 开关（推荐，改动最小）";
   }
   if (restoreBtn) {
     restoreBtn.classList.toggle("is-blocked", !res.can_restore);
     restoreBtn.title = res.installed ? "去掉本启动器的解锁标记" : "当前没有解锁补丁";
   }
+  if (syncBtn) {
+    syncBtn.classList.toggle("is-blocked", !res.canSyncStorage);
+    syncBtn.title = res.running ? "请先关闭 IDE" : "只改 state.vscdb 里的套餐显示，不重打补丁";
+  }
+  if (repairBtn) {
+    repairBtn.classList.toggle("is-blocked", !res.canRepair);
+    repairBtn.title = res.running
+      ? "请先关闭 IDE"
+      : (res.corrupted ? "会员补丁打坏 workbench 导致黑屏" : "从备份还原 workbench");
+  }
+}
+
+async function saveModelUnlockMembership() {
+  const select = $("modelUnlockMembership");
+  if (!select || !api()?.model_unlock_set_membership) return;
+  try {
+    paintModelUnlock(await api().model_unlock_set_membership(select.value));
+  } catch (e) {
+    toast(String(e));
+  }
+}
+
+async function syncModelUnlockStorage() {
+  const select = $("modelUnlockMembership");
+  const level = select?.value || "pro";
+  if (!api()?.model_unlock_sync_storage) return;
+  const status = await api().model_unlock_status();
+  if (!status.canSyncStorage) {
+    paintModelUnlock(status);
+    return toast(status.running ? "请先关闭 IDE" : (status.error || "当前不能修正"));
+  }
+  const info = $("modelUnlockInfo");
+  if (info) info.textContent = "正在写入侧边栏套餐…";
+  const res = await api().model_unlock_sync_storage(level);
+  paintModelUnlock(await api().model_unlock_status());
+  if (!res.ok) return toast(res.error || "失败");
+  toast(res.message || "已修正侧边栏显示");
+}
+
+async function repairModelUnlock() {
+  if (!api()?.model_unlock_repair) return;
+  const status = await api().model_unlock_status();
+  if (!status.canRepair) {
+    paintModelUnlock(status);
+    return toast(status.running ? "请先关闭 IDE" : (status.error || "当前不能修复"));
+  }
+  const info = $("modelUnlockInfo");
+  if (info) info.textContent = "正在从备份还原 workbench…";
+  const res = await api().model_unlock_repair();
+  paintModelUnlock(await api().model_unlock_status());
+  if (!res.ok) return toast(res.error || "失败");
+  toast(res.message || "已修复，请再启动 IDE");
 }
 
 async function refreshModelUnlock() {
@@ -722,18 +796,37 @@ async function runModelUnlock(kind) {
     paintModelUnlock(status);
     return toast(status.running ? "请先关闭 IDE" : (status.error || "当前不能解锁"));
   }
+  if (kind === "applyMax" && !status.can_apply) {
+    paintModelUnlock(status);
+    return toast(status.running ? "请先关闭 IDE" : (status.error || "当前不能解锁 MAX"));
+  }
   if (kind === "restore" && !status.can_restore) {
     paintModelUnlock(status);
     return toast(status.installed ? (status.running ? "请先关闭 IDE" : "无法还原") : "当前没有解锁补丁");
   }
+  const select = $("modelUnlockMembership");
+  if (kind === "apply" && select && api()?.model_unlock_set_membership) {
+    await api().model_unlock_set_membership(select.value);
+  }
   const fn = kind === "restore" ? "model_unlock_restore" : "model_unlock_apply";
   const info = $("modelUnlockInfo");
-  if (info) info.textContent = kind === "restore" ? "正在还原…" : "正在启用解锁…";
-  const res = await api()[fn]();
+  if (info) {
+    info.textContent = kind === "restore" ? "正在还原…" : (kind === "applyMax" ? "正在解锁 MAX…" : "正在完整解锁…");
+  }
+  const res =
+    kind === "applyMax"
+      ? await api().model_unlock_apply(null, true)
+      : await api()[fn](kind === "apply" ? select?.value : undefined);
   paintModelUnlock(res);
   if (!res.ok) return toast(res.error || "失败");
   if (res.skipped) return toast(res.message || "无需还原");
-  toast(kind === "restore" ? "已还原模型解锁，请再启动 IDE" : "已解锁模型选择器，请再启动 IDE");
+  toast(
+    kind === "restore"
+      ? "已还原，请再启动 IDE"
+      : kind === "applyMax"
+        ? "已解锁 MAX，请再启动 IDE"
+        : "已完整解锁，请再启动 IDE",
+  );
 }
 
 async function openDetail(accountId) {
@@ -1408,9 +1501,13 @@ if ($("disableAutoUpdate")) {
 $("btnCtxwinApply").onclick = () => runCtxwin("apply");
 $("btnCtxwinRestore").onclick = () => runCtxwin("restore");
 $("btnCtxwinRefresh").onclick = () => refreshCtxwin();
+$("btnModelUnlockApplyMax").onclick = () => runModelUnlock("applyMax");
 $("btnModelUnlockApply").onclick = () => runModelUnlock("apply");
 $("btnModelUnlockRestore").onclick = () => runModelUnlock("restore");
+$("btnModelUnlockSyncStorage").onclick = () => syncModelUnlockStorage();
+$("btnModelUnlockRepair").onclick = () => repairModelUnlock();
 $("btnModelUnlockRefresh").onclick = () => refreshModelUnlock();
+$("modelUnlockMembership")?.addEventListener("change", () => saveModelUnlockMembership());
 $("btnShortcutDesktop").onclick = () => createChosenShortcuts(true, false);
 $("btnShortcutStart").onclick = () => createChosenShortcuts(false, true);
 $("btnShortcutSkip").onclick = async () => {

@@ -15,8 +15,11 @@ from launcher.ctxwin import ctxwin_apply as run_ctxwin_apply
 from launcher.ctxwin import ctxwin_restore as run_ctxwin_restore
 from launcher.ctxwin import ctxwin_status as read_ctxwin_status
 from launcher.model_unlock import apply as run_model_unlock_apply
+from launcher.model_unlock import repair_corrupted as run_model_unlock_repair
 from launcher.model_unlock import restore as run_model_unlock_restore
+from launcher.model_unlock import set_membership_setting
 from launcher.model_unlock import status as read_model_unlock_status
+from launcher.model_unlock import sync_storage_membership
 from launcher.cursor_process import (
     close_cursor,
     compact_cursor_state,
@@ -461,9 +464,28 @@ class Api:
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
-    def model_unlock_apply(self) -> dict:
+    def model_unlock_apply(self, membership_level: str | None = None, max_only: bool = False) -> dict:
         try:
-            return run_model_unlock_apply()
+            return run_model_unlock_apply(membership_level, max_only=max_only)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def model_unlock_set_membership(self, level: str) -> dict:
+        try:
+            set_membership_setting(level)
+            return read_model_unlock_status()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def model_unlock_sync_storage(self, level: str | None = None) -> dict:
+        try:
+            return sync_storage_membership(level)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def model_unlock_repair(self) -> dict:
+        try:
+            return run_model_unlock_repair()
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 

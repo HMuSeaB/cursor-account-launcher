@@ -166,10 +166,23 @@
         </section>
         <section class="settings-panel settings-span">
           <h3 class="settings-title">模型选择器解锁（启动器自有）</h3>
-          <p class="hint settings-hint">解除免费号「只能选 Auto」等客户端锁。改 workbench，不伪装 Sand / 不改 client-type。须先关 IDE；升级 Cursor 后需重打。可随时还原。与下方「回包改写」互补（解锁选模型 ≠ 改上下文窗口）。</p>
+          <p class="hint settings-hint">解除「只能选 Auto」：FREE 锁 + 命名视图门闩 + 目录补 <code>namedModelSectionIndex</code>。你已有 YC 模型墙时，<strong>只需点「仅解锁 MAX」</strong>（只改 hideMaxToggle，最不易黑屏）。完整解锁含会员 fetch 伪装。须先关 IDE，启用后用启动器重启并<strong>新开一轮对话</strong>。</p>
+          <div class="form-row settings-inline">
+            <label class="field-label" for="modelUnlockMembership">侧边栏显示套餐</label>
+            <select id="modelUnlockMembership" class="input compact">
+              <option value="pro">Pro Plan</option>
+              <option value="ultra">Ultra Plan</option>
+              <option value="enterprise">Team Plan</option>
+              <option value="pro_plus">Pro+ Plan</option>
+              <option value="free">Free Plan</option>
+            </select>
+          </div>
           <div class="guard-actions">
-            <button type="button" class="btn" id="btnModelUnlockApply">启用解锁</button>
+            <button type="button" class="btn" id="btnModelUnlockApplyMax">仅解锁 MAX</button>
+            <button type="button" class="btn ghost" id="btnModelUnlockApply">完整解锁</button>
             <button type="button" class="btn ghost" id="btnModelUnlockRestore">还原</button>
+            <button type="button" class="btn ghost" id="btnModelUnlockSyncStorage">修正侧边栏显示</button>
+            <button type="button" class="btn ghost" id="btnModelUnlockRepair">修复黑屏</button>
             <button type="button" class="btn ghost" id="btnModelUnlockRefresh">刷新状态</button>
           </div>
           <pre class="mini" id="modelUnlockInfo">—</pre>

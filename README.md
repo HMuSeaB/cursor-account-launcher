@@ -46,13 +46,27 @@ python app.py
 
 ### 模型选择器解锁（启动器自有）
 
-设置 → **启用解锁 / 还原**。改本机 Cursor 的 `workbench.*.main.js`，解除「免费号只能选 Auto」等客户端锁：
+设置 → **仅解锁 MAX / 完整解锁 / 还原 / 修复黑屏**。改本机 Cursor 的 `workbench.*.main.js`。
 
-- FREE 模型锁短路
-- 可选：membership / Max 绑卡守卫短路（命中才改）
-- fetch 侧：会员字段伪装 + AvailableModels `defaultOn`（**不**把 client-type 改成 sand）
+已有 YC 网关模型墙时，**优先点「仅解锁 MAX」**（只改 `hideMaxToggle`）。完整解锁才含 FREE 锁、命名视图、会员 fetch 伪装。
 
-与 Sand 工具无关，可单独还原。须先关 IDE；升级 Cursor 后需重打。备份：`%LOCALAPPDATA%\CursorLauncher\model-unlock\backups\`。
+- FREE 模型锁 + 全量 picker / 实验 treatment 短路
+- 命名视图门闩（不再强求内部名 `grok-4.5`）
+- 目录 hydrate：补 `defaultOn`、`namedModelSectionIndex`（网关自定义模型常用）
+- **显示 MAX Mode**：关掉 `hideMaxToggle`（token 计价账号会被藏开关）
+- 侧边栏套餐可改 Pro / Ultra / Team / Pro+ / Free（只改客户端显示，不是真套餐）
+
+**不**伪装 Sand。Bot/Sand 专属模型仍要 Sand/号池。须先关 IDE；启用后用启动器重启并新开对话。升级 Cursor 后需重打。备份：`%LOCALAPPDATA%\CursorLauncher\model-unlock\backups\`。
+
+#### 易错点（模型墙 / MAX / 黑屏）
+
+1. **三件事别混**：模型列表靠 YC 网关 + `%APPDATA%\Cursor\...\state.vscdb` 缓存；MAX 开关靠 `hideMaxToggle` 补丁；重装 Cursor 只换程序，不清用户数据。
+2. **有模型墙不等于有 MAX**：token 计价（`hasTokenBasedPricing`）会藏 MAX。要开关就点「仅解锁 MAX」，不必完整解锁。
+3. **对象字面量里不能写 `hideMaxToggle:!1;`**：分号会截断属性，workbench 解析失败 → **黑屏**。正确是 `hideMaxToggle:!1/*MARKER*/`。
+4. **会员正则必须写成 `"(?:pro|ultra|…)"`**：写成 `"pro|ultra|…"` 会误命中上千处 `"pro` 字符串 → **黑屏**。正常命中应是 `显示MAX×1~3`、`会员×0 或 ×1`；出现 `会员×几百/上千` 立刻停、点「修复黑屏」或重装 Cursor。
+5. **`enterprise` 会显示 Team Plan**：侧边栏文案来自 `applicationUser.membershipType`，和 `cursorAuth/stripeMembershipType` 可能不一致。改显示先关 IDE，再点「修正侧边栏显示」。这只是显示，不会变成真 Ultra/Team。
+6. **必须用本仓库最新 `python app.py` 或本版本 exe**：旧 exe 仍可能打坏文件。打补丁前先完全退出 `Cursor.exe`。
+7. **黑屏急救**：关 IDE → 启动器「修复黑屏」或「还原」→ 再用启动器启动。修不好就重装 Cursor（用户数据一般还在）。
 
 ### 模型回包改写（启动器自有）
 
