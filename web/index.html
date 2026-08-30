@@ -110,16 +110,23 @@
         <span>代理、路径与快捷方式</span>
         <span class="settings-fold-meta" id="settingsMeta"></span>
       </summary>
-      <div class="settings-grid">
+      <div class="ide-gate" id="ideGate" data-state="unknown" aria-live="polite">
+        <div class="ide-gate-main">
+          <strong id="ideGateTitle">检测 IDE 状态…</strong>
+          <p id="ideGateHint">改补丁 / 写 DLL / 还原文件前必须先关 Cursor。</p>
+        </div>
+        <button type="button" class="btn" id="btnIdeGateClose" hidden>关闭 IDE</button>
+      </div>
+      <div class="settings-grid" id="settingsGrid">
         <section class="settings-panel settings-span" id="wbDiagPanel">
           <h3 class="settings-title">补丁健康诊断</h3>
-          <p class="hint settings-hint">一眼看清网关 / MAX / 500k / 代理是否冲突。改 workbench 前先关 IDE。你的推荐组合：网关原生 + 仅 MAX + 500k + 代理。</p>
+          <p class="hint settings-hint">推荐组合：网关原生 + 仅 MAX + 500k + 代理。灰掉的按钮 = 现在不能按（多半是 IDE 还开着）。</p>
           <div class="wb-diag-chips" id="wbDiagChips" aria-live="polite"></div>
           <ul class="wb-diag-recs" id="wbDiagRecs"></ul>
           <div class="guard-actions">
             <button type="button" class="btn" id="btnWbDiagRefresh">刷新诊断</button>
-            <button type="button" class="btn ghost" id="btnWbDiagFix500k">启用 500k</button>
-            <button type="button" class="btn ghost" id="btnWbDiagRestore">统一还原 workbench</button>
+            <button type="button" class="btn ghost" id="btnWbDiagFix500k" data-needs-closed>启用 500k</button>
+            <button type="button" class="btn ghost" id="btnWbDiagRestore" data-needs-closed>统一还原 workbench</button>
           </div>
           <pre class="mini" id="wbDiagInfo">打开设置后自动扫描…</pre>
         </section>
@@ -131,7 +138,7 @@
             <option value="gateway" selected>打了补丁，走网关原生（推荐，不改补丁）</option>
             <option value="clash">没打网关补丁（会改 workbench，易搞坏）</option>
           </select>
-          <p class="hint settings-hint">防误触：Cursor 开着时保存只记偏好、不改文件。真正写入前会确认，并自动备份，可用「一键还原误触」撤回去。网关原生不改 workbench。别点「写入 DLL」。</p>
+          <p class="hint settings-hint">IDE 开着点「保存」只记偏好、不改 Cursor 文件。要真正写入：先关 IDE 再保存。</p>
           <label class="field-label" for="proxyType">FlClash 端口</label>
           <div class="proxy-fields">
             <select id="proxyType" aria-label="代理类型"><option value="http">HTTP</option><option value="socks5" selected>SOCKS5</option></select>
@@ -142,14 +149,18 @@
             <button type="button" class="btn ghost" id="btnDetectProxy">检测本机代理</button>
             <button type="button" class="btn ghost" id="btnTestLatency">测延迟</button>
             <button type="button" class="btn" id="btnSaveProxy">保存</button>
-            <button type="button" class="btn danger" id="btnUndoProxy">一键还原误触</button>
+            <button type="button" class="btn danger" id="btnUndoProxy" data-needs-closed>一键还原误触</button>
           </div>
-          <div class="guard-actions">
-            <button type="button" class="btn ghost" id="btnDllInstall">写入 DLL</button>
-            <button type="button" class="btn ghost" id="btnDllRemove">删除 DLL</button>
-            <button type="button" class="btn ghost" id="btnDllRestore">还原 DLL</button>
-            <button type="button" class="btn ghost" id="btnWorkbenchRestore">还原补丁</button>
-          </div>
+          <details class="adv-fold">
+            <summary>高级危险区（DLL / 改 workbench 路由）— 日常别开</summary>
+            <p class="hint settings-hint">进程 DLL 易闪退；「还原补丁」会动网关 workbench。非急救不要点。</p>
+            <div class="guard-actions">
+              <button type="button" class="btn ghost" id="btnDllInstall" data-needs-closed>写入 DLL</button>
+              <button type="button" class="btn ghost" id="btnDllRemove" data-needs-closed>删除 DLL</button>
+              <button type="button" class="btn ghost" id="btnDllRestore" data-needs-closed>还原 DLL</button>
+              <button type="button" class="btn ghost" id="btnWorkbenchRestore" data-needs-closed>还原网关补丁</button>
+            </div>
+          </details>
           <pre class="mini" id="proxyDetectInfo">检测中…</pre>
         </section>
         <section class="settings-panel">
@@ -159,8 +170,8 @@
           <button type="button" class="btn" id="btnSavePath">保存路径</button>
           <label class="check-row" style="margin-top:12px"><input type="checkbox" id="disableAutoUpdate" checked /> 禁用自动更新</label>
           <div class="guard-actions">
-            <button type="button" class="btn ghost" id="btnApplyDisableUpdate">立即应用</button>
-            <button type="button" class="btn ghost" id="btnRestoreUpdate">恢复更新</button>
+            <button type="button" class="btn ghost" id="btnApplyDisableUpdate" data-needs-closed>立即应用</button>
+            <button type="button" class="btn ghost" id="btnRestoreUpdate" data-needs-closed>恢复更新</button>
           </div>
           <p class="hint settings-hint">写入 <code>update.mode: none</code>，并重命名 <code>inno_updater.exe</code>（需先关 IDE）。升级后补丁/DLL 会丢，建议保持禁用。</p>
           <pre class="mini" id="updateInfo">—</pre>
@@ -177,34 +188,39 @@
           <pre class="mini" id="shortcutInfo">—</pre>
         </section>
         <section class="settings-panel settings-span">
-          <h3 class="settings-title">模型选择器解锁（启动器自有）</h3>
-          <p class="hint settings-hint">解除「只能选 Auto」：FREE 锁 + 命名视图门闩 + 目录补 <code>namedModelSectionIndex</code>。你已有 YC 模型墙时，<strong>只需点「仅解锁 MAX」</strong>（只改 hideMaxToggle，最不易黑屏）。完整解锁含会员 fetch 伪装。须先关 IDE，启用后用启动器重启并<strong>新开一轮对话</strong>。</p>
-          <div class="form-row settings-inline">
-            <label class="field-label" for="modelUnlockMembership">侧边栏显示套餐</label>
-            <select id="modelUnlockMembership" class="input compact">
-              <option value="pro">Pro Plan</option>
-              <option value="ultra">Ultra Plan</option>
-              <option value="enterprise">Team Plan</option>
-              <option value="pro_plus">Pro+ Plan</option>
-              <option value="free">Free Plan</option>
-            </select>
-          </div>
+          <h3 class="settings-title">模型选择器解锁</h3>
+          <p class="hint settings-hint">有模型墙时平时只点「仅解锁 MAX」。完整解锁 / 改侧边栏在下面高级区。</p>
           <div class="guard-actions">
-            <button type="button" class="btn" id="btnModelUnlockApplyMax">仅解锁 MAX</button>
-            <button type="button" class="btn ghost" id="btnModelUnlockApply">完整解锁</button>
-            <button type="button" class="btn ghost" id="btnModelUnlockRestore">还原</button>
-            <button type="button" class="btn ghost" id="btnModelUnlockSyncStorage">修正侧边栏显示</button>
-            <button type="button" class="btn ghost" id="btnModelUnlockRepair">修复黑屏</button>
+            <button type="button" class="btn" id="btnModelUnlockApplyMax" data-needs-closed>仅解锁 MAX</button>
             <button type="button" class="btn ghost" id="btnModelUnlockRefresh">刷新状态</button>
+            <button type="button" class="btn ghost" id="btnModelUnlockRepair" data-needs-closed>修复黑屏</button>
           </div>
+          <details class="adv-fold">
+            <summary>完整解锁 / 侧边栏显示（改动大，易黑屏）</summary>
+            <div class="form-row settings-inline">
+              <label class="field-label" for="modelUnlockMembership">侧边栏显示套餐</label>
+              <select id="modelUnlockMembership" class="input compact">
+                <option value="pro">Pro Plan</option>
+                <option value="ultra">Ultra Plan</option>
+                <option value="enterprise">Team Plan</option>
+                <option value="pro_plus">Pro+ Plan</option>
+                <option value="free">Free Plan</option>
+              </select>
+            </div>
+            <div class="guard-actions">
+              <button type="button" class="btn ghost" id="btnModelUnlockApply" data-needs-closed>完整解锁</button>
+              <button type="button" class="btn ghost" id="btnModelUnlockRestore" data-needs-closed>还原解锁</button>
+              <button type="button" class="btn ghost" id="btnModelUnlockSyncStorage" data-needs-closed>修正侧边栏显示</button>
+            </div>
+          </details>
           <pre class="mini" id="modelUnlockInfo">—</pre>
         </section>
         <section class="settings-panel settings-span">
-          <h3 class="settings-title">模型回包改写（启动器自有）</h3>
-          <p class="hint settings-hint">不依赖混淆网关。给 Cursor 的扩展宿主挂钩，改写 <code>AvailableModels</code> / <code>GetServerConfig</code> / Agent 响应里的窗口字段（Grok Extra High 256k→500k）。需本机 Node.js；须先关 IDE。升级 Cursor 后补丁会丢，需重打。可随时还原。</p>
+          <h3 class="settings-title">模型回包改写（500k）</h3>
+          <p class="hint settings-hint">改 <code>extensionHostProcess.js</code>，不碰 workbench。升级 Cursor 后需重打。</p>
           <div class="guard-actions">
-            <button type="button" class="btn" id="btnCtxwinApply">启用回包改写</button>
-            <button type="button" class="btn ghost" id="btnCtxwinRestore">还原官方</button>
+            <button type="button" class="btn" id="btnCtxwinApply" data-needs-closed>启用回包改写</button>
+            <button type="button" class="btn ghost" id="btnCtxwinRestore" data-needs-closed>还原官方</button>
             <button type="button" class="btn ghost" id="btnCtxwinRefresh">刷新状态</button>
           </div>
           <pre class="mini" id="ctxwinInfo">—</pre>

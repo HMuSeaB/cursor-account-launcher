@@ -498,6 +498,8 @@ function paintSettingsMeta(status) {
   const el = $("settingsMeta");
   if (!el) return;
   const bits = [];
+  if (status?.running) bits.push("IDE开着·补丁已锁");
+  else if (status?.ok) bits.push("IDE已关·可改补丁");
   const enabled = $("proxyEnabled")?.checked;
   if (enabled === false) bits.push("代理关");
   else {
@@ -509,6 +511,77 @@ function paintSettingsMeta(status) {
   }
   if (status?.version) bits.push(`v${status.version}`);
   el.textContent = bits.join(" · ");
+  syncIdeGate(Boolean(status?.running));
+}
+
+function syncIdeGate(running) {
+  const gate = $("ideGate");
+  const title = $("ideGateTitle");
+  const hint = $("ideGateHint");
+  const closeBtn = $("btnIdeGateClose");
+  const grid = $("settingsGrid");
+  if (gate) gate.dataset.state = running ? "locked" : "open";
+  if (title) {
+    title.textContent = running
+      ? "Cursor 还在跑 — 补丁类按钮已锁"
+      : "Cursor 已关闭 — 现在可以改补丁";
+  }
+  if (hint) {
+    hint.textContent = running
+      ? "现在只能看状态、记代理偏好。要启用 500k / MAX / 还原 / DLL：先点右边关 IDE。"
+      : "可以点：启用 500k、仅解锁 MAX、保存代理（会写文件）、修复黑屏。高级危险区平时别开。";
+  }
+  if (closeBtn) closeBtn.hidden = !running;
+  if (grid) grid.classList.toggle("is-ide-locked", running);
+
+  document.querySelectorAll("[data-needs-closed]").forEach((btn) => {
+    if (running) {
+      btn.disabled = true;
+      btn.setAttribute("aria-disabled", "true");
+      if (!btn.dataset.gateTitle) {
+        btn.dataset.gateTitle = btn.title || "";
+        btn.title = "请先关闭 IDE";
+      }
+    } else {
+      btn.disabled = btn.classList.contains("is-blocked");
+      if (btn.disabled) btn.setAttribute("aria-disabled", "true");
+      else btn.removeAttribute("aria-disabled");
+      if (btn.dataset.gateTitle != null) {
+        btn.title = btn.dataset.gateTitle;
+        delete btn.dataset.gateTitle;
+      }
+    }
+  });
+
+  const saveBtn = $("btnSaveProxy");
+  if (saveBtn) {
+    saveBtn.textContent = running ? "保存偏好（不改文件）" : "保存";
+    saveBtn.title = running
+      ? "IDE 开着：只写入启动器 proxy.json，不碰 Cursor"
+      : "IDE 已关：会写入 settings/argv（网关原生不改 workbench）";
+  }
+}
+
+/** 改补丁前总闸：IDE 开着就拦住，并可一键关 IDE。 */
+async function requireIdeClosed(actionLabel) {
+  const running = Boolean(lastCursorStatus?.running);
+  if (!running) return true;
+  const go = confirm(
+    `Cursor 还在运行，不能${actionLabel || "改补丁"}。\n\n点「确定」先关闭 IDE，再重新点一次按钮。`
+  );
+  if (!go) {
+    toast("已取消 — 请先关 IDE 再操作");
+    return false;
+  }
+  await closeIde({ skipConfirm: true });
+  await refreshCursorStatus();
+  if (lastCursorStatus?.running) {
+    toast("IDE 仍在运行，请手动完全退出后再试");
+    return false;
+  }
+  toast("IDE 已关，请再点一次刚才的按钮");
+  syncIdeGate(false);
+  return false; // 强制用户再点一次，避免关了就立刻写入
 }
 
 function maybePaintLocalCards() {
@@ -646,6 +719,7 @@ function paintCtxwin(res) {
     restoreBtn.classList.toggle("is-blocked", !res.canRestore);
     restoreBtn.title = res.patched ? "去掉挂钩，回到官方响应" : "当前没有补丁";
   }
+  syncIdeGate(Boolean(lastCursorStatus?.running || res.running));
 }
 
 async function refreshCtxwin() {
@@ -729,6 +803,7 @@ function paintWbDiag(res) {
     `备份：official=${bak.hasOfficial ? "有" : "无"} · 快照×${bak.snapshotCount || 0}`,
     bak.hasLegacyBajie ? "legacy bajie 备份可用" : "",
   ].filter(Boolean).join("\n");
+  syncIdeGate(Boolean(lastCursorStatus?.running || res.cursorRunning));
 }
 
 async function refreshWbDiag() {
@@ -751,7 +826,8 @@ async function runWbDiagFix500k() {
 
 async function runWbDiagRestore() {
   if (!api()?.restore_workbench_unified) return;
-  if (!confirm("将从统一备份还原 workbench（优先 official 基线）。\n会先关闭 Cursor。确定？")) return;
+  if (!(await requireIdeClosed("还原 workbench"))) return;
+  if (!confirm("将从统一备份还原 workbench（优先 official 基线）。确定？")) return;
   const info = $("wbDiagInfo");
   if (info) info.textContent = "正在还原 workbench…";
   try {
@@ -770,6 +846,7 @@ async function runWbDiagRestore() {
 }
 
 async function runCtxwin(kind) {
+  if (!(await requireIdeClosed(kind === "restore" ? "还原回包改写" : "启用回包改写"))) return;
   const status = await api().ctxwin_status();
   if (kind === "apply" && !status.canApply) {
     paintCtxwin(status);
@@ -850,6 +927,7 @@ function paintModelUnlock(res) {
       ? "请先关闭 IDE"
       : (res.corrupted ? "会员补丁打坏 workbench 导致黑屏" : "从备份还原 workbench");
   }
+  syncIdeGate(Boolean(lastCursorStatus?.running || res.running));
 }
 
 async function saveModelUnlockMembership() {
@@ -866,6 +944,7 @@ async function syncModelUnlockStorage() {
   const select = $("modelUnlockMembership");
   const level = select?.value || "pro";
   if (!api()?.model_unlock_sync_storage) return;
+  if (!(await requireIdeClosed("修正侧边栏显示"))) return;
   const status = await api().model_unlock_status();
   if (!status.canSyncStorage) {
     paintModelUnlock(status);
@@ -881,6 +960,7 @@ async function syncModelUnlockStorage() {
 
 async function repairModelUnlock() {
   if (!api()?.model_unlock_repair) return;
+  if (!(await requireIdeClosed("修复黑屏"))) return;
   const status = await api().model_unlock_status();
   if (!status.canRepair) {
     paintModelUnlock(status);
@@ -904,6 +984,7 @@ async function refreshModelUnlock() {
 }
 
 async function runModelUnlock(kind) {
+  if (!(await requireIdeClosed(kind === "restore" ? "还原模型解锁" : (kind === "applyMax" ? "解锁 MAX" : "完整解锁")))) return;
   const status = await api().model_unlock_status();
   if (kind === "apply" && !status.can_apply) {
     paintModelUnlock(status);
@@ -1032,12 +1113,14 @@ async function launch(accountId, force = false, light = false) {
   await refreshCursorStatus();
 }
 
-async function closeIde() {
-  if (!confirm("关闭 Cursor 以腾出内存？账号仍留在启动器里。")) return;
+async function closeIde(opts = {}) {
+  const skipConfirm = Boolean(opts.skipConfirm);
+  if (!skipConfirm && !confirm("关闭 Cursor 以腾出内存？账号仍留在启动器里。")) return { ok: false, cancelled: true };
   toast("正在关闭 IDE…");
   const res = await api().close_ide();
   toast(res.ok ? (res.closed ? "已关闭 Cursor" : "Cursor 本来就没在运行") : (res.error || "关闭失败"));
   await refreshCursorStatus();
+  return res;
 }
 
 async function compactState() {
@@ -1392,7 +1475,7 @@ function startStatusWatch() {
   startStatusWatch._t = setInterval(() => {
     if (document.hidden || !api()) return;
     refreshCursorStatus();
-  }, 20000);
+  }, 8000);
 }
 
 async function trimMemory() {
@@ -1562,6 +1645,7 @@ $("proxyRoute")?.addEventListener("change", async () => {
 });
 
 async function runDll(fnName, waitText, okText) {
+  if (!(await requireIdeClosed("操作 DLL / 补丁文件"))) return;
   toast(waitText);
   const res = await api()[fnName]();
   toast(res.ok ? (res.message || okText) : (res.error || "失败"));
@@ -1618,6 +1702,7 @@ $("btnCtxwinRefresh").onclick = () => refreshCtxwin();
 if ($("btnWbDiagRefresh")) $("btnWbDiagRefresh").onclick = () => refreshWbDiag();
 if ($("btnWbDiagFix500k")) $("btnWbDiagFix500k").onclick = () => runWbDiagFix500k();
 if ($("btnWbDiagRestore")) $("btnWbDiagRestore").onclick = () => runWbDiagRestore();
+if ($("btnIdeGateClose")) $("btnIdeGateClose").onclick = () => closeIde();
 $("btnModelUnlockApplyMax").onclick = () => runModelUnlock("applyMax");
 $("btnModelUnlockApply").onclick = () => runModelUnlock("apply");
 $("btnModelUnlockRestore").onclick = () => runModelUnlock("restore");
