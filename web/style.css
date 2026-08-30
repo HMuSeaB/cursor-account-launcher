@@ -969,6 +969,9 @@ html[data-theme="dark"] .btn.danger {
 }
 
 .ide-gate {
+  position: sticky;
+  top: 0;
+  z-index: 5;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -977,22 +980,77 @@ html[data-theme="dark"] .btn.danger {
   padding: 12px 14px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  background: var(--bg-elevated);
+  background: var(--card, var(--bg-elevated));
+  box-shadow: 0 1px 0 var(--border);
 }
-.ide-gate-main { min-width: 0; }
+.ide-gate-main { min-width: 0; flex: 1; }
 .ide-gate-main strong { display: block; font-size: 13px; margin-bottom: 2px; }
 .ide-gate-main p { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted, #888); }
+.ide-gate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
 .ide-gate[data-state="locked"] {
   border-color: color-mix(in srgb, #e5484d 50%, var(--border));
-  background: color-mix(in srgb, #e5484d 8%, var(--bg-elevated));
+  background: color-mix(in srgb, #e5484d 10%, var(--card, var(--bg-elevated)));
 }
 .ide-gate[data-state="open"] {
   border-color: color-mix(in srgb, #22a06b 45%, var(--border));
-  background: color-mix(in srgb, #22a06b 8%, var(--bg-elevated));
+  background: color-mix(in srgb, #22a06b 10%, var(--card, var(--bg-elevated)));
+}
+.ide-gate[data-state="ready"] {
+  border-color: color-mix(in srgb, #5b8def 45%, var(--border));
+  background: color-mix(in srgb, #5b8def 8%, var(--card, var(--bg-elevated)));
 }
 .settings-grid.is-ide-locked [data-needs-closed] {
   opacity: 0.4;
   pointer-events: none;
+}
+
+.wb-checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.wb-check {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 13px;
+}
+.wb-check .mark {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: #9aa0a6;
+}
+.wb-check.ok .mark { background: #22a06b; }
+.wb-check.warn .mark { background: #d97706; }
+.wb-check.critical .mark { background: #e5484d; }
+.wb-check .meta { font-size: 11px; color: var(--muted, #888); }
+.wb-check.is-next {
+  border-color: color-mix(in srgb, #5b8def 55%, var(--border));
+  box-shadow: inset 3px 0 0 #5b8def;
+}
+.wb-next-hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 600;
 }
 
 .adv-fold {

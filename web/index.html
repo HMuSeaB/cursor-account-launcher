@@ -107,7 +107,7 @@
 
     <details class="card settings-fold">
       <summary>
-        <span>代理、路径与快捷方式</span>
+        <span>设置与补丁</span>
         <span class="settings-fold-meta" id="settingsMeta"></span>
       </summary>
       <div class="ide-gate" id="ideGate" data-state="unknown" aria-live="polite">
@@ -115,20 +115,27 @@
           <strong id="ideGateTitle">检测 IDE 状态…</strong>
           <p id="ideGateHint">改补丁 / 写 DLL / 还原文件前必须先关 Cursor。</p>
         </div>
-        <button type="button" class="btn" id="btnIdeGateClose" hidden>关闭 IDE</button>
+        <div class="ide-gate-actions">
+          <button type="button" class="btn primary" id="btnIdeGateClose" hidden>关闭 IDE</button>
+          <button type="button" class="btn" id="btnWbNext" hidden>下一步</button>
+        </div>
       </div>
       <div class="settings-grid" id="settingsGrid">
         <section class="settings-panel settings-span" id="wbDiagPanel">
-          <h3 class="settings-title">补丁健康诊断</h3>
-          <p class="hint settings-hint">推荐组合：网关原生 + 仅 MAX + 500k + 代理。灰掉的按钮 = 现在不能按（多半是 IDE 还开着）。</p>
-          <div class="wb-diag-chips" id="wbDiagChips" aria-live="polite"></div>
-          <ul class="wb-diag-recs" id="wbDiagRecs"></ul>
+          <h3 class="settings-title">日常状态（看这个就够）</h3>
+          <ol class="wb-checklist" id="wbChecklist" aria-live="polite"></ol>
+          <p class="wb-next-hint" id="wbNextHint">打开设置后自动扫描…</p>
           <div class="guard-actions">
-            <button type="button" class="btn" id="btnWbDiagRefresh">刷新诊断</button>
-            <button type="button" class="btn ghost" id="btnWbDiagFix500k" data-needs-closed>启用 500k</button>
-            <button type="button" class="btn ghost" id="btnWbDiagRestore" data-needs-closed>统一还原 workbench</button>
+            <button type="button" class="btn ghost" id="btnWbDiagRefresh">刷新</button>
+            <button type="button" class="btn ghost" id="btnWbDiagFix500k" data-needs-closed hidden>启用 500k</button>
+            <button type="button" class="btn ghost" id="btnWbDiagRestore" data-needs-closed>急救还原</button>
           </div>
-          <pre class="mini" id="wbDiagInfo">打开设置后自动扫描…</pre>
+          <details class="adv-fold">
+            <summary>技术细节</summary>
+            <div class="wb-diag-chips" id="wbDiagChips"></div>
+            <ul class="wb-diag-recs" id="wbDiagRecs"></ul>
+            <pre class="mini" id="wbDiagInfo">—</pre>
+          </details>
         </section>
         <section class="settings-panel">
           <h3 class="settings-title">网络代理</h3>

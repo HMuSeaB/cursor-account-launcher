@@ -11,6 +11,8 @@ let keepReasons = {};
 let localIdentity = { email: "", userId: "" };
 let lastCursorStatus = null;
 let lastAccountId = "";
+let lastWbDiag = null;
+let pendingWbNext = null;
 let guardConfig = {
   enabled: false,
   mode: "whitelist",
@@ -519,19 +521,41 @@ function syncIdeGate(running) {
   const title = $("ideGateTitle");
   const hint = $("ideGateHint");
   const closeBtn = $("btnIdeGateClose");
+  const nextBtn = $("btnWbNext");
   const grid = $("settingsGrid");
-  if (gate) gate.dataset.state = running ? "locked" : "open";
+  const step = pendingWbNext;
+
+  let state = running ? "locked" : "open";
+  if (!running && step && step.id !== "ready" && step.id !== "launch") state = "ready";
+  if (gate) gate.dataset.state = state;
+
   if (title) {
-    title.textContent = running
-      ? "Cursor 还在跑 — 补丁类按钮已锁"
-      : "Cursor 已关闭 — 现在可以改补丁";
+    if (running) title.textContent = "Cursor 还在跑 — 补丁按钮已锁";
+    else if (step?.id === "ready" || step?.id === "launch") title.textContent = "日常组合已就绪";
+    else if (step) title.textContent = `下一步：${step.label}`;
+    else title.textContent = "Cursor 已关闭 — 可以改补丁";
   }
   if (hint) {
-    hint.textContent = running
-      ? "现在只能看状态、记代理偏好。要启用 500k / MAX / 还原 / DLL：先点右边关 IDE。"
-      : "可以点：启用 500k、仅解锁 MAX、保存代理（会写文件）、修复黑屏。高级危险区平时别开。";
+    if (running) {
+      hint.textContent = step && step.needsClosed
+        ? `要「${step.label}」：先点右边关 IDE，关掉后会自动继续。`
+        : "现在只能看状态、记代理偏好。改补丁前先关 IDE。";
+    } else if (step?.hint) {
+      hint.textContent = step.hint;
+    } else {
+      hint.textContent = "灰掉的按钮现在不能按。高级危险区平时别开。";
+    }
   }
   if (closeBtn) closeBtn.hidden = !running;
+  if (nextBtn) {
+    const showNext = !running && step && step.id !== "ready" && typeof step.run === "function";
+    nextBtn.hidden = !showNext;
+    if (showNext) {
+      nextBtn.textContent = step.label;
+      nextBtn.className = step.primary === false ? "btn" : "btn primary";
+      nextBtn.disabled = false;
+    }
+  }
   if (grid) grid.classList.toggle("is-ide-locked", running);
 
   document.querySelectorAll("[data-needs-closed]").forEach((btn) => {
@@ -555,19 +579,21 @@ function syncIdeGate(running) {
 
   const saveBtn = $("btnSaveProxy");
   if (saveBtn) {
-    saveBtn.textContent = running ? "保存偏好（不改文件）" : "保存";
+    saveBtn.textContent = running ? "保存偏好（不改文件）" : "保存代理写入";
     saveBtn.title = running
       ? "IDE 开着：只写入启动器 proxy.json，不碰 Cursor"
       : "IDE 已关：会写入 settings/argv（网关原生不改 workbench）";
   }
 }
 
-/** 改补丁前总闸：IDE 开着就拦住，并可一键关 IDE。 */
-async function requireIdeClosed(actionLabel) {
+/** 改补丁前总闸。autoContinue=true 时关 IDE 后返回 true，让当前操作接着做。 */
+async function requireIdeClosed(actionLabel, { autoContinue = true } = {}) {
   const running = Boolean(lastCursorStatus?.running);
   if (!running) return true;
   const go = confirm(
-    `Cursor 还在运行，不能${actionLabel || "改补丁"}。\n\n点「确定」先关闭 IDE，再重新点一次按钮。`
+    autoContinue
+      ? `Cursor 还在运行。\n\n确定关闭 IDE，然后自动${actionLabel || "继续"}？`
+      : `Cursor 还在运行，不能${actionLabel || "改补丁"}。\n\n点「确定」先关闭 IDE，再重新点一次按钮。`
   );
   if (!go) {
     toast("已取消 — 请先关 IDE 再操作");
@@ -579,9 +605,156 @@ async function requireIdeClosed(actionLabel) {
     toast("IDE 仍在运行，请手动完全退出后再试");
     return false;
   }
-  toast("IDE 已关，请再点一次刚才的按钮");
   syncIdeGate(false);
-  return false; // 强制用户再点一次，避免关了就立刻写入
+  if (!autoContinue) {
+    toast("IDE 已关，请再点一次刚才的按钮");
+    return false;
+  }
+  toast(`IDE 已关，正在${actionLabel || "继续"}…`);
+  return true;
+}
+
+function computeWbNext(res) {
+  if (!res || !res.ok) {
+    return { id: "refresh", label: "刷新诊断", hint: "诊断失败，先刷新看看。", needsClosed: false, run: () => refreshWbDiag() };
+  }
+  const layers = res.layers || {};
+  const mu = res.modelUnlock || {};
+  const ctx = res.ctxwin || {};
+  const pref = (res.proxy && res.proxy.preference) || {};
+  const live = (res.proxy && res.proxy.live) || {};
+  const running = !!res.cursorRunning;
+
+  if (mu.corrupted) {
+    return {
+      id: "repair",
+      label: "修复黑屏",
+      hint: "检测到异常会员补丁，先修 workbench。",
+      needsClosed: true,
+      run: () => repairModelUnlock(),
+    };
+  }
+  if (!(layers.gateway > 0)) {
+    return {
+      id: "gateway",
+      label: "去装网关插件",
+      hint: "workbench 里还没有网关补丁；这步在启动器外完成。",
+      needsClosed: false,
+      primary: false,
+      run: null,
+    };
+  }
+  if (!mu.maxOnly && !mu.installed) {
+    return {
+      id: "max",
+      label: "仅解锁 MAX",
+      hint: "关 IDE 后点下一步，只打 hideMaxToggle。",
+      needsClosed: true,
+      run: () => runModelUnlock("applyMax"),
+    };
+  }
+  if (!ctx.patched) {
+    return {
+      id: "ctxwin",
+      label: "启用 500k",
+      hint: "关 IDE 后点下一步，挂钩扩展宿主回包。",
+      needsClosed: true,
+      run: () => runCtxwin("apply"),
+    };
+  }
+  if (!pref.enabled) {
+    return {
+      id: "proxy",
+      label: running ? "保存代理偏好" : "保存并写入代理",
+      hint: running
+        ? "先保存偏好；真正写入要关 IDE 后再保存一次，或用启动器启动。"
+        : "勾选已开代理时，保存会写 settings/argv（网关原生不改 workbench）。",
+      needsClosed: false,
+      run: async () => {
+        if ($("proxyEnabled") && !$("proxyEnabled").checked) $("proxyEnabled").checked = true;
+        if ($("proxyRoute")) $("proxyRoute").value = "gateway";
+        $("btnSaveProxy")?.click();
+        await refreshWbDiag();
+      },
+    };
+  }
+  if (pref.enabled && !live.argvProxyServer && !live.httpProxy && !running) {
+    return {
+      id: "proxy-write",
+      label: "写入代理到 Cursor",
+      hint: "偏好已开但文件还没写上，再保存一次。",
+      needsClosed: false,
+      run: async () => {
+        $("btnSaveProxy")?.click();
+        await refreshWbDiag();
+      },
+    };
+  }
+  return {
+    id: "launch",
+    label: "用启动器启动 IDE",
+    hint: "网关 + MAX + 500k + 代理都齐了。以后用启动器开 Cursor。",
+    needsClosed: false,
+    run: () => launch(null),
+  };
+}
+
+function paintWbChecklist(res) {
+  const el = $("wbChecklist");
+  if (!el || !res?.ok) {
+    if (el) el.innerHTML = "";
+    return;
+  }
+  const layers = res.layers || {};
+  const mu = res.modelUnlock || {};
+  const ctx = res.ctxwin || {};
+  const pref = (res.proxy && res.proxy.preference) || {};
+  const live = (res.proxy && res.proxy.live) || {};
+  const step = pendingWbNext;
+
+  const items = [
+    {
+      id: "gateway",
+      ok: layers.gateway > 0,
+      label: "网关原生",
+      meta: layers.gateway > 0 ? `${layers.gateway} 处补丁` : "未检测到",
+    },
+    {
+      id: "max",
+      ok: !!(mu.maxOnly || (mu.installed && !mu.corrupted)),
+      warn: !!mu.corrupted,
+      label: "MAX 开关",
+      meta: mu.corrupted ? "异常，需修复" : (mu.maxOnly ? "仅 MAX 已开" : (mu.installed ? "已解锁" : "未开")),
+    },
+    {
+      id: "ctxwin",
+      ok: !!ctx.patched,
+      label: "500k 回包",
+      meta: ctx.patched ? "已启用" : "未启用",
+    },
+    {
+      id: "proxy",
+      ok: !!pref.enabled && !pref.bypass_gateway,
+      warn: !!pref.enabled && !!pref.bypass_gateway,
+      label: "代理",
+      meta: pref.enabled
+        ? (pref.bypass_gateway ? "改回官方（危险）" : (live.argvProxyServer || live.httpProxy ? "网关原生 · 已写入" : "网关原生 · 仅偏好"))
+        : (live.argvProxyServer ? "argv 有残留" : "未开"),
+    },
+  ];
+
+  el.innerHTML = items.map((it) => {
+    const tone = it.warn ? "critical" : (it.ok ? "ok" : "warn");
+    const mark = it.warn ? "!" : (it.ok ? "✓" : "○");
+    const isNext = step && (
+      (step.id === "gateway" && it.id === "gateway") ||
+      (step.id === "max" && it.id === "max") ||
+      (step.id === "ctxwin" && it.id === "ctxwin") ||
+      ((step.id === "proxy" || step.id === "proxy-write") && it.id === "proxy") ||
+      (step.id === "repair" && it.id === "max")
+    );
+    return `<li class="wb-check ${tone}${isNext ? " is-next" : ""}"><span class="mark">${mark}</span><span>${it.label}</span><span class="meta">${it.meta}</span></li>`;
+  }).join("");
 }
 
 function maybePaintLocalCards() {
@@ -641,6 +814,18 @@ async function refreshCursorStatus(opts = {}) {
       : "压缩状态库（先关闭 IDE）";
   }
   paintSettingsMeta(res);
+  if (lastWbDiag?.ok) {
+    lastWbDiag = { ...lastWbDiag, cursorRunning: !!res.running };
+    pendingWbNext = computeWbNext(lastWbDiag);
+    paintWbChecklist(lastWbDiag);
+    const hint = $("wbNextHint");
+    if (hint && pendingWbNext) {
+      hint.textContent = res.running && pendingWbNext.needsClosed
+        ? `卡在「${pendingWbNext.label}」— 先关 IDE`
+        : (pendingWbNext.hint || pendingWbNext.label);
+    }
+    syncIdeGate(!!res.running);
+  }
   if (opts.ctxwin) refreshCtxwin();
   if (opts.modelUnlock) refreshModelUnlock();
   if (opts.update !== false) refreshUpdateStatus();
@@ -739,15 +924,34 @@ function paintWbDiag(res) {
   const chips = $("wbDiagChips");
   const recs = $("wbDiagRecs");
   const info = $("wbDiagInfo");
+  const hint = $("wbNextHint");
   const fix500 = $("btnWbDiagFix500k");
   const restoreBtn = $("btnWbDiagRestore");
-  if (!chips || !info) return;
+  if (!info) return;
 
+  lastWbDiag = res;
   if (!res || !res.ok) {
-    chips.innerHTML = _wbChip("诊断失败", "critical");
+    pendingWbNext = computeWbNext(res);
+    paintWbChecklist(null);
+    if (chips) chips.innerHTML = _wbChip("诊断失败", "critical");
     if (recs) recs.innerHTML = "";
+    if (hint) hint.textContent = res?.error || "无法读取诊断，点刷新重试";
     info.textContent = res?.error || "无法读取诊断";
+    syncIdeGate(Boolean(lastCursorStatus?.running));
     return;
+  }
+
+  pendingWbNext = computeWbNext(res);
+  paintWbChecklist(res);
+  if (hint) {
+    const step = pendingWbNext;
+    if (res.cursorRunning && step?.needsClosed) {
+      hint.textContent = `卡在「${step.label}」— 先关 IDE，关掉后点顶栏「${step.label}」或会自动继续。`;
+    } else if (step?.id === "launch") {
+      hint.textContent = "四项都齐了。用启动器开 Cursor 即可。";
+    } else if (step) {
+      hint.textContent = step.hint || `下一步：${step.label}`;
+    }
   }
 
   const layers = res.layers || {};
@@ -756,26 +960,16 @@ function paintWbDiag(res) {
   const pref = (res.proxy && res.proxy.preference) || {};
   const live = (res.proxy && res.proxy.live) || {};
 
-  const bits = [];
-  bits.push(_wbChip(res.healthy ? "健康" : "需处理", res.healthy ? "ok" : "warn"));
-  bits.push(_wbChip(res.cursorRunning ? "IDE 运行中" : "IDE 已关", res.cursorRunning ? "info" : "ok"));
-  bits.push(_wbChip(
-    layers.gateway > 0 ? `网关×${layers.gateway}` : "无网关补丁",
-    layers.gateway > 0 ? "ok" : "warn"
-  ));
-  bits.push(_wbChip(
-    mu.maxOnly ? "仅 MAX" : (mu.installed ? "完整解锁" : "未解锁 MAX"),
-    mu.corrupted ? "critical" : (mu.maxOnly || mu.installed ? "ok" : "warn")
-  ));
-  bits.push(_wbChip(ctx.patched ? "500k 已启用" : "500k 未启用", ctx.patched ? "ok" : "warn"));
-  const proxyOn = !!pref.enabled;
-  const argvProxy = live.argvProxyServer || live.httpProxy;
-  bits.push(_wbChip(
-    proxyOn ? (pref.bypass_gateway ? "代理·改回官方" : "代理·网关原生") : (argvProxy ? "argv 有代理/偏好关" : "代理关"),
-    proxyOn && !pref.bypass_gateway ? "ok" : (argvProxy && !proxyOn ? "info" : (proxyOn ? "warn" : "info"))
-  ));
-  if (res.profile) bits.push(_wbChip(res.profile, "info"));
-  chips.innerHTML = bits.join("");
+  if (chips) {
+    const bits = [];
+    bits.push(_wbChip(res.healthy ? "健康" : "需处理", res.healthy ? "ok" : "warn"));
+    bits.push(_wbChip(res.cursorRunning ? "IDE 运行中" : "IDE 已关", res.cursorRunning ? "info" : "ok"));
+    bits.push(_wbChip(layers.gateway > 0 ? `网关×${layers.gateway}` : "无网关", layers.gateway > 0 ? "ok" : "warn"));
+    bits.push(_wbChip(mu.maxOnly ? "仅 MAX" : (mu.installed ? "完整解锁" : "无 MAX"), mu.corrupted ? "critical" : (mu.maxOnly || mu.installed ? "ok" : "warn")));
+    bits.push(_wbChip(ctx.patched ? "500k" : "无 500k", ctx.patched ? "ok" : "warn"));
+    bits.push(_wbChip(pref.enabled ? (pref.bypass_gateway ? "代理·官方" : "代理·原生") : (live.argvProxyServer ? "argv残留" : "代理关"), pref.enabled && !pref.bypass_gateway ? "ok" : "info"));
+    chips.innerHTML = bits.join("");
+  }
 
   if (recs) {
     const list = res.recommendations || [];
@@ -787,14 +981,13 @@ function paintWbDiag(res) {
   }
 
   if (fix500) {
+    fix500.hidden = !!ctx.patched;
     fix500.classList.toggle("is-blocked", !!ctx.patched || !!res.cursorRunning);
-    fix500.title = ctx.patched
-      ? "500k 已启用"
-      : (res.cursorRunning ? "请先关闭 IDE" : "启用回包改写（extensionHostProcess.js）");
+    fix500.title = ctx.patched ? "500k 已启用" : (res.cursorRunning ? "请先关闭 IDE" : "启用回包改写");
   }
   if (restoreBtn) {
     restoreBtn.classList.toggle("is-blocked", !!res.cursorRunning);
-    restoreBtn.title = res.cursorRunning ? "请先关闭 IDE" : "从统一备份栈还原 workbench";
+    restoreBtn.title = res.cursorRunning ? "请先关闭 IDE" : "从统一备份还原 workbench";
   }
 
   const bak = res.backup || {};
@@ -804,6 +997,20 @@ function paintWbDiag(res) {
     bak.hasLegacyBajie ? "legacy bajie 备份可用" : "",
   ].filter(Boolean).join("\n");
   syncIdeGate(Boolean(lastCursorStatus?.running || res.cursorRunning));
+}
+
+async function runWbNext() {
+  const step = pendingWbNext;
+  if (!step) return refreshWbDiag();
+  if (step.id === "gateway") {
+    return toast("请在启动器外安装/确认网关插件补丁");
+  }
+  if (typeof step.run !== "function") {
+    return toast(step.hint || "没有可执行的下一步");
+  }
+  if (step.needsClosed && !(await requireIdeClosed(step.label))) return;
+  await step.run();
+  await refreshWbDiag();
 }
 
 async function refreshWbDiag() {
@@ -1702,7 +1909,20 @@ $("btnCtxwinRefresh").onclick = () => refreshCtxwin();
 if ($("btnWbDiagRefresh")) $("btnWbDiagRefresh").onclick = () => refreshWbDiag();
 if ($("btnWbDiagFix500k")) $("btnWbDiagFix500k").onclick = () => runWbDiagFix500k();
 if ($("btnWbDiagRestore")) $("btnWbDiagRestore").onclick = () => runWbDiagRestore();
-if ($("btnIdeGateClose")) $("btnIdeGateClose").onclick = () => closeIde();
+if ($("btnIdeGateClose")) {
+  $("btnIdeGateClose").onclick = async () => {
+    const step = pendingWbNext;
+    await closeIde();
+    await refreshWbDiag();
+    if (!lastCursorStatus?.running && step?.needsClosed && typeof step.run === "function") {
+      if (confirm(`IDE 已关。现在执行「${step.label}」？`)) {
+        await step.run();
+        await refreshWbDiag();
+      }
+    }
+  };
+}
+if ($("btnWbNext")) $("btnWbNext").onclick = () => runWbNext();
 $("btnModelUnlockApplyMax").onclick = () => runModelUnlock("applyMax");
 $("btnModelUnlockApply").onclick = () => runModelUnlock("apply");
 $("btnModelUnlockRestore").onclick = () => runModelUnlock("restore");
