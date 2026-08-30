@@ -165,11 +165,21 @@
           <pre class="mini" id="shortcutInfo">—</pre>
         </section>
         <section class="settings-panel settings-span">
-          <h3 class="settings-title">Grok Extra High 500k 上下文</h3>
-          <p class="hint settings-hint">只改客户端看到的窗口上限（256k → 500k）。需要本机 Node.js；改前请退出 Cursor。升级 IDE 后补丁会丢，需重打。若已用网关插件的同名开关，一般不必再打文件补丁。</p>
+          <h3 class="settings-title">模型选择器解锁（启动器自有）</h3>
+          <p class="hint settings-hint">解除免费号「只能选 Auto」等客户端锁。改 workbench，不伪装 Sand / 不改 client-type。须先关 IDE；升级 Cursor 后需重打。可随时还原。与下方「回包改写」互补（解锁选模型 ≠ 改上下文窗口）。</p>
           <div class="guard-actions">
-            <button type="button" class="btn" id="btnCtxwinApply">打上 500k</button>
-            <button type="button" class="btn ghost" id="btnCtxwinRestore">还原 256k</button>
+            <button type="button" class="btn" id="btnModelUnlockApply">启用解锁</button>
+            <button type="button" class="btn ghost" id="btnModelUnlockRestore">还原</button>
+            <button type="button" class="btn ghost" id="btnModelUnlockRefresh">刷新状态</button>
+          </div>
+          <pre class="mini" id="modelUnlockInfo">—</pre>
+        </section>
+        <section class="settings-panel settings-span">
+          <h3 class="settings-title">模型回包改写（启动器自有）</h3>
+          <p class="hint settings-hint">不依赖混淆网关。给 Cursor 的扩展宿主挂钩，改写 <code>AvailableModels</code> / <code>GetServerConfig</code> / Agent 响应里的窗口字段（Grok Extra High 256k→500k）。需本机 Node.js；须先关 IDE。升级 Cursor 后补丁会丢，需重打。可随时还原。</p>
+          <div class="guard-actions">
+            <button type="button" class="btn" id="btnCtxwinApply">启用回包改写</button>
+            <button type="button" class="btn ghost" id="btnCtxwinRestore">还原官方</button>
             <button type="button" class="btn ghost" id="btnCtxwinRefresh">刷新状态</button>
           </div>
           <pre class="mini" id="ctxwinInfo">—</pre>

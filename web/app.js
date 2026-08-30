@@ -534,6 +534,7 @@ async function refreshCursorStatus(opts = {}) {
     if ($("cursorInfo")) $("cursorInfo").textContent = res.error || "请设置 Cursor 路径";
     paintSettingsMeta(res);
     if (opts.ctxwin) refreshCtxwin();
+    if (opts.modelUnlock) refreshModelUnlock();
     maybePaintLocalCards();
     return;
   }
@@ -568,6 +569,7 @@ async function refreshCursorStatus(opts = {}) {
   }
   paintSettingsMeta(res);
   if (opts.ctxwin) refreshCtxwin();
+  if (opts.modelUnlock) refreshModelUnlock();
   if (opts.update !== false) refreshUpdateStatus();
   maybePaintLocalCards();
 }
@@ -627,22 +629,22 @@ function paintCtxwin(res) {
     return;
   }
   const lines = [
-    res.patched ? "状态：已打上 500k" : "状态：官方 256k（未打补丁）",
-    `窗口 ${res.from || 256000} → ${res.to || 500000}`,
+    res.patched ? "状态：已启用回包改写（500k）" : "状态：未启用（官方 256k）",
+    `覆盖：AvailableModels + GetServerConfig + Agent · ${res.from || 256000} → ${res.to || 500000}`,
     res.version ? `Cursor v${res.version}` : "",
     res.running ? "IDE 正在运行，改文件前请先关闭" : "IDE 未运行，可以改文件",
-    res.node ? `Node ${res.node}` : "未找到 Node.js，无法打补丁",
+    res.node ? `Node ${res.node}` : "未找到 Node.js，无法启用",
   ].filter(Boolean);
   info.textContent = lines.join("\n");
   if (applyBtn) {
     applyBtn.classList.toggle("is-blocked", !res.canApply);
     applyBtn.title = res.running
       ? "请先关闭 IDE"
-      : (!res.node ? "需要本机 Node.js" : "把 grok Extra High 窗口改成 500k");
+      : (!res.node ? "需要本机 Node.js" : "挂钩扩展宿主，改写模型目录与配置回包");
   }
   if (restoreBtn) {
     restoreBtn.classList.toggle("is-blocked", !res.canRestore);
-    restoreBtn.title = res.patched ? "去掉补丁，回到官方 256k" : "当前没有补丁";
+    restoreBtn.title = res.patched ? "去掉挂钩，回到官方响应" : "当前没有补丁";
   }
 }
 
@@ -667,12 +669,71 @@ async function runCtxwin(kind) {
   }
   const fn = kind === "restore" ? "ctxwin_restore" : "ctxwin_apply";
   const info = $("ctxwinInfo");
-  if (info) info.textContent = kind === "restore" ? "正在还原…" : "正在打补丁…";
+  if (info) info.textContent = kind === "restore" ? "正在还原…" : "正在启用回包改写…";
   const res = await api()[fn]();
   paintCtxwin(res);
   if (!res.ok) return toast(res.error || "失败");
   if (res.skipped) return toast(res.message || "无需还原");
-  toast(kind === "restore" ? "已还原官方 256k，请再启动 IDE" : "已打上 500k，请再启动 IDE");
+  toast(kind === "restore" ? "已还原官方回包，请再启动 IDE" : "已启用回包改写，请再启动 IDE");
+}
+
+function paintModelUnlock(res) {
+  const info = $("modelUnlockInfo");
+  const applyBtn = $("btnModelUnlockApply");
+  const restoreBtn = $("btnModelUnlockRestore");
+  if (!info) return;
+  if (!res || !res.ok) {
+    info.textContent = res?.error || "无法检测解锁状态";
+    if (applyBtn) applyBtn.classList.add("is-blocked");
+    if (restoreBtn) restoreBtn.classList.add("is-blocked");
+    return;
+  }
+  const hits = res.hits || {};
+  const lines = [
+    res.installed ? "状态：已解锁模型选择器（未改 Sand 身份）" : "状态：未解锁（免费号可能只能选 Auto）",
+    `命中：FREE锁×${hits.modelLock || 0} · 会员短路×${hits.memPro || 0} · Max×${hits.maxMode || 0} · fetch×${hits.fetchSpoof || 0}`,
+    res.version ? `Cursor v${res.version}` : "",
+    res.running ? "IDE 正在运行，改文件前请先关闭" : "IDE 未运行，可以改文件",
+  ].filter(Boolean);
+  if (res.message && res.ok) lines.push(res.message);
+  info.textContent = lines.join("\n");
+  if (applyBtn) {
+    applyBtn.classList.toggle("is-blocked", !res.can_apply);
+    applyBtn.title = res.running ? "请先关闭 IDE" : "解除客户端模型锁（不依赖 Sand）";
+  }
+  if (restoreBtn) {
+    restoreBtn.classList.toggle("is-blocked", !res.can_restore);
+    restoreBtn.title = res.installed ? "去掉本启动器的解锁标记" : "当前没有解锁补丁";
+  }
+}
+
+async function refreshModelUnlock() {
+  if (!api()?.model_unlock_status) return;
+  try {
+    paintModelUnlock(await api().model_unlock_status());
+  } catch (e) {
+    paintModelUnlock({ ok: false, error: String(e) });
+  }
+}
+
+async function runModelUnlock(kind) {
+  const status = await api().model_unlock_status();
+  if (kind === "apply" && !status.can_apply) {
+    paintModelUnlock(status);
+    return toast(status.running ? "请先关闭 IDE" : (status.error || "当前不能解锁"));
+  }
+  if (kind === "restore" && !status.can_restore) {
+    paintModelUnlock(status);
+    return toast(status.installed ? (status.running ? "请先关闭 IDE" : "无法还原") : "当前没有解锁补丁");
+  }
+  const fn = kind === "restore" ? "model_unlock_restore" : "model_unlock_apply";
+  const info = $("modelUnlockInfo");
+  if (info) info.textContent = kind === "restore" ? "正在还原…" : "正在启用解锁…";
+  const res = await api()[fn]();
+  paintModelUnlock(res);
+  if (!res.ok) return toast(res.error || "失败");
+  if (res.skipped) return toast(res.message || "无需还原");
+  toast(kind === "restore" ? "已还原模型解锁，请再启动 IDE" : "已解锁模型选择器，请再启动 IDE");
 }
 
 async function openDetail(accountId) {
@@ -1314,7 +1375,7 @@ if ($("btnRecoverCursor")) $("btnRecoverCursor").onclick = () => runDll("uninsta
 $("btnSavePath").onclick = async () => {
   const res = await api().set_cursor_path($("cursorPath").value);
   toast(res.ok ? "路径已保存" : (res.error || "失败"));
-  await refreshCursorStatus({ ctxwin: true, update: true });
+  await refreshCursorStatus({ ctxwin: true, modelUnlock: true, update: true });
 };
 if ($("btnApplyDisableUpdate")) {
   $("btnApplyDisableUpdate").onclick = async () => {
@@ -1347,6 +1408,9 @@ if ($("disableAutoUpdate")) {
 $("btnCtxwinApply").onclick = () => runCtxwin("apply");
 $("btnCtxwinRestore").onclick = () => runCtxwin("restore");
 $("btnCtxwinRefresh").onclick = () => refreshCtxwin();
+$("btnModelUnlockApply").onclick = () => runModelUnlock("apply");
+$("btnModelUnlockRestore").onclick = () => runModelUnlock("restore");
+$("btnModelUnlockRefresh").onclick = () => refreshModelUnlock();
 $("btnShortcutDesktop").onclick = () => createChosenShortcuts(true, false);
 $("btnShortcutStart").onclick = () => createChosenShortcuts(false, true);
 $("btnShortcutSkip").onclick = async () => {
@@ -1487,7 +1551,7 @@ async function boot() {
     return setTimeout(boot, 120);
   }
   try {
-    await Promise.all([refreshCursorStatus({ ctxwin: true }), loadProxy(), renderAccounts()]);
+    await Promise.all([refreshCursorStatus({ ctxwin: true, modelUnlock: true }), loadProxy(), renderAccounts()]);
     paintSettingsMeta(lastCursorStatus);
     startStatusWatch();
     await maybePromptShortcuts();

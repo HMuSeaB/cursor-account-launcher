@@ -14,6 +14,9 @@ from launcher.account_store import AccountStore, SessionGuardStore, sort_account
 from launcher.ctxwin import ctxwin_apply as run_ctxwin_apply
 from launcher.ctxwin import ctxwin_restore as run_ctxwin_restore
 from launcher.ctxwin import ctxwin_status as read_ctxwin_status
+from launcher.model_unlock import apply as run_model_unlock_apply
+from launcher.model_unlock import restore as run_model_unlock_restore
+from launcher.model_unlock import status as read_model_unlock_status
 from launcher.cursor_process import (
     close_cursor,
     compact_cursor_state,
@@ -449,6 +452,24 @@ class Api:
     def ctxwin_restore(self) -> dict:
         try:
             return run_ctxwin_restore()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def model_unlock_status(self) -> dict:
+        try:
+            return read_model_unlock_status()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def model_unlock_apply(self) -> dict:
+        try:
+            return run_model_unlock_apply()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def model_unlock_restore(self) -> dict:
+        try:
+            return run_model_unlock_restore()
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
