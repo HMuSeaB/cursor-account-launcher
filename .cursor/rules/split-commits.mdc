@@ -1,0 +1,26 @@
+---
+description: 多块改动必须拆成多笔 commit 再推送/发版，便于备份与回滚
+alwaysApply: true
+---
+
+# 提交拆分（备份友好）
+
+一次会话里若改了多类事，**禁止**合成一个大 `release:` commit 直接推。先按主题拆开提交，最后再单独一笔 bump 版本 / release notes。
+
+## 推荐拆法（cursor-launcher）
+
+1. `refactor(workbench): …` — 备份 / 预检 / manager / autofix 后端
+2. `feat(ui): …` — 主界面自检条、一键补齐、设置去重
+3. `test: …` — fixtures / 预检 / 回归测试
+4. `docs: …` — README / RELEASE 说明（可与版本笔合并）
+5. `release: vX.Y.Z …` — **仅** `installer/*.iss`、`launcher/versioning.py` 版本号、`RELEASE_v*.md`
+
+## 红线
+
+- 已 `git push` / 已打 tag 的历史不要为了拆分去 rebase + force push
+- 未推送前发现揉成一团：用多次 `git reset`/`git add -p` 拆开，或让用户确认后再改写本地 commit
+- 杂项目录（`_cgw_extract/`、临时探测脚本）默认不提交
+
+## 发版顺序
+
+`pytest` → 拆分 commit → `build.ps1` → push commits → tag → `gh release create`
