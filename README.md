@@ -2,12 +2,23 @@
 
 Windows 桌面版 **Cursor 账号启动器**（非官方），基于 Python + pywebview。
 
+## 分层（别一次写爆 Cursor）
+
+启动器是**桌面管家**：账号、切号、代理偏好、减负。对 Cursor 安装目录的改写拆成可选层，**各自启用/还原**，启动 IDE 时默认不写 settings / argv / workbench：
+
+| 层 | 改什么 | 本仓库入口 |
+|----|--------|------------|
+| 桌面管家 | 账号 Token、进程代理参数、更新拦截 | `app.py` / `launcher/*` |
+| 扩展 Agent | `extensionHostProcess.js` 回包改写（500k） | `scripts/patch-ctxwin.mjs` |
+| workbench 客户端 | 模型选择器解锁（不依赖 Sand） | `launcher/model_unlock.py` |
+| 网关 bridge | `43111/__bajie` 等 | **外部插件**；启动器只检测/路由，默认不剥补丁 |
+
 ## 功能
 
 - 多账号管理、额度查询、一键切号（本机账号置顶）
 - IDE 模式启动（`--classic`）；记住窗口大小与位置
 - 减负：轻量启动、运行中削减内存、关闭 IDE、压缩状态库
-- Grok Extra High 500k 上下文补丁（可选；改本机 Cursor 文件，需 Node.js）
+- 可选：扩展宿主回包改写（AvailableModels / GetServerConfig）；可选：模型选择器解锁
 - 登录设备管理 / 会话守卫
 - 代理：settings / argv / 环境变量（仅「保存」写入；启动只带进程参数）；网关路由；可选进程级 `version.dll`（易闪退，非必要别用）
 - 禁用 Cursor 自动更新（settings + Windows 更新器拦截）
@@ -33,9 +44,27 @@ python app.py
 - **切换并启动**：关 Cursor → 写入所选账号 Token → 启动。当前本机账号显示「启动」，不会再切一次
 - **减负菜单**（顶栏三条杠）：轻量启动、削减内存（IDE 开着也能用；也可点顶栏运行状态）、关闭 IDE、压缩 `state.vscdb`（须先关 IDE）
 
-### Grok 500k（可选）
+### 模型选择器解锁（启动器自有）
 
-设置 → **打上 500k / 还原 256k**。会改本机 Cursor 安装目录中的扩展宿主文件，把 Grok Extra High 客户端看到的窗口从 256k 抬到 500k（不改官方计费）。需本机 Node.js；升级 Cursor 后需重打。改前请完全退出 IDE。
+设置 → **启用解锁 / 还原**。改本机 Cursor 的 `workbench.*.main.js`，解除「免费号只能选 Auto」等客户端锁：
+
+- FREE 模型锁短路
+- 可选：membership / Max 绑卡守卫短路（命中才改）
+- fetch 侧：会员字段伪装 + AvailableModels `defaultOn`（**不**把 client-type 改成 sand）
+
+与 Sand 工具无关，可单独还原。须先关 IDE；升级 Cursor 后需重打。备份：`%LOCALAPPDATA%\CursorLauncher\model-unlock\backups\`。
+
+### 模型回包改写（启动器自有）
+
+设置 → **启用回包改写 / 还原官方**。挂钩本机 Cursor 的 `extensionHostProcess.js`，在进程内改写：
+
+- `AvailableModels`（Grok Extra High 窗口 256k→500k）
+- `GetServerConfig`（全局上下文兜底）
+- Agent / TokenLimit 相关流式回包
+
+不依赖混淆网关插件。需本机 Node.js；改前请完全退出 IDE。升级 Cursor 后需重打。日志：`%TEMP%\cursor-ctxwin.log`。
+
+解锁选模型 ≠ 改上下文窗口；两者可同时启用。
 
 ### 代理
 
