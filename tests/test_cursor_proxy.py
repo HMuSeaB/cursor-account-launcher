@@ -45,12 +45,81 @@ def test_proxy_env_and_args_for_bridge_process():
     env = proxy_env(cfg)
     assert env["HTTPS_PROXY"] == "http://127.0.0.1:7890"
     assert env["NO_PROXY"].startswith("localhost")
+    assert "," in env["NO_PROXY"]
     args = proxy_chromium_args(cfg)
     assert args[0] == "--proxy-server=http://127.0.0.1:7890"
     assert "--disable-quic" in args
     assert "--disable-features=Http3" in args
     assert proxy_env(ProxyConfig(enabled=False)) == {}
     assert proxy_chromium_args(ProxyConfig(enabled=False)) == []
+
+
+def test_settings_no_proxy_must_be_array_not_string(tmp_path, monkeypatch):
+    from launcher import cursor_proxy as cp
+
+    settings = tmp_path / "settings.json"
+    settings.write_text("{\n  \"editor.fontSize\": 14\n}\n", encoding="utf-8")
+    argv = tmp_path / "argv.json"
+    argv.write_text('{\n\t"crash-reporter-id": "keep"\n}\n', encoding="utf-8")
+    monkeypatch.setattr(cp, "settings_json_path", lambda: str(settings))
+    monkeypatch.setattr(cp, "argv_json_path", lambda: argv)
+
+    cfg = ProxyConfig(enabled=True, proxy_type="socks5", host="127.0.0.1", port=7891)
+    res = cp.apply_proxy(cfg)
+    assert res["ok"] is True
+    data = __import__("json").loads(settings.read_text(encoding="utf-8"))
+    assert isinstance(data["http.noProxy"], list)
+    assert "localhost" in data["http.noProxy"]
+    assert isinstance(data["http.noProxy"][0], str)
+
+
+def test_normalize_repairs_string_no_proxy():
+    from launcher.cursor_proxy import normalize_settings_no_proxy
+
+    settings = {"http.noProxy": "localhost,127.0.0.1,::1"}
+    assert normalize_settings_no_proxy(settings) is True
+    assert settings["http.noProxy"] == ["localhost", "127.0.0.1", "::1"]
+
+
+def test_from_dict_defaults_proxy_disabled():
+    cfg = ProxyConfig.from_dict({})
+    assert cfg.enabled is False
+
+
+def test_snapshot_and_restore_proxy_files(tmp_path, monkeypatch):
+    from launcher import cursor_proxy as cp
+
+    settings = tmp_path / "settings.json"
+    settings.write_text(
+        '{\n  "editor.fontSize": 14,\n  "http.proxy": "http://old:1"\n}\n',
+        encoding="utf-8",
+    )
+    argv = tmp_path / "argv.json"
+    argv.write_text('{\n\t"crash-reporter-id": "keep",\n\t"locale": "zh-cn"\n}\n', encoding="utf-8")
+    bak = tmp_path / "proxy-backups"
+    bak.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(cp, "settings_json_path", lambda: str(settings))
+    monkeypatch.setattr(cp, "argv_json_path", lambda: argv)
+    monkeypatch.setattr(cp, "_proxy_backup_dir", lambda: bak)
+
+    cfg = ProxyConfig(enabled=True, proxy_type="socks5", host="127.0.0.1", port=7891)
+    res = cp.apply_proxy(cfg)
+    assert res["ok"] is True
+    assert bak.joinpath("settings-proxy-keys.json").is_file()
+    data = __import__("json").loads(settings.read_text(encoding="utf-8"))
+    assert data["http.proxy"].startswith("socks5")
+    assert isinstance(data["http.noProxy"], list)
+
+    undone = cp.restore_proxy_files()
+    assert undone["ok"] is True
+    restored = __import__("json").loads(settings.read_text(encoding="utf-8"))
+    assert restored.get("http.proxy") == "http://old:1"
+    assert "http.noProxy" not in restored
+    assert restored["editor.fontSize"] == 14
+    argv_text = argv.read_text(encoding="utf-8")
+    assert "crash-reporter-id" in argv_text
+    assert "proxy-server" not in argv_text or "keep" in argv_text
+
 
 
 def test_proxy_flags_insert_before_light_workspace():

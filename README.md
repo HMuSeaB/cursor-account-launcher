@@ -9,7 +9,7 @@ Windows 桌面版 **Cursor 账号启动器**（非官方），基于 Python + py
 - 减负：轻量启动、运行中削减内存、关闭 IDE、压缩状态库
 - Grok Extra High 500k 上下文补丁（可选；改本机 Cursor 文件，需 Node.js）
 - 登录设备管理 / 会话守卫
-- 代理：settings / argv / 环境变量；网关路由（改补丁 / 不改补丁）；可选进程级 `version.dll`（手动）
+- 代理：settings / argv / 环境变量（仅「保存」写入；启动只带进程参数）；网关路由；可选进程级 `version.dll`（易闪退，非必要别用）
 - 禁用 Cursor 自动更新（settings + Windows 更新器拦截）
 
 ## 快速开始
@@ -43,21 +43,22 @@ FlClash 开着（推荐 SOCKS5 `127.0.0.1:7891`）。路由二选一：
 
 | 模式 | 适用 |
 |------|------|
-| 没打网关补丁 | 改回官方 API，走 Clash |
-| 打了补丁，走网关原生 | 保留 `43111` 网关路由 |
+| 打了补丁，走网关原生 | **推荐**；不改 workbench，启动时带进程代理参数 |
+| 没打网关补丁 | 会改 workbench 改回官方 API（风险高，需确认） |
 
-**保存** 写 settings / 环境变量，并按模式改 workbench（需关 IDE 或下次用启动器重启）。
+**防误触：** Cursor 开着时点「保存」只记启动器偏好，不改 Cursor 文件。真正写入前会确认，并自动备份 settings/argv。误触后点 **「一键还原误触」** 可撤回（含尽量恢复 workbench、删除 DLL、关闭代理开关）。
 
-进程 DLL（Antigravity 同款，不用 TUN）需 **手动** 操作，且要先关 IDE：
+进程 DLL（Antigravity 同款）**非必要别用**，且要先关 IDE：
 
 | 按钮 | 作用 |
 |------|------|
-| 写入 DLL | 安装到 Cursor 目录 |
+| 写入 DLL | 安装到 Cursor 目录（有闪退风险） |
 | 删除 DLL | 删除（会先备份） |
 | 还原 DLL | 从备份装回 |
 | 还原补丁 | 恢复 workbench 备份（重装 Cursor 后勿用） |
+| 一键还原误触 | 还原代理快照 + workbench 备份 + 卸 DLL |
 
-黑屏时：关 IDE → **删除 DLL** → 再开。exe 版关启动器时若弹 `_MEI` 警告，点确定即可。
+黑屏/闪退时：关 IDE → **一键还原误触** → 再开。exe 版关启动器时若弹 `_MEI` 警告，点确定即可。
 
 ### 禁用自动更新
 

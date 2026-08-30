@@ -575,22 +575,28 @@ async function refreshCursorStatus(opts = {}) {
 function formatProxyStatus(res) {
   const st = res.processProxyStatus || {};
   const patch = res.patchStatus || {};
+  const bak = res.proxyBackup || {};
   const route = $("proxyRoute")?.value;
   const lines = [
     `网关补丁：${patch.patched ? "有" : "无"}${patch.hits ? `（${patch.hits} 处）` : ""}${patch.hasBackup ? " · 有备份可还原" : ""}`,
     `进程 DLL：${st.installed ? "已写入" : "未写入"}${st.hasBackup ? " · 有备份可还原" : ""}`,
+    `代理快照：${bak.hasBackup ? `有（可一键还原）${bak.savedAt ? " · " + String(bak.savedAt).slice(0, 19) : ""}` : "无（成功写入后才会生成）"}`,
   ];
+  if (res.cursorRunning) {
+    lines.push("Cursor 开着：点保存只记偏好，不改 Cursor 文件");
+  }
   if (route === "gateway" && !patch.patched && !patch.hasBackup) {
     lines.push("⚠ 没检测到补丁：请先在网关插件里打补丁，或改选「没打网关补丁」");
   } else if (route === "clash" && patch.patched) {
-    lines.push("保存后会改回官方 API（去掉 43111 路由）");
-  } else if (route === "gateway" && patch.hasBackup && !patch.patched) {
-    lines.push("保存后会从备份恢复网关补丁");
+    lines.push("保存后会改回官方 API（去掉 43111 路由）——易搞坏，慎用");
+  } else if (route === "gateway") {
+    lines.push("网关原生：不改 workbench；启动时由启动器带代理参数");
   } else {
-    lines.push("保存后用启动器重启 Cursor");
+    lines.push("保存前会确认；写入前自动备份");
   }
-  if (st.installed) lines.push("若黑屏：先「删除 DLL」（会备份，还能还原）");
-  else lines.push("进程 DLL 需手动点「写入 DLL」（有闪退风险）");
+  if (st.installed) lines.push("若黑屏：点「一键还原误触」或「删除 DLL」");
+  else if (bak.hasBackup) lines.push("误触了就点「一键还原误触」");
+  else lines.push("进程 DLL 非必要别写（有闪退风险）");
   return lines.join("\n");
 }
 
@@ -1177,7 +1183,7 @@ $("btnDetectProxy").onclick = async () => {
       $("proxyDetectInfo").textContent =
         `已填入推荐：${rec.proxy_type}://${rec.host}:${rec.port}${ms}（${rec.label || ""}）\n` +
         (res.hint || "") + "\n" + lines.join("\n");
-      toast(`已填入 ${rec.proxy_type}://${rec.host}:${rec.port}${ms}，请点「保存并注入」`);
+      toast(`已填入 ${rec.proxy_type}://${rec.host}:${rec.port}${ms}，请点「保存」`);
     } else {
       $("proxyDetectInfo").textContent =
         "未发现可用本地代理。请先打开 Clash / v2rayN 等。\n" + (res.hint || "") + "\n" + lines.join("\n");
@@ -1219,9 +1225,22 @@ $("btnTestLatency").onclick = async () => {
 $("btnTheme").onclick = () => toggleTheme();
 $("btnUsageStyle").onclick = () => toggleUsageStyle();
 $("btnSaveProxy").onclick = async () => {
+  const enabled = $("proxyEnabled")?.checked;
   const clash = $("proxyRoute")?.value !== "gateway";
+  if (enabled) {
+    const tip = clash
+      ? "将写入 settings/argv，并改写 Cursor 的 workbench（风险高）。\n写入前会自动备份，可用「一键还原误触」撤回。\n\n确定继续？"
+      : "将在 Cursor 已关闭时写入 settings/argv（网关补丁不动）。\n写入前会自动备份，可用「一键还原误触」撤回。\n\n若 Cursor 仍在运行，则只记偏好、不改文件。\n\n确定保存？";
+    if (!window.confirm(tip)) return;
+  }
+  if (clash && enabled) {
+    const ok = window.confirm(
+      "再次确认：你选的是「改回官方 API」，会改安装目录里的 workbench。\n用网关补丁请改选「网关原生」。\n\n仍然继续？"
+    );
+    if (!ok) return;
+  }
   const res = await api().save_proxy({
-    enabled: $("proxyEnabled").checked,
+    enabled: !!enabled,
     bypass_gateway: clash,
     process_hook: false,
     proxy_type: $("proxyType").value,
@@ -1231,18 +1250,40 @@ $("btnSaveProxy").onclick = async () => {
   });
   if (!res.ok) {
     toast(res.error || "失败");
-  } else if (res.route?.deferred) {
-    toast(res.route.message || "已保存，请关 IDE 后用启动器重启");
+  } else if (res.deferred || res.filesWritten === false) {
+    toast(res.message || "已记住设置；请先关 IDE，再用启动器启动");
   } else if (res.route?.changed || res.route?.hits) {
-    toast(`已保存 · 已改回官方 API（${res.route.hits || 0} 处）`);
-  } else if (res.route?.restored) {
-    toast(`已保存 · 已恢复网关补丁（${res.route.restored} 个文件）`);
+    toast(`已保存 · 已改回官方 API（${res.route.hits || 0} 处）· 可用一键还原`);
   } else {
-    toast("已保存");
+    toast(res.message || "已保存（已备份，可一键还原）");
   }
   await loadProxy();
   paintSettingsMeta(lastCursorStatus);
 };
+
+if ($("btnUndoProxy")) {
+  $("btnUndoProxy").onclick = async () => {
+    const ok = window.confirm(
+      "一键还原误触将：\n" +
+        "1. 还原 settings/argv 快照\n" +
+        "2. 尽量恢复 workbench 网关补丁备份\n" +
+        "3. 删除 version.dll（若有）\n" +
+        "4. 关闭启动器里的代理开关\n\n" +
+        "会先关闭正在运行的 Cursor。确定？"
+    );
+    if (!ok) return;
+    toast("正在还原…");
+    try {
+      const res = await api().undo_proxy_injection();
+      toast(res.ok ? (res.message || "已还原") : (res.error || "还原失败"));
+      if ($("proxyEnabled")) $("proxyEnabled").checked = false;
+      await loadProxy();
+      await refreshCursorStatus();
+    } catch (e) {
+      toast("还原失败：" + String(e));
+    }
+  };
+}
 
 $("proxyRoute")?.addEventListener("change", async () => {
   paintSettingsMeta(lastCursorStatus);
@@ -1259,7 +1300,13 @@ async function runDll(fnName, waitText, okText) {
   await loadProxy();
   await refreshCursorStatus();
 }
-if ($("btnDllInstall")) $("btnDllInstall").onclick = () => runDll("install_process_proxy", "正在写入 DLL…", "已写入");
+if ($("btnDllInstall")) $("btnDllInstall").onclick = async () => {
+  const ok = window.confirm(
+    "写入 version.dll 极易导致 Cursor 闪退/黑屏，往往只能重装恢复。\n\n确定仍要写入？"
+  );
+  if (!ok) return;
+  return runDll("install_process_proxy", "正在写入 DLL…", "已写入");
+};
 if ($("btnDllRemove")) $("btnDllRemove").onclick = () => runDll("uninstall_process_proxy", "正在删除 DLL（会备份）…", "已删除");
 if ($("btnDllRestore")) $("btnDllRestore").onclick = () => runDll("restore_process_proxy_files", "正在还原 DLL…", "已还原");
 if ($("btnWorkbenchRestore")) $("btnWorkbenchRestore").onclick = () => runDll("restore_workbench", "正在还原 workbench 备份…", "已还原补丁");

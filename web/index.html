@@ -116,10 +116,10 @@
           <label class="check-row"><input type="checkbox" id="proxyEnabled" /> 开代理（settings / 环境变量）</label>
           <label class="field-label" for="proxyRoute">你的 Cursor 是哪种？</label>
           <select id="proxyRoute" aria-label="路由模式">
-            <option value="clash">没打网关补丁（改回官方 API + 注入）</option>
-            <option value="gateway">打了补丁，走网关原生（不改补丁）</option>
+            <option value="gateway" selected>打了补丁，走网关原生（推荐，不改补丁）</option>
+            <option value="clash">没打网关补丁（会改 workbench，易搞坏）</option>
           </select>
-          <p class="hint settings-hint">保存后请用启动器重启 IDE。「改补丁」会把 workbench 里的 43111 改回官方；「不改补丁」保留网关路由。下面四个 DLL 按钮都要先关 IDE；删除会备份。重装 Cursor 后勿点「还原补丁」。</p>
+          <p class="hint settings-hint">防误触：Cursor 开着时保存只记偏好、不改文件。真正写入前会确认，并自动备份，可用「一键还原误触」撤回去。网关原生不改 workbench。别点「写入 DLL」。</p>
           <label class="field-label" for="proxyType">FlClash 端口</label>
           <div class="proxy-fields">
             <select id="proxyType" aria-label="代理类型"><option value="http">HTTP</option><option value="socks5" selected>SOCKS5</option></select>
@@ -130,6 +130,7 @@
             <button type="button" class="btn ghost" id="btnDetectProxy">检测本机代理</button>
             <button type="button" class="btn ghost" id="btnTestLatency">测延迟</button>
             <button type="button" class="btn" id="btnSaveProxy">保存</button>
+            <button type="button" class="btn danger" id="btnUndoProxy">一键还原误触</button>
           </div>
           <div class="guard-actions">
             <button type="button" class="btn ghost" id="btnDllInstall">写入 DLL</button>

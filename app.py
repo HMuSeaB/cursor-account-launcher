@@ -32,14 +32,17 @@ from launcher.cursor_process import (
 from launcher.cursor_proxy import (
     ProxyConfig,
     apply_proxy,
+    proxy_backup_status,
     proxy_chromium_args,
     proxy_env,
     read_current_proxy,
+    restore_proxy_files,
 )
 from launcher.bajie_route import apply_bajie_route, detect_patch
 from launcher.process_proxy import (
     deploy_process_proxy,
     emergency_cleanup,
+    remove_process_proxy,
     restore_process_proxy,
     status as process_proxy_status,
 )
@@ -477,16 +480,12 @@ class Api:
                     pass
             proxy_args: tuple[str, ...] = ()
             proxy_env_extra: dict = {}
-            proxy_ready = isinstance(saved_proxy, dict) and saved_proxy and proxy_cfg.enabled
-            routed = {"ok": True, "skipped": True}
+            # 启动只带进程参数/环境，绝不在这里写 settings / argv / workbench。
+            # 文件写入只走 save_proxy，否则每次「启动 IDE」都会重写 http.noProxy 等键，极易黑屏。
+            proxy_ready = isinstance(saved_proxy, dict) and bool(saved_proxy) and proxy_cfg.enabled
+            routed = {"ok": True, "skipped": True, "message": "启动不改路由；路由仅在「保存」时代入"}
             hooked = process_proxy_status(layout.install_root)
             if proxy_ready:
-                applied = apply_proxy(proxy_cfg)
-                if not applied.get("ok"):
-                    return {"ok": False, "error": applied.get("error") or "代理注入失败"}
-                routed = apply_bajie_route(layout.install_root, bypass=bool(proxy_cfg.bypass_gateway))
-                if not routed.get("ok"):
-                    return {"ok": False, "error": routed.get("error") or "改路由失败"}
                 proxy_args = tuple(proxy_chromium_args(proxy_cfg))
                 proxy_env_extra = proxy_env(proxy_cfg)
 
@@ -654,6 +653,8 @@ class Api:
             "cursorSettings": current,
             "processProxyStatus": hook_status,
             "patchStatus": patch_status,
+            "proxyBackup": proxy_backup_status(),
+            "cursorRunning": is_cursor_running(),
         }
 
     def detect_proxy(self, probe: bool = True) -> dict:
@@ -685,63 +686,129 @@ class Api:
             return {"ok": False, "error": str(exc)}
 
     def save_proxy(self, config: dict) -> dict:
+        """保存代理偏好。
+
+        铁律：Cursor 正在跑时，只写启动器自己的 proxy.json，绝不碰
+        settings / argv / workbench。以前一点「保存」就热改 settings，
+        会直接把正在用的 IDE 打崩，看起来像「只能重装」。
+        """
         cfg = ProxyConfig.from_dict(config)
         _write_json("proxy.json", cfg.to_dict())
         try:
+            layout = resolve_install()
+            running = is_cursor_running()
+            if running:
+                return {
+                    "ok": True,
+                    "config": cfg.to_dict(),
+                    "deferred": True,
+                    "filesWritten": False,
+                    "message": (
+                        "已记住代理设置，但 Cursor 还在跑——没有改任何 Cursor 文件。"
+                        "请先「关闭 IDE」，再用启动器「启动 IDE」（会带上代理参数）。"
+                    ),
+                    "route": {"ok": True, "skipped": True, "deferred": True},
+                    "processProxyStatus": process_proxy_status(layout.install_root),
+                }
+
+            # IDE 已关：清理/写入 settings+argv；网关原生模式绝不改 workbench
             applied = apply_proxy(cfg)
             if not applied.get("ok"):
-                return {"ok": False, "error": applied.get("error") or "代理写入失败", "config": cfg.to_dict()}
-            routed = {"ok": True, "skipped": True}
-            running = is_cursor_running()
-            if cfg.enabled:
-                if cfg.bypass_gateway:
-                    if running:
-                        routed = {
-                            "ok": True,
-                            "deferred": True,
-                            "message": "改回官方 API 会在下次用启动器打开 IDE 时写入（需先关 Cursor）",
-                        }
-                    else:
-                        layout = resolve_install()
-                        routed = apply_bajie_route(layout.install_root, bypass=True)
-                        if not routed.get("ok"):
-                            return {
-                                "ok": False,
-                                "error": routed.get("error") or "改路由失败",
-                                "config": cfg.to_dict(),
-                                "applied": applied,
-                            }
-                elif running:
-                    routed = {
-                        "ok": True,
-                        "deferred": True,
-                        "message": "恢复网关补丁会在下次用启动器打开 IDE 时写入（需先关 Cursor）",
+                return {
+                    "ok": False,
+                    "error": applied.get("error") or "代理写入失败",
+                    "config": cfg.to_dict(),
+                }
+
+            routed: dict = {"ok": True, "skipped": True}
+            if cfg.enabled and cfg.bypass_gateway:
+                # 仅「改回官方」才动 workbench；网关原生保持补丁不动
+                routed = apply_bajie_route(layout.install_root, bypass=True)
+                if not routed.get("ok"):
+                    return {
+                        "ok": False,
+                        "error": routed.get("error") or "改路由失败",
+                        "config": cfg.to_dict(),
+                        "applied": applied,
                     }
-                else:
-                    layout = resolve_install()
-                    routed = apply_bajie_route(layout.install_root, bypass=False)
-                    if not routed.get("ok") and routed.get("error") != "没有 workbench 备份，无法还原":
-                        return {
-                            "ok": False,
-                            "error": routed.get("error") or "恢复网关补丁失败",
-                            "config": cfg.to_dict(),
-                            "applied": applied,
-                        }
-            layout = resolve_install()
+            elif not cfg.bypass_gateway:
+                routed = {
+                    "ok": True,
+                    "skipped": True,
+                    "message": "网关原生：不动 workbench 补丁，启动时只带进程代理参数",
+                }
+
             return {
                 "ok": True,
                 "config": cfg.to_dict(),
                 "applied": applied,
+                "filesWritten": True,
+                "deferred": False,
                 "route": routed,
                 "processProxyStatus": process_proxy_status(layout.install_root),
+                "message": "已写入 settings/argv；请用启动器启动 IDE",
             }
         except Exception as exc:
             return {"ok": False, "error": str(exc), "config": cfg.to_dict()}
 
     def apply_proxy_now(self) -> dict:
+        if is_cursor_running():
+            return {
+                "ok": False,
+                "error": "Cursor 正在运行，拒绝写入 settings。请先关闭 IDE 再操作。",
+            }
         cfg = ProxyConfig.from_dict(_read_json("proxy.json", {}))
         try:
             return {"ok": True, **apply_proxy(cfg)}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def undo_proxy_injection(self) -> dict:
+        """误触急救：还原 settings/argv 快照，尽量恢复 workbench，卸掉 DLL，关掉代理开关。"""
+        try:
+            layout = resolve_install()
+            if is_cursor_running():
+                close_cursor(layout)
+                wait_state_db_ready()
+
+            steps: list[str] = []
+            files = restore_proxy_files()
+            if files.get("ok"):
+                steps.extend(files.get("restored") or [])
+            elif files.get("error") and "没有代理写入备份" not in str(files.get("error")):
+                return {"ok": False, "error": files.get("error"), "steps": steps}
+
+            wb = apply_bajie_route(layout.install_root, bypass=False)
+            if wb.get("ok") and wb.get("restored"):
+                steps.append(f"workbench×{wb['restored']}")
+            elif not wb.get("ok") and wb.get("error") != "没有 workbench 备份，无法还原":
+                # workbench 还原失败不阻断其它项
+                steps.append(f"workbench跳过：{wb.get('error')}")
+
+            dll = remove_process_proxy(layout.install_root, force=True)
+            if dll.get("removed"):
+                steps.append("version.dll")
+
+            saved = ProxyConfig.from_dict(_read_json("proxy.json", {}))
+            saved.enabled = False
+            saved.process_hook = False
+            _write_json("proxy.json", saved.to_dict())
+            steps.append("proxy.json已关闭")
+
+            return {
+                "ok": True,
+                "steps": steps,
+                "files": files,
+                "workbench": wb,
+                "dll": dll,
+                "config": saved.to_dict(),
+                "proxyBackup": proxy_backup_status(),
+                "message": (
+                    "已尽量还原误触改动：" + "、".join(steps)
+                    if steps
+                    else "没有可还原的备份（可能从未成功写入过）"
+                ),
+            }
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -797,8 +864,8 @@ class Api:
             return {"ok": False, "error": str(exc)}
 
     def recover_cursor(self) -> dict:
-        """黑屏急救 = 删除 DLL（先备份，可再点还原）。"""
-        return self.uninstall_process_proxy()
+        """黑屏/误触急救：卸 DLL + 还原代理写入快照 + 尽量恢复 workbench。"""
+        return self.undo_proxy_injection()
 
     # ---- 更新 ----
 
