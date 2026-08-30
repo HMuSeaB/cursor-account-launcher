@@ -1025,6 +1025,7 @@ async function refreshWbDiag() {
     paintWbDiag({ ok: false, error: String(e) });
     paintHealthBanner({ ok: false, error: String(e) });
   }
+  refreshLauncherUpdate();
 }
 
 function paintHealthBanner(res) {
@@ -1093,18 +1094,18 @@ async function runAutofix() {
 async function refreshLauncherUpdate() {
   const link = $("btnLauncherUpdate");
   if (!link || !api()?.check_launcher_update) return;
+  link.hidden = true;
   try {
     const res = await api().check_launcher_update();
-    if (res?.newer && res.url) {
+    // 仅当远端明确更新时显示；已是最新或网络失败都隐藏
+    if (res?.ok && res.newer && res.latest && res.url) {
       link.hidden = false;
       link.href = res.url;
-      link.textContent = `有新版本 v${res.latest}`;
-      link.title = res.name || res.tag || "";
-    } else {
-      link.hidden = true;
+      link.textContent = `启动器有更新 v${res.latest}`;
+      link.title = `当前 v${res.current || "?"} → GitHub v${res.latest}（点开下载）`;
     }
   } catch {
-    if (link) link.hidden = true;
+    link.hidden = true;
   }
 }
 

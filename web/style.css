@@ -990,6 +990,10 @@ html[data-theme="dark"] .btn.danger {
   display: inline-flex;
   align-items: center;
 }
+.health-banner [hidden],
+.health-banner a.btn[hidden] {
+  display: none !important;
+}
 .btn.is-blocked {
   opacity: 0.45;
   pointer-events: none;
