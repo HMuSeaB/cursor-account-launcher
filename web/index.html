@@ -111,6 +111,18 @@
         <span class="settings-fold-meta" id="settingsMeta"></span>
       </summary>
       <div class="settings-grid">
+        <section class="settings-panel settings-span" id="wbDiagPanel">
+          <h3 class="settings-title">补丁健康诊断</h3>
+          <p class="hint settings-hint">一眼看清网关 / MAX / 500k / 代理是否冲突。改 workbench 前先关 IDE。你的推荐组合：网关原生 + 仅 MAX + 500k + 代理。</p>
+          <div class="wb-diag-chips" id="wbDiagChips" aria-live="polite"></div>
+          <ul class="wb-diag-recs" id="wbDiagRecs"></ul>
+          <div class="guard-actions">
+            <button type="button" class="btn" id="btnWbDiagRefresh">刷新诊断</button>
+            <button type="button" class="btn ghost" id="btnWbDiagFix500k">启用 500k</button>
+            <button type="button" class="btn ghost" id="btnWbDiagRestore">统一还原 workbench</button>
+          </div>
+          <pre class="mini" id="wbDiagInfo">打开设置后自动扫描…</pre>
+        </section>
         <section class="settings-panel">
           <h3 class="settings-title">网络代理</h3>
           <label class="check-row"><input type="checkbox" id="proxyEnabled" /> 开代理（settings / 环境变量）</label>

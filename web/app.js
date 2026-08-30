@@ -657,6 +657,118 @@ async function refreshCtxwin() {
   }
 }
 
+function _wbChip(label, tone) {
+  return `<span class="wb-chip ${tone || "info"}">${label}</span>`;
+}
+
+function paintWbDiag(res) {
+  const chips = $("wbDiagChips");
+  const recs = $("wbDiagRecs");
+  const info = $("wbDiagInfo");
+  const fix500 = $("btnWbDiagFix500k");
+  const restoreBtn = $("btnWbDiagRestore");
+  if (!chips || !info) return;
+
+  if (!res || !res.ok) {
+    chips.innerHTML = _wbChip("诊断失败", "critical");
+    if (recs) recs.innerHTML = "";
+    info.textContent = res?.error || "无法读取诊断";
+    return;
+  }
+
+  const layers = res.layers || {};
+  const mu = res.modelUnlock || {};
+  const ctx = res.ctxwin || {};
+  const pref = (res.proxy && res.proxy.preference) || {};
+  const live = (res.proxy && res.proxy.live) || {};
+
+  const bits = [];
+  bits.push(_wbChip(res.healthy ? "健康" : "需处理", res.healthy ? "ok" : "warn"));
+  bits.push(_wbChip(res.cursorRunning ? "IDE 运行中" : "IDE 已关", res.cursorRunning ? "info" : "ok"));
+  bits.push(_wbChip(
+    layers.gateway > 0 ? `网关×${layers.gateway}` : "无网关补丁",
+    layers.gateway > 0 ? "ok" : "warn"
+  ));
+  bits.push(_wbChip(
+    mu.maxOnly ? "仅 MAX" : (mu.installed ? "完整解锁" : "未解锁 MAX"),
+    mu.corrupted ? "critical" : (mu.maxOnly || mu.installed ? "ok" : "warn")
+  ));
+  bits.push(_wbChip(ctx.patched ? "500k 已启用" : "500k 未启用", ctx.patched ? "ok" : "warn"));
+  const proxyOn = !!pref.enabled;
+  const argvProxy = live.argvProxyServer || live.httpProxy;
+  bits.push(_wbChip(
+    proxyOn ? (pref.bypass_gateway ? "代理·改回官方" : "代理·网关原生") : (argvProxy ? "argv 有代理/偏好关" : "代理关"),
+    proxyOn && !pref.bypass_gateway ? "ok" : (argvProxy && !proxyOn ? "info" : (proxyOn ? "warn" : "info"))
+  ));
+  if (res.profile) bits.push(_wbChip(res.profile, "info"));
+  chips.innerHTML = bits.join("");
+
+  if (recs) {
+    const list = res.recommendations || [];
+    recs.innerHTML = list.map((r) => {
+      const sev = r.severity || "info";
+      const detail = r.detail ? `<small>${r.detail}</small>` : "";
+      return `<li class="wb-diag-rec ${sev}"><strong>${r.title || ""}</strong>${r.action || ""}${detail ? "<br>" + detail : ""}</li>`;
+    }).join("");
+  }
+
+  if (fix500) {
+    fix500.classList.toggle("is-blocked", !!ctx.patched || !!res.cursorRunning);
+    fix500.title = ctx.patched
+      ? "500k 已启用"
+      : (res.cursorRunning ? "请先关闭 IDE" : "启用回包改写（extensionHostProcess.js）");
+  }
+  if (restoreBtn) {
+    restoreBtn.classList.toggle("is-blocked", !!res.cursorRunning);
+    restoreBtn.title = res.cursorRunning ? "请先关闭 IDE" : "从统一备份栈还原 workbench";
+  }
+
+  const bak = res.backup || {};
+  info.textContent = [
+    `v${res.version || "?"} · ${res.installRoot || ""}`,
+    `备份：official=${bak.hasOfficial ? "有" : "无"} · 快照×${bak.snapshotCount || 0}`,
+    bak.hasLegacyBajie ? "legacy bajie 备份可用" : "",
+  ].filter(Boolean).join("\n");
+}
+
+async function refreshWbDiag() {
+  if (!api()?.workbench_diagnostic) return;
+  const info = $("wbDiagInfo");
+  if (info) info.textContent = "正在扫描…";
+  try {
+    paintWbDiag(await api().workbench_diagnostic());
+  } catch (e) {
+    paintWbDiag({ ok: false, error: String(e) });
+  }
+}
+
+async function runWbDiagFix500k() {
+  if (!api()?.ctxwin_apply) return;
+  await runCtxwin("apply");
+  await refreshWbDiag();
+  await refreshCtxwin();
+}
+
+async function runWbDiagRestore() {
+  if (!api()?.restore_workbench_unified) return;
+  if (!confirm("将从统一备份还原 workbench（优先 official 基线）。\n会先关闭 Cursor。确定？")) return;
+  const info = $("wbDiagInfo");
+  if (info) info.textContent = "正在还原 workbench…";
+  try {
+    const res = await api().restore_workbench_unified("auto");
+    if (!res.ok) {
+      toast(res.error || "还原失败");
+      paintWbDiag(await api().workbench_diagnostic());
+      return;
+    }
+    toast(res.message || "已还原 workbench");
+    await refreshWbDiag();
+    await refreshModelUnlock();
+  } catch (e) {
+    toast(String(e));
+  }
+}
+
 async function runCtxwin(kind) {
   const status = await api().ctxwin_status();
   if (kind === "apply" && !status.canApply) {
@@ -675,6 +787,7 @@ async function runCtxwin(kind) {
   if (!res.ok) return toast(res.error || "失败");
   if (res.skipped) return toast(res.message || "无需还原");
   toast(kind === "restore" ? "已还原官方回包，请再启动 IDE" : "已启用回包改写，请再启动 IDE");
+  refreshWbDiag();
 }
 
 function paintModelUnlock(res) {
@@ -827,6 +940,7 @@ async function runModelUnlock(kind) {
         ? "已解锁 MAX，请再启动 IDE"
         : "已完整解锁，请再启动 IDE",
   );
+  refreshWbDiag();
 }
 
 async function openDetail(accountId) {
@@ -1501,6 +1615,9 @@ if ($("disableAutoUpdate")) {
 $("btnCtxwinApply").onclick = () => runCtxwin("apply");
 $("btnCtxwinRestore").onclick = () => runCtxwin("restore");
 $("btnCtxwinRefresh").onclick = () => refreshCtxwin();
+if ($("btnWbDiagRefresh")) $("btnWbDiagRefresh").onclick = () => refreshWbDiag();
+if ($("btnWbDiagFix500k")) $("btnWbDiagFix500k").onclick = () => runWbDiagFix500k();
+if ($("btnWbDiagRestore")) $("btnWbDiagRestore").onclick = () => runWbDiagRestore();
 $("btnModelUnlockApplyMax").onclick = () => runModelUnlock("applyMax");
 $("btnModelUnlockApply").onclick = () => runModelUnlock("apply");
 $("btnModelUnlockRestore").onclick = () => runModelUnlock("restore");
@@ -1529,6 +1646,7 @@ $("shortcutDialog")?.addEventListener("cancel", () => {
 });
 document.querySelector(".settings-fold")?.addEventListener("toggle", (ev) => {
   if (ev.target.open) {
+    refreshWbDiag();
     refreshCtxwin();
     refreshShortcutStatus();
     refreshUpdateStatus();
@@ -1652,6 +1770,8 @@ async function boot() {
     paintSettingsMeta(lastCursorStatus);
     startStatusWatch();
     await maybePromptShortcuts();
+    // 诊断较重，不阻塞启动；设置折叠打开时也会刷新
+    refreshWbDiag();
   } catch (e) {
     const pill = $("loginPill");
     if (pill) pill.textContent = "启动失败";
