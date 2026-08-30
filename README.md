@@ -10,7 +10,7 @@ Windows 桌面版 **Cursor 账号启动器**（非官方），基于 Python + py
 |----|--------|------------|
 | 桌面管家 | 账号 Token、进程代理参数、更新拦截 | `app.py` / `launcher/*` |
 | 扩展 Agent | `extensionHostProcess.js` 回包改写（500k） | `scripts/patch-ctxwin.mjs` |
-| workbench 客户端 | 模型选择器解锁（不依赖 Sand） | `launcher/model_unlock.py` |
+| workbench 客户端 | 模型选择器解锁（不依赖 Sand） | `launcher/model_unlock.py` + `launcher/workbench/`（统一备份/预检/写入） |
 | 网关 bridge | `43111/__bajie` 等 | **外部插件**；启动器只检测/路由，默认不剥补丁 |
 
 ## 功能
@@ -45,6 +45,8 @@ python app.py
 - **减负菜单**（顶栏三条杠）：轻量启动、削减内存（IDE 开着也能用；也可点顶栏运行状态）、关闭 IDE、压缩 `state.vscdb`（须先关 IDE）
 
 ### 模型选择器解锁（启动器自有）
+
+设置顶部有 **日常状态** 四格（网关 / MAX / 500k / 代理）和蓝色「下一步」：IDE 开着会锁补丁按钮，关掉后可自动继续。日常按「下一步」即可；DLL / 完整解锁等在高级危险区。
 
 设置 → **仅解锁 MAX / 完整解锁 / 还原 / 修复黑屏**。改本机 Cursor 的 `workbench.*.main.js`。
 
