@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 /**
- * Cursor Connect 窗口改写（可还原）
+ * Cursor Connect 窗口改写（可还原）——启动器自有，不依赖混淆网关。
  *
- * 对话快照 ConversationTokenDetails.max_tokens、AvailableModels 里 grok-4.6 的
- * context_token_limit / context_token_limit_for_max_mode，以及 GetEffectiveTokenLimit。
+ * 在 extensionHostProcess.js 里挂钩网络栈，改写响应字段：
+ *   - AvailableModels：grok-4.6 的 context_token_limit 等 256k→500k
+ *   - GetServerConfig：chat_config 全局上下文兜底 256k→500k
+ *   - GetEffectiveTokenLimit / AgentService：对话快照与流式窗口
  *
  * Connect 解包认 flags 0–3：先解压再改；回包装明文、保留 END_STREAM。
  * Agent 流按完整 Connect 帧改写（请求 + 响应），不在压缩字节上盲替 varint。
@@ -293,9 +295,37 @@ function ctxwinInstall(G, FROM, TO) {
     });
   }
 
+  // GetServerConfig：顶层 field 5 = chat_config；内层 field 2 = full_context 类窗口
+  function rewriteChatConfig(buf) {
+    return walkFields(buf, function (field, wt, val) {
+      if (field !== 5 || wt !== 2) return null;
+      var has2 = false;
+      var inner = walkFields(val, function (f, w, v) {
+        if (f === 2 && w === 0) {
+          has2 = true;
+          var n;
+          try {
+            n = readVarint(v, 0)[0];
+          } catch (_) {
+            return null;
+          }
+          if (n === FROM) return fieldBytes(2, 0, writeVarint(TO));
+          return null;
+        }
+        return null;
+      });
+      if (!has2) {
+        inner = Buffer.concat([inner, fieldBytes(2, 0, writeVarint(TO))]);
+      }
+      if (inner.equals(val)) return null;
+      return fieldBytes(5, 2, inner);
+    });
+  }
+
   function kindFromPath(p) {
     var s = String(p || "");
     if (/AvailableModels/i.test(s)) return "am";
+    if (/GetServerConfig/i.test(s)) return "sc";
     if (/GetEffectiveTokenLimit/i.test(s)) return "tl";
     if (/AgentService\//i.test(s)) return "agent";
     return "";
@@ -309,6 +339,7 @@ function ctxwinInstall(G, FROM, TO) {
     if (!buf || !buf.length) return buf;
     try {
       if (kind === "am") return rewriteAvailableModels(buf);
+      if (kind === "sc") return rewriteChatConfig(buf);
       if (kind === "tl") return rewriteTokenLimit(buf);
       return rewriteAgentPayload(buf);
     } catch (_) {
@@ -628,6 +659,7 @@ function ctxwinInstall(G, FROM, TO) {
     rewriteAllFrames: rewriteAllFrames,
     rewriteAgentPayload: rewriteAgentPayload,
     rewriteAvailableModels: rewriteAvailableModels,
+    rewriteChatConfig: rewriteChatConfig,
     rewriteTokenLimit: rewriteTokenLimit,
     kindFromPath: kindFromPath,
     writeVarint: writeVarint,
@@ -798,6 +830,18 @@ function cmdSelftest() {
   assert(amOther2.indexOf(vFrom) >= 0, "非 grok-4.6 的 256000 应保留");
   assert(amOther2.indexOf(vTo) < 0, "非 grok-4.6 不应被改成 500000");
 
+  // GetServerConfig: field 5 chat_config → field 2 = 256000
+  const chatInner = Buffer.concat([Buffer.from([0x10]), vFrom]);
+  const sc = Buffer.concat([
+    Buffer.from([0x2a]),
+    Buffer.from([chatInner.length]),
+    chatInner,
+  ]);
+  assert(api.kindFromPath("/aiserver.v1.ServerConfigService/GetServerConfig") === "sc", "应识别 GetServerConfig");
+  const sc2 = api.rewriteChatConfig(sc);
+  assert(sc2.indexOf(vTo) >= 0, "GetServerConfig chat_config 窗口应改成 500000");
+  assert(sc2.indexOf(vFrom) < 0, "GetServerConfig 不应再留 256000");
+
   if (failures.length) {
     console.error("SELFTEST FAIL");
     for (const f of failures) console.error(" - " + f);
@@ -807,6 +851,7 @@ function cmdSelftest() {
   console.log("  256000 varint", vFrom.toString("hex"));
   console.log("  500000 varint", vTo.toString("hex"));
   console.log("  gzip 帧 flags 3 →", out[0], "payload", outLen, "bytes");
+  console.log("  GetServerConfig rewritten", sc2.length, "bytes");
 }
 
 function cmdStatus() {

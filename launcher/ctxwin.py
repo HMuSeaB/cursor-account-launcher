@@ -1,4 +1,4 @@
-"""Grok Extra High 上下文窗口补丁（256k → 500k）状态 / 应用 / 还原。"""
+"""模型回包改写（AvailableModels / GetServerConfig / Agent，256k → 500k）。"""
 
 from __future__ import annotations
 
