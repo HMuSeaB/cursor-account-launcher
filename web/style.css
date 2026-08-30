@@ -956,6 +956,40 @@ html[data-theme="dark"] .btn.danger {
 .compact-pct { color: var(--muted); font-variant-numeric: tabular-nums; }
 .compact-banner.is-done { border-color: rgba(21,128,61,.28); }
 .compact-banner.is-error { border-color: rgba(220, 38, 38, 0.28); }
+
+.health-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+.health-banner[hidden] { display: none !important; }
+.health-banner-main { min-width: 0; flex: 1; }
+.health-banner-main strong { display: block; font-size: 13px; margin-bottom: 2px; }
+.health-banner-main p { margin: 0; font-size: 12px; color: var(--muted, #888); line-height: 1.45; }
+.health-banner-actions { display: flex; flex-wrap: wrap; gap: 8px; flex-shrink: 0; }
+.health-banner[data-state="ok"] {
+  border-color: color-mix(in srgb, #22a06b 45%, var(--border));
+  background: color-mix(in srgb, #22a06b 8%, var(--card));
+}
+.health-banner[data-state="warn"] {
+  border-color: color-mix(in srgb, #d97706 45%, var(--border));
+  background: color-mix(in srgb, #d97706 8%, var(--card));
+}
+.health-banner[data-state="critical"] {
+  border-color: color-mix(in srgb, #e5484d 50%, var(--border));
+  background: color-mix(in srgb, #e5484d 8%, var(--card));
+}
+.health-banner a.btn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
 .btn.is-blocked {
   opacity: 0.45;
   pointer-events: none;

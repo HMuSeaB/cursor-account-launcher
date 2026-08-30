@@ -79,6 +79,18 @@
       <div class="progress-bar"><div class="progress-fill teal" id="compactFill" style="width:0%"></div></div>
     </div>
 
+    <div class="health-banner" id="healthBanner" hidden>
+      <div class="health-banner-main">
+        <strong id="healthTitle">补丁自检中…</strong>
+        <p id="healthHint">推荐：网关原生 + 仅 MAX + 500k + 代理</p>
+      </div>
+      <div class="health-banner-actions">
+        <button type="button" class="btn primary" id="btnAutofix" hidden>一键补齐</button>
+        <button type="button" class="btn ghost" id="btnHealthRefresh">刷新</button>
+        <a class="btn ghost" id="btnLauncherUpdate" hidden target="_blank" rel="noreferrer">有新版本</a>
+      </div>
+    </div>
+
     <section class="toolbar card">
       <input id="searchInput" type="search" placeholder="搜索邮箱、备注…" />
       <div class="toolbar-filters">
@@ -195,42 +207,42 @@
           <pre class="mini" id="shortcutInfo">—</pre>
         </section>
         <section class="settings-panel settings-span">
-          <h3 class="settings-title">模型选择器解锁</h3>
-          <p class="hint settings-hint">有模型墙时平时只点「仅解锁 MAX」。完整解锁 / 改侧边栏在下面高级区。</p>
-          <div class="guard-actions">
-            <button type="button" class="btn" id="btnModelUnlockApplyMax" data-needs-closed>仅解锁 MAX</button>
-            <button type="button" class="btn ghost" id="btnModelUnlockRefresh">刷新状态</button>
-            <button type="button" class="btn ghost" id="btnModelUnlockRepair" data-needs-closed>修复黑屏</button>
-          </div>
           <details class="adv-fold">
-            <summary>完整解锁 / 侧边栏显示（改动大，易黑屏）</summary>
-            <div class="form-row settings-inline">
-              <label class="field-label" for="modelUnlockMembership">侧边栏显示套餐</label>
-              <select id="modelUnlockMembership" class="input compact">
-                <option value="pro">Pro Plan</option>
-                <option value="ultra">Ultra Plan</option>
-                <option value="enterprise">Team Plan</option>
-                <option value="pro_plus">Pro+ Plan</option>
-                <option value="free">Free Plan</option>
-              </select>
-            </div>
+            <summary>手动补丁（一般不用 — 请用顶栏「一键补齐」）</summary>
+            <p class="hint settings-hint">日常走主界面一键补齐即可。这里留给急救和特殊情况。</p>
+            <h3 class="settings-title">仅解锁 MAX / 急救</h3>
             <div class="guard-actions">
-              <button type="button" class="btn ghost" id="btnModelUnlockApply" data-needs-closed>完整解锁</button>
-              <button type="button" class="btn ghost" id="btnModelUnlockRestore" data-needs-closed>还原解锁</button>
-              <button type="button" class="btn ghost" id="btnModelUnlockSyncStorage" data-needs-closed>修正侧边栏显示</button>
+              <button type="button" class="btn" id="btnModelUnlockApplyMax" data-needs-closed>仅解锁 MAX</button>
+              <button type="button" class="btn ghost" id="btnModelUnlockRepair" data-needs-closed>修复黑屏</button>
+              <button type="button" class="btn ghost" id="btnModelUnlockRefresh">刷新解锁状态</button>
             </div>
+            <pre class="mini" id="modelUnlockInfo">—</pre>
+            <h3 class="settings-title">500k 回包</h3>
+            <div class="guard-actions">
+              <button type="button" class="btn" id="btnCtxwinApply" data-needs-closed>启用回包改写</button>
+              <button type="button" class="btn ghost" id="btnCtxwinRestore" data-needs-closed>还原官方</button>
+              <button type="button" class="btn ghost" id="btnCtxwinRefresh">刷新状态</button>
+            </div>
+            <pre class="mini" id="ctxwinInfo">—</pre>
+            <details class="adv-fold">
+              <summary>完整解锁 / 侧边栏（极易黑屏，默认别开）</summary>
+              <div class="form-row settings-inline">
+                <label class="field-label" for="modelUnlockMembership">侧边栏显示套餐</label>
+                <select id="modelUnlockMembership" class="input compact">
+                  <option value="pro">Pro Plan</option>
+                  <option value="ultra">Ultra Plan</option>
+                  <option value="enterprise">Team Plan</option>
+                  <option value="pro_plus">Pro+ Plan</option>
+                  <option value="free">Free Plan</option>
+                </select>
+              </div>
+              <div class="guard-actions">
+                <button type="button" class="btn ghost" id="btnModelUnlockApply" data-needs-closed>完整解锁</button>
+                <button type="button" class="btn ghost" id="btnModelUnlockRestore" data-needs-closed>还原解锁</button>
+                <button type="button" class="btn ghost" id="btnModelUnlockSyncStorage" data-needs-closed>修正侧边栏显示</button>
+              </div>
+            </details>
           </details>
-          <pre class="mini" id="modelUnlockInfo">—</pre>
-        </section>
-        <section class="settings-panel settings-span">
-          <h3 class="settings-title">模型回包改写（500k）</h3>
-          <p class="hint settings-hint">改 <code>extensionHostProcess.js</code>，不碰 workbench。升级 Cursor 后需重打。</p>
-          <div class="guard-actions">
-            <button type="button" class="btn" id="btnCtxwinApply" data-needs-closed>启用回包改写</button>
-            <button type="button" class="btn ghost" id="btnCtxwinRestore" data-needs-closed>还原官方</button>
-            <button type="button" class="btn ghost" id="btnCtxwinRefresh">刷新状态</button>
-          </div>
-          <pre class="mini" id="ctxwinInfo">—</pre>
         </section>
       </div>
     </details>

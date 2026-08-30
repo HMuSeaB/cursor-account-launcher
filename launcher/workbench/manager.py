@@ -84,14 +84,19 @@ def commit_changes(
         if path.resolve() not in allowed:
             raise WorkbenchWriteError(f"拒绝写入非 workbench 路径：{path}")
 
-    # 写入前：对将要变更的 workbench 文本做预检
+    # 写入前：对将要变更的 workbench 文本做预检（对照原文）
+    originals: dict[Path, str] = {}
     if not skip_preflight:
         for path, data in pending.items():
             if path.suffix != ".js":
                 continue
             text = data.decode("utf-8") if isinstance(data, bytes) else data
             try:
-                assert_safe(text)
+                originals[path] = path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                originals[path] = ""
+            try:
+                assert_safe(text, original=originals.get(path) or None)
             except PreflightError as exc:
                 raise WorkbenchWriteError("预检未通过：" + "; ".join(exc.issues)) from exc
 
@@ -114,15 +119,40 @@ def commit_changes(
         byte_pending[product_path] = product_next
 
     changed_names: list[str] = []
+    written: list[Path] = []
     try:
         for path, data in byte_pending.items():
             if path.is_file() and path.read_bytes() == data:
                 continue
             write_atomic(path, data)
+            written.append(path)
             changed_names.append(path.name)
-    except PermissionError as exc:
-        raise WorkbenchWriteError("没有写入权限或文件被占用，请先关闭 Cursor") from exc
-    except OSError as exc:
+        # 写后复检；失败则从本次快照回滚
+        if not skip_preflight:
+            for path in written:
+                if path.suffix != ".js":
+                    continue
+                text = path.read_text(encoding="utf-8", errors="ignore")
+                assert_safe(text, original=originals.get(path))
+    except Exception as exc:
+        try:
+            wb_backup.restore_from_dir(workbench_files, snap)
+            product_src = snap / "product.json"
+            product_dst = app_root / "product.json"
+            if product_src.is_file() and product_dst.is_file():
+                import shutil
+
+                shutil.copy2(product_src, product_dst)
+        except Exception:
+            pass
+        if isinstance(exc, PreflightError):
+            raise WorkbenchWriteError(
+                "写后预检失败，已回滚：" + "; ".join(exc.issues)
+            ) from exc
+        if isinstance(exc, WorkbenchWriteError):
+            raise
+        if isinstance(exc, PermissionError):
+            raise WorkbenchWriteError("没有写入权限或文件被占用，请先关闭 Cursor") from exc
         raise WorkbenchWriteError(str(exc)) from exc
 
     return {

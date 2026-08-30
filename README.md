@@ -19,6 +19,7 @@ Windows 桌面版 **Cursor 账号启动器**（非官方），基于 Python + py
 - IDE 模式启动（`--classic`）；记住窗口大小与位置
 - 减负：轻量启动、运行中削减内存、关闭 IDE、压缩状态库
 - 可选：扩展宿主回包改写（AvailableModels / GetServerConfig）；可选：模型选择器解锁
+- 主界面补丁自检与一键补齐（网关原生 + 仅 MAX + 500k + 代理）
 - 登录设备管理 / 会话守卫
 - 代理：settings / argv / 环境变量（仅「保存」写入；启动只带进程参数）；网关路由；可选进程级 `version.dll`（易闪退，非必要别用）
 - 禁用 Cursor 自动更新（settings + Windows 更新器拦截）

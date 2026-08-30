@@ -45,7 +45,7 @@ from launcher.cursor_proxy import (
     restore_proxy_files,
 )
 from launcher.bajie_route import apply_bajie_route, detect_patch
-from launcher.workbench.diagnostic import restore_workbench_layer, run_full_diagnostic
+from launcher.api_patches import PatchesApiMixin
 from launcher.process_proxy import (
     deploy_process_proxy,
     emergency_cleanup,
@@ -104,7 +104,7 @@ def _write_json(name: str, data) -> None:
     os.replace(tmp, path)
 
 
-class Api:
+class Api(PatchesApiMixin):
     def __init__(self) -> None:
         self._store = AccountStore()
         self._guard_store = SessionGuardStore()
@@ -895,22 +895,6 @@ class Api:
     def restore_process_proxy_files(self) -> dict:
         try:
             return self._with_cursor_closed(lambda layout: restore_process_proxy(layout.install_root))
-        except Exception as exc:
-            return {"ok": False, "error": str(exc)}
-
-    def workbench_diagnostic(self) -> dict:
-        """全栈诊断：workbench 各层 + ctxwin + 代理 + 修复建议。"""
-        try:
-            return run_full_diagnostic()
-        except Exception as exc:
-            return {"ok": False, "error": str(exc)}
-
-    def restore_workbench_unified(self, target: str = "auto") -> dict:
-        """从统一备份栈还原 workbench（official / latest / legacy）。"""
-        try:
-            return self._with_cursor_closed(
-                lambda _layout: restore_workbench_layer(target=target)
-            )
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 

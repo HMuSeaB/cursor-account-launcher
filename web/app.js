@@ -1018,9 +1018,93 @@ async function refreshWbDiag() {
   const info = $("wbDiagInfo");
   if (info) info.textContent = "正在扫描…";
   try {
-    paintWbDiag(await api().workbench_diagnostic());
+    const res = await api().workbench_diagnostic();
+    paintWbDiag(res);
+    paintHealthBanner(res);
   } catch (e) {
     paintWbDiag({ ok: false, error: String(e) });
+    paintHealthBanner({ ok: false, error: String(e) });
+  }
+}
+
+function paintHealthBanner(res) {
+  const banner = $("healthBanner");
+  const title = $("healthTitle");
+  const hint = $("healthHint");
+  const fixBtn = $("btnAutofix");
+  if (!banner) return;
+  banner.hidden = false;
+  if (!res?.ok) {
+    banner.dataset.state = "critical";
+    if (title) title.textContent = "补丁自检失败";
+    if (hint) hint.textContent = res?.error || "无法诊断";
+    if (fixBtn) fixBtn.hidden = true;
+    return;
+  }
+  const af = res.autofix || {};
+  const steps = (af.steps || []).filter((s) => !s.manual);
+  const upgrade = res.cursorUpgrade || {};
+  let state = "ok";
+  if (res.modelUnlock?.corrupted) state = "critical";
+  else if (!af.ready || upgrade.needsRepatch) state = "warn";
+  banner.dataset.state = state;
+
+  if (title) {
+    if (af.ready && !upgrade.needsRepatch) {
+      title.textContent = `补丁就绪 · Cursor v${res.version || "?"} · 启动器 v${res.launcherVersion || "?"}`;
+    } else if (upgrade.needsRepatch) {
+      title.textContent = `Cursor 已升级到 v${res.version} — 建议重打补丁`;
+    } else {
+      title.textContent = `待补齐 ${steps.length} 项`;
+    }
+  }
+  if (hint) {
+    if (af.ready && !upgrade.needsRepatch) {
+      hint.textContent = res.profile || "网关原生 + MAX + 500k + 代理";
+    } else {
+      const labels = steps.map((s) => s.label).join(" → ");
+      hint.textContent = (labels || "有事项待处理") + (res.cursorRunning ? "（需先关 IDE）" : "");
+    }
+  }
+  if (fixBtn) {
+    const need = steps.length > 0 || upgrade.needsRepatch;
+    fixBtn.hidden = !need;
+    fixBtn.textContent = res.cursorRunning ? "关 IDE 并一键补齐" : "一键补齐";
+    fixBtn.disabled = false;
+  }
+}
+
+async function runAutofix() {
+  if (!api()?.patch_autofix) return toast("当前版本不支持一键补齐");
+  const running = !!lastCursorStatus?.running;
+  const tip = running
+    ? "将关闭 Cursor，然后自动：仅 MAX → 500k → 网关原生代理写入。\n确定？"
+    : "将自动补齐：仅 MAX → 500k → 网关原生代理写入。\n确定？";
+  if (!confirm(tip)) return;
+  toast(running ? "正在关 IDE 并补齐…" : "正在一键补齐…");
+  const res = await api().patch_autofix(running);
+  toast(res.ok ? (res.message || "已补齐") : (res.error || res.message || "补齐失败"));
+  await refreshWbDiag();
+  await refreshCtxwin();
+  await refreshModelUnlock();
+  await loadProxy();
+}
+
+async function refreshLauncherUpdate() {
+  const link = $("btnLauncherUpdate");
+  if (!link || !api()?.check_launcher_update) return;
+  try {
+    const res = await api().check_launcher_update();
+    if (res?.newer && res.url) {
+      link.hidden = false;
+      link.href = res.url;
+      link.textContent = `有新版本 v${res.latest}`;
+      link.title = res.name || res.tag || "";
+    } else {
+      link.hidden = true;
+    }
+  } catch {
+    if (link) link.hidden = true;
   }
 }
 
@@ -1907,6 +1991,8 @@ $("btnCtxwinApply").onclick = () => runCtxwin("apply");
 $("btnCtxwinRestore").onclick = () => runCtxwin("restore");
 $("btnCtxwinRefresh").onclick = () => refreshCtxwin();
 if ($("btnWbDiagRefresh")) $("btnWbDiagRefresh").onclick = () => refreshWbDiag();
+if ($("btnHealthRefresh")) $("btnHealthRefresh").onclick = () => refreshWbDiag();
+if ($("btnAutofix")) $("btnAutofix").onclick = () => runAutofix();
 if ($("btnWbDiagFix500k")) $("btnWbDiagFix500k").onclick = () => runWbDiagFix500k();
 if ($("btnWbDiagRestore")) $("btnWbDiagRestore").onclick = () => runWbDiagRestore();
 if ($("btnIdeGateClose")) {
@@ -2075,8 +2161,8 @@ async function boot() {
     paintSettingsMeta(lastCursorStatus);
     startStatusWatch();
     await maybePromptShortcuts();
-    // 诊断较重，不阻塞启动；设置折叠打开时也会刷新
     refreshWbDiag();
+    refreshLauncherUpdate();
   } catch (e) {
     const pill = $("loginPill");
     if (pill) pill.textContent = "启动失败";

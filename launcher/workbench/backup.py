@@ -201,4 +201,75 @@ def backup_status(files: list[Path]) -> dict:
         "legacyModelUnlockClean": str(best_legacy) if best_legacy else "",
         "recentSnapshots": snapshots,
         "snapshotCount": len(list(snapshots_dir().iterdir())) if snapshots_dir().is_dir() else 0,
+        "migratedMarker": (_launcher_root() / "workbench" / ".migrated-legacy").is_file(),
     }
+
+
+def migrate_legacy_into_unified() -> dict:
+    """把旧 bajie / model-unlock 备份迁入统一 snapshots（只复制，不删旧目录）。"""
+    marker = store_root() / ".migrated-legacy"
+    imported: list[str] = []
+    legacy = legacy_dirs()
+
+    # bajie：扁平文件 → 一个 snapshot
+    bajie = legacy["bajie"]
+    if bajie.is_dir():
+        files = [p for p in bajie.iterdir() if p.is_file() and p.suffix == ".js"]
+        if files:
+            dest = snapshots_dir() / "migrated-legacy-bajie"
+            if not dest.is_dir():
+                _copy_files(files, dest)
+                _write_manifest(dest, layer="legacy-bajie", reason="migrate", files=files)
+                imported.append(dest.name)
+
+    # model-unlock：每个时间戳目录
+    mu = legacy["modelUnlock"]
+    if mu.is_dir():
+        for entry in sorted(mu.iterdir()):
+            if not entry.is_dir():
+                continue
+            desktop = entry / "workbench.desktop.main.js"
+            if not desktop.is_file():
+                continue
+            dest = snapshots_dir() / f"migrated-mu-{entry.name}"
+            if dest.is_dir():
+                continue
+            files = [p for p in entry.iterdir() if p.is_file()]
+            if not files:
+                continue
+            dest.mkdir(parents=True, exist_ok=True)
+            for path in files:
+                shutil.copy2(path, dest / path.name)
+            _write_manifest(
+                dest,
+                layer="legacy-model-unlock",
+                reason="migrate",
+                files=[desktop],
+            )
+            imported.append(dest.name)
+
+            # 若尚无 official，且这份看起来干净，用作 official
+            off = official_dir()
+            if not (off / "workbench.desktop.main.js").is_file():
+                text = desktop.read_text(encoding="utf-8", errors="ignore")
+                scan = scan_content(text)
+                if not scan.launcher_installed and not scan.corrupted:
+                    for path in files:
+                        if path.suffix == ".js" or path.name == "product.json":
+                            shutil.copy2(path, off / path.name)
+                    _write_manifest(off, layer="official", reason="migrated-baseline", files=[desktop])
+
+    marker.write_text(
+        json.dumps(
+            {
+                "migratedAt": datetime.now(timezone.utc).isoformat(),
+                "imported": imported,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return {"ok": True, "imported": imported, "count": len(imported)}
+

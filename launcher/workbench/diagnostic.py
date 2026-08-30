@@ -140,6 +140,20 @@ def run_full_diagnostic() -> dict:
     except Exception as exc:
         return {"ok": False, "error": str(exc), "cursorRunning": running}
 
+    # 首次诊断顺带迁移旧备份（幂等）
+    try:
+        if not (wb_backup.store_root() / ".migrated-legacy").is_file():
+            wb_backup.migrate_legacy_into_unified()
+    except Exception:
+        pass
+
+    from launcher.versioning import (
+        LAUNCHER_VERSION,
+        cursor_upgrade_status,
+        note_cursor_version,
+    )
+
+    upgrade = note_cursor_version(layout.version)
     scan = scan_files(files) if files else scan_files([])
     ctxwin = ctxwin_status()
     proxy_pref = _read_proxy_pref()
@@ -156,8 +170,20 @@ def run_full_diagnostic() -> dict:
         proxy_live=proxy_live,
         backup=backup,
     )
+    if upgrade.get("needsRepatch") or upgrade.get("upgraded"):
+        recs.insert(
+            0,
+            {
+                "severity": "warn",
+                "title": f"Cursor 已升级到 v{layout.version}",
+                "action": "关 IDE → 一键补齐（重打 MAX / 500k）",
+                "detail": f"上次记录：{upgrade.get('previousVersion') or '—'}",
+            },
+        )
 
-    return {
+    from launcher.workbench.autofix import plan_autofix
+
+    report = {
         "ok": True,
         "cursorRunning": running,
         "installRoot": str(layout.install_root),
@@ -186,7 +212,12 @@ def run_full_diagnostic() -> dict:
         "backup": backup,
         "recommendations": recs,
         "healthy": not scan.corrupted and not any(r["severity"] == "critical" for r in recs),
+        "launcherVersion": LAUNCHER_VERSION,
+        "cursorUpgrade": cursor_upgrade_status(),
     }
+    report["autofix"] = plan_autofix(report)
+    return report
+
 
 
 def restore_workbench_layer(*, target: str = "auto") -> dict:
