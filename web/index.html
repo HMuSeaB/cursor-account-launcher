@@ -224,6 +224,14 @@
               <button type="button" class="btn ghost" id="btnCtxwinRefresh">刷新状态</button>
             </div>
             <pre class="mini" id="ctxwinInfo">—</pre>
+            <h3 class="settings-title">Sand Stream 模式</h3>
+            <p class="hint settings-hint">Bot 对话走 <code>InferenceService/Stream</code>（不是 AgentService/Run）。与「仅 MAX / 500k」独立；会改 client-type 为 sand。</p>
+            <div class="guard-actions">
+              <button type="button" class="btn" id="btnSandStreamApply" data-needs-closed>启用 Sand Stream</button>
+              <button type="button" class="btn ghost" id="btnSandStreamRestore" data-needs-closed>还原 Sand Stream</button>
+              <button type="button" class="btn ghost" id="btnSandStreamRefresh">刷新状态</button>
+            </div>
+            <pre class="mini" id="sandStreamInfo">—</pre>
             <details class="adv-fold">
               <summary>完整解锁 / 侧边栏（极易黑屏，默认别开）</summary>
               <div class="form-row settings-inline">

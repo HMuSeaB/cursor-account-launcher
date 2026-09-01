@@ -781,6 +781,7 @@ async function refreshCursorStatus(opts = {}) {
     paintSettingsMeta(res);
     if (opts.ctxwin) refreshCtxwin();
     if (opts.modelUnlock) refreshModelUnlock();
+    if (opts.sandStream) refreshSandStream();
     maybePaintLocalCards();
     return;
   }
@@ -828,6 +829,7 @@ async function refreshCursorStatus(opts = {}) {
   }
   if (opts.ctxwin) refreshCtxwin();
   if (opts.modelUnlock) refreshModelUnlock();
+  if (opts.sandStream) refreshSandStream();
   if (opts.update !== false) refreshUpdateStatus();
   maybePaintLocalCards();
 }
@@ -914,6 +916,78 @@ async function refreshCtxwin() {
   } catch (e) {
     paintCtxwin({ ok: false, error: String(e) });
   }
+}
+
+function paintSandStream(res) {
+  const info = $("sandStreamInfo");
+  const applyBtn = $("btnSandStreamApply");
+  const restoreBtn = $("btnSandStreamRestore");
+  if (!info) return;
+  if (!res || !res.ok) {
+    info.textContent = res?.error || "无法检测 Sand Stream 状态";
+    if (applyBtn) applyBtn.classList.add("is-blocked");
+    if (restoreBtn) restoreBtn.classList.add("is-blocked");
+    return;
+  }
+  const hits = res.hits || {};
+  const lines = [
+    res.streamMode ? "状态：Sand Stream 已就绪" : (res.installed ? "状态：部分 Sand 补丁" : "状态：未启用"),
+    `RPC：${res.endpoint || "aiserver.v1.InferenceService/Stream"}`,
+    `命中：route×${hits.managedLocalRoute || 0} · runtime×${hits.localRuntimeLoad || 0} · stream×${hits.directStream || 0} · host×${hits.agentHostEnablement || 0} · identity×${hits.agentHostIdentity || 0}`,
+    res.version ? `Cursor v${res.version}` : "",
+    res.running ? "IDE 正在运行，改文件前请先关闭" : "IDE 未运行，可以改文件",
+  ].filter(Boolean);
+  if (res.message) lines.push(res.message);
+  info.textContent = lines.join("\n");
+  if (applyBtn) {
+    applyBtn.classList.toggle("is-blocked", !res.canApply);
+    applyBtn.title = res.running
+      ? "请先关闭 IDE"
+      : "启用 Sand 身份 + InferenceService/Stream 直连（与 MAX/500k 独立）";
+  }
+  if (restoreBtn) {
+    restoreBtn.classList.toggle("is-blocked", !res.canRestore);
+    restoreBtn.title = res.installed ? "去掉 Sand Stream 补丁" : "当前未安装";
+  }
+  syncIdeGate(Boolean(lastCursorStatus?.running || res.running));
+}
+
+async function refreshSandStream() {
+  if (!api()?.sand_stream_status) return;
+  try {
+    paintSandStream(await api().sand_stream_status());
+  } catch (e) {
+    paintSandStream({ ok: false, error: String(e) });
+  }
+}
+
+async function runSandStream(kind) {
+  const label = kind === "restore" ? "还原 Sand Stream" : "启用 Sand Stream";
+  if (!(await requireIdeClosed(label))) return;
+  const status = await api().sand_stream_status();
+  if (kind === "apply" && !status.canApply) {
+    paintSandStream(status);
+    return toast(status.running ? "请先关闭 IDE" : (status.error || "当前不能打补丁"));
+  }
+  if (kind === "restore" && !status.canRestore) {
+    paintSandStream(status);
+    return toast(status.installed ? (status.running ? "请先关闭 IDE" : "无法还原") : "当前没有 Sand Stream 补丁");
+  }
+  if (kind === "apply") {
+    const ok = window.confirm(
+      "将 client-type 改为 sand，并注入 InferenceService/Stream 路由。\n\n与「仅 MAX / 500k」独立。确定？"
+    );
+    if (!ok) return;
+  }
+  const fn = kind === "restore" ? "sand_stream_restore" : "sand_stream_apply";
+  const info = $("sandStreamInfo");
+  if (info) info.textContent = kind === "restore" ? "正在还原…" : "正在启用 Sand Stream…";
+  const res = await api()[fn]();
+  paintSandStream(res);
+  if (!res.ok) return toast(res.error || "失败");
+  if (res.skipped) return toast(res.message || "无需操作");
+  toast(kind === "restore" ? "已还原 Sand Stream，请再启动 IDE" : "已启用 Sand Stream，请再启动 IDE");
+  refreshWbDiag();
 }
 
 function _wbChip(label, tone) {
@@ -1958,7 +2032,7 @@ if ($("btnRecoverCursor")) $("btnRecoverCursor").onclick = () => runDll("uninsta
 $("btnSavePath").onclick = async () => {
   const res = await api().set_cursor_path($("cursorPath").value);
   toast(res.ok ? "路径已保存" : (res.error || "失败"));
-  await refreshCursorStatus({ ctxwin: true, modelUnlock: true, update: true });
+  await refreshCursorStatus({ ctxwin: true, modelUnlock: true, sandStream: true, update: true });
 };
 if ($("btnApplyDisableUpdate")) {
   $("btnApplyDisableUpdate").onclick = async () => {
@@ -1991,6 +2065,9 @@ if ($("disableAutoUpdate")) {
 $("btnCtxwinApply").onclick = () => runCtxwin("apply");
 $("btnCtxwinRestore").onclick = () => runCtxwin("restore");
 $("btnCtxwinRefresh").onclick = () => refreshCtxwin();
+if ($("btnSandStreamApply")) $("btnSandStreamApply").onclick = () => runSandStream("apply");
+if ($("btnSandStreamRestore")) $("btnSandStreamRestore").onclick = () => runSandStream("restore");
+if ($("btnSandStreamRefresh")) $("btnSandStreamRefresh").onclick = () => refreshSandStream();
 if ($("btnWbDiagRefresh")) $("btnWbDiagRefresh").onclick = () => refreshWbDiag();
 if ($("btnHealthRefresh")) $("btnHealthRefresh").onclick = () => refreshWbDiag();
 if ($("btnAutofix")) $("btnAutofix").onclick = () => runAutofix();
@@ -2158,7 +2235,7 @@ async function boot() {
     return setTimeout(boot, 120);
   }
   try {
-    await Promise.all([refreshCursorStatus({ ctxwin: true, modelUnlock: true }), loadProxy(), renderAccounts()]);
+    await Promise.all([refreshCursorStatus({ ctxwin: true, modelUnlock: true, sandStream: true }), loadProxy(), renderAccounts()]);
     paintSettingsMeta(lastCursorStatus);
     startStatusWatch();
     await maybePromptShortcuts();

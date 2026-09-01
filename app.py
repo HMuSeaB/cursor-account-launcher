@@ -20,6 +20,9 @@ from launcher.model_unlock import restore as run_model_unlock_restore
 from launcher.model_unlock import set_membership_setting
 from launcher.model_unlock import status as read_model_unlock_status
 from launcher.model_unlock import sync_storage_membership
+from launcher.sand_stream import apply as run_sand_stream_apply
+from launcher.sand_stream import restore as run_sand_stream_restore
+from launcher.sand_stream import status as read_sand_stream_status
 from launcher.cursor_process import (
     close_cursor,
     compact_cursor_state,
@@ -493,6 +496,24 @@ class Api(PatchesApiMixin):
     def model_unlock_restore(self) -> dict:
         try:
             return run_model_unlock_restore()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def sand_stream_status(self) -> dict:
+        try:
+            return read_sand_stream_status()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def sand_stream_apply(self) -> dict:
+        try:
+            return run_sand_stream_apply()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def sand_stream_restore(self) -> dict:
+        try:
+            return run_sand_stream_restore()
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
