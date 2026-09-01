@@ -327,6 +327,7 @@ function ctxwinInstall(G, FROM, TO) {
     if (/AvailableModels/i.test(s)) return "am";
     if (/GetServerConfig/i.test(s)) return "sc";
     if (/GetEffectiveTokenLimit/i.test(s)) return "tl";
+    if (/InferenceService\/Stream/i.test(s)) return "agent";
     if (/AgentService\//i.test(s)) return "agent";
     return "";
   }
@@ -838,6 +839,8 @@ function cmdSelftest() {
     chatInner,
   ]);
   assert(api.kindFromPath("/aiserver.v1.ServerConfigService/GetServerConfig") === "sc", "应识别 GetServerConfig");
+  assert(api.kindFromPath("/aiserver.v1.InferenceService/Stream") === "agent", "应识别 InferenceService/Stream");
+  assert(api.kindFromPath("/agent.v1.AgentService/Run") === "agent", "应识别 AgentService/Run");
   const sc2 = api.rewriteChatConfig(sc);
   assert(sc2.indexOf(vTo) >= 0, "GetServerConfig chat_config 窗口应改成 500000");
   assert(sc2.indexOf(vFrom) < 0, "GetServerConfig 不应再留 256000");
