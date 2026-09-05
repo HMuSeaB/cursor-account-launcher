@@ -49,7 +49,7 @@ python app.py
 
 ### 模型选择器解锁（启动器自有）
 
-设置顶部有 **日常状态** 四格（网关 / MAX / 500k / 代理）和蓝色「下一步」：IDE 开着会锁补丁按钮，关掉后可自动继续。日常按「下一步」即可；DLL / 完整解锁等在高级危险区。
+设置顶部有 **日常状态**（YC 原生 / Sub2API / MAX / 500k / 代理）和蓝色「下一步」：IDE 开着会锁补丁按钮，关掉后可自动继续。日常按「下一步」即可；DLL / 完整解锁等在高级危险区。
 
 设置 → **仅解锁 MAX / 完整解锁 / 还原 / 修复黑屏**。改本机 Cursor 的 `workbench.*.main.js`。
 
@@ -65,7 +65,7 @@ python app.py
 
 #### 易错点（模型墙 / MAX / 黑屏）
 
-1. **三件事别混**：模型列表靠 YC 网关 + `%APPDATA%\Cursor\...\state.vscdb` 缓存；MAX 开关靠 `hideMaxToggle` 补丁；重装 Cursor 只换程序，不清用户数据。
+1. **三件事别混**：模型列表靠当前打上的那套网关（YC 原生 `43111/__bajie` 模型多、自己的号、可开 Sand；Sub2API 是窄墙）+ `%APPDATA%\Cursor\...\state.vscdb` 缓存；MAX 开关靠 `hideMaxToggle` 补丁；重装 Cursor 只换程序，不清用户数据。同一时间只应打一套网关。
 2. **有模型墙不等于有 MAX**：token 计价（`hasTokenBasedPricing`）会藏 MAX。要开关就点「仅解锁 MAX」，不必完整解锁。
 3. **对象字面量里不能写 `hideMaxToggle:!1;`**：分号会截断属性，workbench 解析失败 → **黑屏**。正确是 `hideMaxToggle:!1/*MARKER*/`。
 4. **会员正则必须写成 `"(?:pro|ultra|…)"`**：写成 `"pro|ultra|…"` 会误命中上千处 `"pro` 字符串 → **黑屏**。正常命中应是 `显示MAX×1~3`、`会员×0 或 ×1`；出现 `会员×几百/上千` 立刻停、点「修复黑屏」或重装 Cursor。

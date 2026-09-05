@@ -52,13 +52,13 @@ def render_icon(size: int) -> Image.Image:
         fill=(28, 25, 23, 255),
     )
 
-    bar_r = max(2, _u(size, 56))
+    bar_r = max(1, _u(size, 56))
     draw.rounded_rectangle(
         [_u(size, 214), _u(size, 200), _u(size, 348), _u(size, 824)],
         radius=bar_r,
         fill=(214, 211, 205, 255),
     )
-    if size >= 28:
+    if size >= 32:
         card_r = max(3, _u(size, 40))
         draw.rounded_rectangle(
             [_u(size, 392), _u(size, 268), _u(size, 838), _u(size, 548)],
@@ -76,6 +76,14 @@ def render_icon(size: int) -> Image.Image:
             (_u(size, 722), _u(size, 624)),
         ]
         draw.polygon(play, fill=(28, 25, 23, 255))
+    else:
+        # 16/24px：资源管理器列表视图只用这一档；必须能看出播放键，不能只剩一根竖条
+        play = [
+            (_u(size, 430), _u(size, 300)),
+            (_u(size, 430), _u(size, 724)),
+            (_u(size, 780), _u(size, 512)),
+        ]
+        draw.polygon(play, fill=(250, 249, 247, 255))
     return img
 
 

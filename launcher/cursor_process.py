@@ -386,6 +386,93 @@ def list_cursor_processes() -> list[dict]:
             return []
 
 
+def _win_command_line(pid: int) -> str:
+    """读进程命令行。失败返回空串，不抛。"""
+    if sys.platform != "win32":
+        return ""
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    ProcessCommandLineInformation = 60
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    ntdll = ctypes.WinDLL("ntdll")
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    ntdll.NtQueryInformationProcess.restype = ctypes.c_long
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
+    if not handle:
+        return ""
+    try:
+        needed = wintypes.ULONG(0)
+        ntdll.NtQueryInformationProcess(
+            handle, ProcessCommandLineInformation, None, 0, ctypes.byref(needed)
+        )
+        if not needed.value:
+            return ""
+        buf = ctypes.create_string_buffer(needed.value)
+        status = ntdll.NtQueryInformationProcess(
+            handle, ProcessCommandLineInformation, buf, needed.value, ctypes.byref(needed)
+        )
+        if status != 0:
+            return ""
+        length = int.from_bytes(buf.raw[0:2], "little")
+        ptr_off = 8 if ctypes.sizeof(ctypes.c_void_p) == 8 else 4
+        ptr = int.from_bytes(buf.raw[ptr_off : ptr_off + ctypes.sizeof(ctypes.c_void_p)], "little")
+        if not ptr or length < 2:
+            return ""
+        return ctypes.wstring_at(ptr, max(0, length // 2))
+    except Exception:
+        return ""
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _is_main_cursor_cmd(command_line: str) -> bool:
+    low = (command_line or "").casefold()
+    if not low or "--type=" in low:
+        return False
+    return "cursor.exe" in low or low.endswith("cursor") or "\\cursor.exe" in low
+
+
+def classic_launch_status(command_lines: list[str] | None = None) -> dict:
+    """当前 Cursor 是否带 --classic（旧版 IDE 风格）。"""
+    running = is_cursor_running() if command_lines is None else True
+    sampled: list[str] = []
+    if command_lines is None:
+        if not running:
+            return {
+                "ok": True,
+                "running": False,
+                "usingClassic": None,
+                "lost": False,
+                "sampled": 0,
+            }
+        for proc in list_cursor_processes():
+            line = _win_command_line(int(proc.get("pid") or 0))
+            if line:
+                sampled.append(line)
+    else:
+        sampled = [line for line in command_lines if line]
+        running = True
+    mains = [line for line in sampled if _is_main_cursor_cmd(line)]
+    if not mains:
+        return {
+            "ok": True,
+            "running": running,
+            "usingClassic": None,
+            "lost": False,
+            "sampled": len(sampled),
+        }
+    using = any("--classic" in line.casefold() for line in mains)
+    return {
+        "ok": True,
+        "running": running,
+        "usingClassic": using,
+        "lost": running and using is False,
+        "sampled": len(mains),
+    }
+
+
 def _empty_working_set(pid: int) -> bool:
     if sys.platform != "win32":
         return False

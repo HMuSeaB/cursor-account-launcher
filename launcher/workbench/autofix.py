@@ -57,11 +57,12 @@ def plan_autofix(diag: dict | None = None) -> dict:
             }
         )
 
-    if not (layers.get("gateway") or 0) > 0:
+    has_gw = (layers.get("gateway") or 0) > 0 or (layers.get("sub2api") or 0) > 0
+    if not has_gw:
         steps.append(
             {
                 "id": "gateway",
-                "label": "确认外部网关插件",
+                "label": "用 YC 或 Sub2API 打补丁（只打一套）",
                 "needsClosed": False,
                 "manual": True,
             }

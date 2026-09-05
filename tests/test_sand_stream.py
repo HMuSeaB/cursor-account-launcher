@@ -183,6 +183,7 @@ def test_hdrfix_v2_agent_path_returns_ide():
     assert SAND_HDRFIX_V2_MARKER in patched
     assert stats.set_header == 1
     assert "AgentService" in patched
+    assert "AvailableModels" in patched
     restored, _ = remove_patch_from_content(patched)
     assert SAND_HDRFIX_V2_MARKER not in restored
     assert 'g.header.set("x-cursor-client-type","ide")' in restored

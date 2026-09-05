@@ -33,6 +33,7 @@ SAND_GLASSFIX_MARKER = "/*SAND_GLASSFIX_V1*/"
 SAND_HDRFIX_V2_MARKER = "/*SAND_HDRFIX_V2*/"
 SAND_HDRFIX_V2_FN = (
     '(function(r){try{var u=String((r&&r.url)||""),s=String((r&&r.service&&r.service.typeName)||"");'
+    'if(/AvailableModels|available-models|GetAvailableModels|GetServerConfig|GetEffectiveTokenLimit|GetDefaultModel/i.test(u+s))return"ide";'
     'if(/AgentService|\\/agent\\.v1\\./.test(u+s))return"ide"}catch(x){}return"sand"})'
 )
 HEADER_SET_SIMPLE_RE = re.compile(
@@ -43,8 +44,9 @@ HEADER_SET_SIMPLE_RE = re.compile(
     r"\)"
 )
 HDRFIX_V2_REMOVE_RE = re.compile(
-    re.escape(SAND_HDRFIX_V2_FN)
-    + r"\([A-Za-z_$][\w$]*\)"
+    r'\(function\(r\)\{try\{var u=String\(\(r&&r\.url\)\|\|""\),s=String\(\(r&&r\.service&&r\.service\.typeName\)\|\|""\);'
+    r'.*?return"sand"\}\)'
+    r'(\([A-Za-z_$][\w$]*\))'
     + re.escape(SAND_HDRFIX_V2_MARKER)
 )
 SAND_MANAGED_LOCAL_ROUTE_MARKER = "/*SAND_MANAGED_LOCAL_ROUTE_V1*/"
@@ -574,6 +576,7 @@ class PatchStatus:
     patched_files: tuple[str, ...] = ()
     external_marker_count: int = 0
     launcher_markers: int = 0
+    compat: dict[str, Any] = field(default_factory=dict)
 
     @property
     def installed(self) -> bool:
@@ -1151,6 +1154,11 @@ def apply_patch_to_content(
             f"{SAND_HDRFIX_V2_FN}({obj}){SAND_HDRFIX_V2_MARKER})"
         )
 
+    if SAND_HDRFIX_V2_MARKER in next_content:
+        next_content = HDRFIX_V2_REMOVE_RE.sub(
+            lambda m: SAND_HDRFIX_V2_FN + m.group(1) + SAND_HDRFIX_V2_MARKER,
+            next_content,
+        )
     next_content = HEADER_SET_SIMPLE_RE.sub(_smart_header, next_content)
 
     for key, rule in CLIENT_RULES:
@@ -1624,17 +1632,29 @@ def build_layout() -> SandLayout:
     )
 
 
+def _relative_target_name(layout: SandLayout, path: Path) -> str:
+    try:
+        return path.resolve().relative_to(layout.app_root.resolve()).as_posix()
+    except ValueError:
+        return path.name
+
+
 def inspect_status(layout: SandLayout) -> PatchStatus:
+    from launcher.sand_report import evaluate_compat
+
     totals: dict[str, int] = {}
     external_marker_count = 0
     patched_files: list[str] = []
     launcher_markers = 0
+    snaps: list[tuple[str, str]] = []
     for target in layout.target_paths:
         content = target.read_text(encoding="utf-8", errors="ignore")
+        rel = _relative_target_name(layout, target)
+        snaps.append((rel, content))
         hits = inspect_content_hits(content)
         launcher_markers += hits.get("launcherMarker") or 0
         if sum(hits.values()):
-            patched_files.append(target.name)
+            patched_files.append(rel)
         for key, value in hits.items():
             totals[key] = totals.get(key, 0) + value
         client_count = hits.get("client") or 0
@@ -1655,11 +1675,13 @@ def inspect_status(layout: SandLayout) -> PatchStatus:
             - eligibility_count
             - legacy_eligibility_count,
         )
+    compat = evaluate_compat(snaps, cursor_version=layout.version)
     return PatchStatus(
         hits=totals,
         patched_files=tuple(patched_files),
         external_marker_count=external_marker_count,
         launcher_markers=launcher_markers,
+        compat=compat,
     )
 
 
@@ -1883,8 +1905,13 @@ def _status_payload(
     ready = classify_readiness(
         patch.hits, profile=profile, include_subagent=include_subagent
     )
+    from launcher.sand_report import adjust_compat_scope
+
     hits = dict(patch.hits)
     hits["launcherMarker"] = patch.launcher_markers
+    compat = adjust_compat_scope(
+        patch.compat or {}, profile=profile, include_subagent=include_subagent
+    )
     return {
         "ok": True,
         "installed": patch.installed,
@@ -1919,6 +1946,7 @@ def _status_payload(
             "L7": {key: hits.get(key) or 0 for key in L7_HIT_KEYS},
             "L8": {key: hits.get(key) or 0 for key in L8_HIT_KEYS},
         },
+        "compat": compat,
     }
 
 

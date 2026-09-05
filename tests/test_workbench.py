@@ -20,6 +20,7 @@ SAMPLE_WB = (
 def test_scan_and_strip_gateway():
     scan = scan_content(SAMPLE_WB)
     assert scan.gateway_hits == 1
+    assert scan.sub2api_hits == 0
     out, n = strip_gateway_urls(SAMPLE_WB)
     assert n == 1
     assert "43111" not in out

@@ -634,14 +634,29 @@ function computeWbNext(res) {
       run: () => repairModelUnlock(),
     };
   }
-  if (!(layers.gateway > 0)) {
+  const wall = res.wall || {};
+  const active = wall.active || (
+    (layers.gateway > 0 && layers.sub2api > 0) ? "both"
+      : (layers.gateway > 0 ? "yc" : (layers.sub2api > 0 ? "sub2api" : "none"))
+  );
+  if (active === "both") {
     return {
       id: "gateway",
-      label: "去装网关插件",
-      hint: "workbench 里还没有网关补丁；这步在启动器外完成。",
+      label: "两套网关叠打，先拆开",
+      hint: wall.action || "同一时间只留 YC 或 Sub2API 一套。不要重装客户端。",
       needsClosed: false,
       primary: false,
       run: null,
+    };
+  }
+  if (active === "none") {
+    return {
+      id: "gateway",
+      label: wall.canRestoreGateway ? "恢复 YC workbench" : "选定一套网关再打补丁",
+      hint: wall.action || "YC 原生（多模型/自己的号/Sand）或 Sub2API 窄墙。不要两套一起打，不要重装。",
+      needsClosed: Boolean(wall.canRestoreGateway),
+      primary: false,
+      run: wall.canRestoreGateway ? () => runRestoreGateway() : null,
     };
   }
   if (!mu.maxOnly && !mu.installed) {
@@ -693,7 +708,9 @@ function computeWbNext(res) {
   return {
     id: "launch",
     label: "用启动器启动 IDE",
-    hint: "网关 + MAX + 500k + 代理都齐了。以后用启动器开 Cursor。",
+    hint: (active === "sub2api"
+      ? "当前是 Sub2API 窄墙 + MAX + 500k。要更多模型和 Sand 就切回 YC。"
+      : "当前是 YC 原生（多模型 / 自己的号 / Sand）+ MAX + 500k。以后用启动器开。"),
     needsClosed: false,
     run: () => launch(null),
   };
@@ -712,12 +729,31 @@ function paintWbChecklist(res) {
   const live = (res.proxy && res.proxy.live) || {};
   const step = pendingWbNext;
 
+  const wall = res.wall || {};
+  const yc = wall.yc || {};
+  const sub2 = wall.sub2api || {};
+  const ycOn = (yc.present === true) || (layers.gateway > 0);
+  const sub2On = (sub2.present === true) || (layers.sub2api > 0);
   const items = [
     {
-      id: "gateway",
-      ok: layers.gateway > 0,
-      label: "网关原生",
-      meta: layers.gateway > 0 ? `${layers.gateway} 处补丁` : "未检测到",
+      id: "yc",
+      ok: ycOn,
+      idle: !ycOn && sub2On,
+      warn: wall.active === "both",
+      label: "YC 原生",
+      meta: ycOn
+        ? `${yc.hits || layers.gateway} 处 43111/__bajie · 多模型 / 自己的号 / Sand`
+        : (yc.extensionInstalled ? "扩展在，workbench 未接管" : "未写入"),
+    },
+    {
+      id: "sub2api",
+      ok: sub2On,
+      idle: !sub2On && ycOn,
+      warn: wall.active === "both",
+      label: "Sub2API",
+      meta: sub2On
+        ? `${sub2.endpoint || "localhost"} · 窄模型墙`
+        : (sub2.extensionInstalled ? "扩展在，workbench 未接管" : "未写入"),
     },
     {
       id: "max",
@@ -744,10 +780,10 @@ function paintWbChecklist(res) {
   ];
 
   el.innerHTML = items.map((it) => {
-    const tone = it.warn ? "critical" : (it.ok ? "ok" : "warn");
-    const mark = it.warn ? "!" : (it.ok ? "✓" : "○");
+    const tone = it.warn ? "critical" : (it.ok ? "ok" : (it.idle ? "idle" : "warn"));
+    const mark = it.warn ? "!" : (it.ok ? "✓" : (it.idle ? "–" : "○"));
     const isNext = step && (
-      (step.id === "gateway" && it.id === "gateway") ||
+      (step.id === "gateway" && (it.id === "yc" || it.id === "sub2api")) ||
       (step.id === "max" && it.id === "max") ||
       (step.id === "ctxwin" && it.id === "ctxwin") ||
       ((step.id === "proxy" || step.id === "proxy-write") && it.id === "proxy") ||
@@ -755,6 +791,92 @@ function paintWbChecklist(res) {
     );
     return `<li class="wb-check ${tone}${isNext ? " is-next" : ""}"><span class="mark">${mark}</span><span>${it.label}</span><span class="meta">${it.meta}</span></li>`;
   }).join("");
+}
+
+function paintWbIncidents(res) {
+  const box = $("wbIncidents");
+  if (!box) return;
+  if (!res || !res.ok) {
+    box.hidden = true;
+    box.innerHTML = "";
+    return;
+  }
+  const causeLabel = {
+    stripped: "改回官方剥掉",
+    upgraded: "升级覆盖了",
+    overwritten: "文件被盖掉",
+    missing: "从未写入 / 无备份",
+    conflict: "两套叠打",
+  };
+  const activeLabel = {
+    yc: "YC 原生",
+    sub2api: "Sub2API 窄墙",
+    both: "两套叠打",
+    none: "都没接管",
+  };
+  const items = [];
+  const wall = res.wall || {};
+  if (wall.ok) {
+    const active = wall.active || "none";
+    const tone = (active === "both" || active === "none") ? "lost" : "tip";
+    items.push({
+      kind: "wall",
+      tone,
+      title: wall.title || "当前网关",
+      why: wall.why || "",
+      action: wall.action || "",
+      badge: causeLabel[wall.cause] || activeLabel[active] || "",
+      restore: !!wall.canRestoreGateway && active === "none",
+    });
+  }
+  const classic = res.classic || {};
+  if (classic.ok && classic.usingClassic !== true) {
+    items.push({
+      kind: "classic",
+      tone: classic.lost ? "lost" : "tip",
+      title: classic.title || "旧版风格",
+      why: classic.why || "",
+      action: classic.action || "",
+      badge: classic.lost ? "进程没带 --classic" : (classic.running ? "无法判定" : "请用启动器开"),
+      restore: false,
+    });
+  }
+  if (!items.length) {
+    box.hidden = true;
+    box.innerHTML = "";
+    return;
+  }
+  box.hidden = false;
+  box.innerHTML = items.map((it) => {
+    const badge = it.badge ? `<span class="wb-incident-badge">${esc(it.badge)}</span>` : "";
+    const restore = it.restore
+      ? `<div class="guard-actions"><button type="button" class="btn" data-act="restore-gateway">恢复 YC workbench</button></div>`
+      : "";
+    return `<article class="wb-incident is-${it.tone}"><div class="wb-incident-head"><strong>${esc(it.title)}</strong>${badge}</div><p>${esc(it.why)}</p><p class="wb-incident-action">${esc(it.action)}</p>${restore}</article>`;
+  }).join("");
+  box.onclick = (ev) => {
+    const btn = ev.target?.closest?.("[data-act=restore-gateway]");
+    if (btn) runRestoreGateway();
+  };
+}
+
+async function runRestoreGateway() {
+  if (!api()?.restore_workbench) return toast("当前版本不能恢复网关 workbench");
+  if (!(await requireIdeClosed("恢复网关 workbench"))) return;
+  const info = $("wbNextHint");
+  if (info) info.textContent = "正在把 YC 的 43111/__bajie 填回 workbench…";
+  try {
+    const res = await api().restore_workbench();
+    if (!res?.ok) {
+      toast(res?.error || "恢复失败。不要关扩展、不要重装客户端。");
+      await refreshWbDiag();
+      return;
+    }
+    toast((res.message || "已恢复 YC workbench") + "。请用启动器再开。若要 Sub2API 窄墙，不要用这份备份。");
+    await refreshWbDiag();
+  } catch (e) {
+    toast(String(e));
+  }
 }
 
 function maybePaintLocalCards() {
@@ -819,6 +941,7 @@ async function refreshCursorStatus(opts = {}) {
     lastWbDiag = { ...lastWbDiag, cursorRunning: !!res.running };
     pendingWbNext = computeWbNext(lastWbDiag);
     paintWbChecklist(lastWbDiag);
+    paintWbIncidents(lastWbDiag);
     const hint = $("wbNextHint");
     if (hint && pendingWbNext) {
       hint.textContent = res.running && pendingWbNext.needsClosed
@@ -974,11 +1097,36 @@ function _sandMainMissing(res) {
   return [];
 }
 
+function _sandRulePill(row) {
+  if (row.optional && row.status === "missing") return ["", "当前档不需要"];
+  if (row.status === "applied") return ["ok", row.statusLabel || "已生效"];
+  if (row.status === "partial") return ["warn", row.statusLabel || "部分生效"];
+  if (row.status === "pending") return ["warn", row.statusLabel || "可打未打"];
+  const miss = {
+    package_absent: "包不存在",
+    shape_changed: "代码变了",
+    feature_absent: "版本没有",
+  };
+  return ["bad", miss[row.missKind] || row.statusLabel || "锚点缺失"];
+}
+
+function _sandPkgKind(pkg) {
+  const leftover = (pkg.canPatch || []).length;
+  const marked = (pkg.patched || []).length;
+  if (leftover && marked) return ["warn", "部分", (pkg.canPatch || []).concat(pkg.patched || [])];
+  if (leftover) return ["warn", "可打", pkg.canPatch || []];
+  if (marked) return ["ok", "已改", pkg.patched || []];
+  return ["", "无锚点", []];
+}
+
 function paintSandStream(res) {
   const stateEl = $("sandStreamState");
   const copyEl = $("sandStreamCopy");
   const missingEl = $("sandStreamMissing");
   const layersEl = $("sandStreamLayers");
+  const pkgsEl = $("sandStreamPackages");
+  const hintEl = $("sandCompatHint");
+  const adviceEl = $("sandUpgradeAdvice");
   const fullBtn = $("btnSandStreamApplyFull");
   const streamBtn = $("btnSandStreamApplyStream");
   const restoreBtn = $("btnSandStreamRestore");
@@ -996,6 +1144,9 @@ function paintSandStream(res) {
     if (copyEl) copyEl.textContent = res?.error || "无法检测 Bot 补丁状态";
     if (missingEl) missingEl.innerHTML = "";
     if (layersEl) layersEl.innerHTML = "";
+    if (pkgsEl) pkgsEl.innerHTML = "";
+    if (hintEl) hintEl.textContent = "";
+    if (adviceEl) adviceEl.textContent = "";
     setBlocked(true, true);
     return;
   }
@@ -1020,8 +1171,11 @@ function paintSandStream(res) {
     tone = "warn";
     copy = "有残留标记，但对话通路还没打齐。";
   }
+  const compat = res.compat || {};
+  const summary = compat.summary || {};
   const meta = [
-    res.versionHint || (res.version ? `Cursor v${res.version}` : ""),
+    compat.versionHint || res.versionHint || (res.version ? `Cursor v${res.version}` : ""),
+    summary.required ? `${summary.applied || 0}/${summary.required} 条当前档规则已生效` : "",
     res.running ? "请先关 IDE 再改文件" : "",
   ].filter(Boolean).join(" · ");
   if (stateEl) {
@@ -1029,9 +1183,39 @@ function paintSandStream(res) {
     stateEl.dataset.state = tone;
   }
   if (copyEl) copyEl.textContent = [copy, meta].filter(Boolean).join(" ");
+  if (hintEl) {
+    const bits = [
+      compat.cursorVersion ? `本机 Cursor v${compat.cursorVersion}` : "",
+      compat.anchorVersion ? `锚点 ${compat.anchorVersion}` : "",
+      compat.versionHint || "",
+    ].filter(Boolean);
+    hintEl.textContent = bits.join(" · ");
+  }
+  if (adviceEl) {
+    adviceEl.textContent = (compat.upgrade && compat.upgrade.advice) || "";
+  }
 
   if (missingEl) {
     missingEl.innerHTML = "";
+    const counts = { package_absent: 0, shape_changed: 0, feature_absent: 0 };
+    for (const row of (compat.rules || [])) {
+      if (row.optional || row.status !== "missing" || !counts.hasOwnProperty(row.missKind)) continue;
+      counts[row.missKind] += 1;
+    }
+    const kinds = [
+      counts.package_absent ? `包不存在 ${counts.package_absent}` : "",
+      counts.shape_changed ? `代码变了 ${counts.shape_changed}` : "",
+      counts.feature_absent ? `这个版本没有 ${counts.feature_absent}` : "",
+    ].filter(Boolean);
+    if (kinds.length) {
+      const item = document.createElement("li");
+      item.className = "wb-diag-rec warn";
+      const strong = document.createElement("strong");
+      strong.textContent = "缺失分类";
+      item.appendChild(strong);
+      item.appendChild(document.createTextNode(kinds.join(" · ")));
+      missingEl.appendChild(item);
+    }
     const shown = _sandMainMissing(res);
     if (shown.length) {
       const item = document.createElement("li");
@@ -1044,14 +1228,40 @@ function paintSandStream(res) {
     }
   }
 
-  if (layersEl) {
-    const layers = res.layers || {};
-    layersEl.innerHTML = SAND_LAYER_SPEC.map(([id, label, keys]) => {
-      const block = layers[id] || {};
-      const on = keys.filter((key) => Number(block[key] || 0) > 0).length;
-      const cls = on === keys.length ? "is-on" : (on > 0 ? "is-partial" : "is-off");
-      return `<li class="sand-layer ${cls}"><span>${esc(id)} ${esc(label)}</span><span>${on}/${keys.length}</span></li>`;
+  if (pkgsEl) {
+    const packages = compat.packages || [];
+    const live = packages.filter((pkg) => (pkg.canPatch || []).length || (pkg.patched || []).length);
+    const idle = packages.length - live.length;
+    pkgsEl.innerHTML = live.map((pkg) => {
+      const [cls, label, keys] = _sandPkgKind(pkg);
+      const keyText = [...new Set(keys)].join("、");
+      return `<li class="sand-pkg" title="${esc(pkg.name)}"><span class="pill ${esc(cls)}">${esc(label)}</span><div><span class="sand-pkg-name">${esc(pkg.name)}</span>${keyText ? `<span class="sand-pkg-keys">${esc(keyText)}</span>` : ""}</div></li>`;
     }).join("");
+    if (!live.length) {
+      pkgsEl.innerHTML = `<li class="hint">当前扫到的包里没有可改锚点。</li>`;
+    } else if (idle > 0) {
+      pkgsEl.insertAdjacentHTML("beforeend", `<li class="hint">另有 ${idle} 个包没有对应锚点。</li>`);
+    }
+  }
+
+  if (layersEl) {
+    const rules = compat.rules || [];
+    if (rules.length) {
+      layersEl.innerHTML = rules.map((row) => {
+        const [cls, label] = _sandRulePill(row);
+        const files = (row.files || []).join("  ");
+        const fix = row.fix && !(row.optional && row.status === "missing") ? row.fix : "";
+        return `<li class="sand-rule"><span class="pill ${esc(cls)}">${esc(label)}</span><div><div class="sand-rule-title">${esc(row.layer || "")} ${esc(row.title || "")}${row.optional ? " · 当前档不强制" : ""}</div><div class="hint">${esc(row.why || "")}</div>${files ? `<div class="sand-rule-files" title="${esc(files)}">${esc(files)}</div>` : ""}${fix ? `<div class="sand-rule-fix">${esc(fix)}</div>` : ""}</div></li>`;
+      }).join("");
+    } else {
+      const layers = res.layers || {};
+      layersEl.innerHTML = SAND_LAYER_SPEC.map(([id, label, keys]) => {
+        const block = layers[id] || {};
+        const on = keys.filter((key) => Number(block[key] || 0) > 0).length;
+        const cls = on === keys.length ? "is-on" : (on > 0 ? "is-partial" : "is-off");
+        return `<li class="sand-layer ${cls}"><span>${esc(id)} ${esc(label)}</span><span>${on}/${keys.length}</span></li>`;
+      }).join("");
+    }
   }
 
   const blocked = !res.canApply;
@@ -1169,6 +1379,7 @@ function paintWbDiag(res) {
   if (!res || !res.ok) {
     pendingWbNext = computeWbNext(res);
     paintWbChecklist(null);
+    paintWbIncidents(null);
     if (chips) chips.innerHTML = _wbChip("诊断失败", "critical");
     if (recs) recs.innerHTML = "";
     if (hint) hint.textContent = res?.error || "无法读取诊断，点刷新重试";
@@ -1179,12 +1390,13 @@ function paintWbDiag(res) {
 
   pendingWbNext = computeWbNext(res);
   paintWbChecklist(res);
+  paintWbIncidents(res);
   if (hint) {
     const step = pendingWbNext;
     if (res.cursorRunning && step?.needsClosed) {
       hint.textContent = `卡在「${step.label}」— 先关 IDE，关掉后点顶栏「${step.label}」或会自动继续。`;
     } else if (step?.id === "launch") {
-      hint.textContent = "四项都齐了。用启动器开 Cursor 即可。";
+      hint.textContent = step.hint || "日常组合齐了。用启动器开 Cursor 即可。";
     } else if (step) {
       hint.textContent = step.hint || `下一步：${step.label}`;
     }
@@ -1200,7 +1412,8 @@ function paintWbDiag(res) {
     const bits = [];
     bits.push(_wbChip(res.healthy ? "健康" : "需处理", res.healthy ? "ok" : "warn"));
     bits.push(_wbChip(res.cursorRunning ? "IDE 运行中" : "IDE 已关", res.cursorRunning ? "info" : "ok"));
-    bits.push(_wbChip(layers.gateway > 0 ? `网关×${layers.gateway}` : "无网关", layers.gateway > 0 ? "ok" : "warn"));
+    bits.push(_wbChip(layers.gateway > 0 ? `YC×${layers.gateway}` : "无 YC", layers.gateway > 0 ? "ok" : "warn"));
+    bits.push(_wbChip(layers.sub2api > 0 ? "Sub2API" : "无 Sub2API", layers.sub2api > 0 ? "ok" : "info"));
     bits.push(_wbChip(mu.maxOnly ? "仅 MAX" : (mu.installed ? "完整解锁" : "无 MAX"), mu.corrupted ? "critical" : (mu.maxOnly || mu.installed ? "ok" : "warn")));
     bits.push(_wbChip(ctx.patched ? "500k" : "无 500k", ctx.patched ? "ok" : "warn"));
     bits.push(_wbChip(pref.enabled ? (pref.bypass_gateway ? "代理·官方" : "代理·原生") : (live.argvProxyServer ? "argv残留" : "代理关"), pref.enabled && !pref.bypass_gateway ? "ok" : "info"));
@@ -1239,7 +1452,13 @@ async function runWbNext() {
   const step = pendingWbNext;
   if (!step) return refreshWbDiag();
   if (step.id === "gateway") {
-    return toast("请在启动器外安装/确认网关插件补丁");
+    if (typeof step.run === "function") {
+      if (step.needsClosed && !(await requireIdeClosed(step.label))) return;
+      await step.run();
+      await refreshWbDiag();
+      return;
+    }
+    return toast((lastWbDiag && lastWbDiag.wall && lastWbDiag.wall.action) || "关 IDE，保持网关扩展启用，用启动器再开 Cursor。不要重装客户端。");
   }
   if (typeof step.run !== "function") {
     return toast(step.hint || "没有可执行的下一步");
@@ -1277,19 +1496,36 @@ function paintHealthBanner(res) {
     if (title) title.textContent = "补丁自检失败";
     if (hint) hint.textContent = res?.error || "无法诊断";
     if (fixBtn) fixBtn.hidden = true;
+    const gwFail = $("btnRestoreGateway");
+    if (gwFail) gwFail.hidden = true;
     return;
   }
   const af = res.autofix || {};
   const steps = (af.steps || []).filter((s) => !s.manual);
   const upgrade = res.cursorUpgrade || {};
+  const wall = res.wall || {};
+  const classic = res.classic || {};
+  const active = wall.active || (wall.present === false ? "none" : (wall.present ? "yc" : "none"));
+  const conflict = active === "both";
+  const wallDown = active === "none";
+  const styleLost = !!classic.lost;
   let state = "ok";
   if (res.modelUnlock?.corrupted) state = "critical";
-  else if (!af.ready || upgrade.needsRepatch) state = "warn";
+  else if (conflict || wallDown || styleLost || !af.ready || upgrade.needsRepatch) state = "warn";
   banner.dataset.state = state;
 
   if (title) {
-    if (af.ready && !upgrade.needsRepatch) {
-      title.textContent = `补丁就绪 · Cursor v${res.version || "?"} · 启动器 v${res.launcherVersion || "?"}`;
+    if (res.modelUnlock?.corrupted) {
+      title.textContent = "workbench 异常，先修黑屏";
+    } else if (conflict) {
+      title.textContent = wall.title || "两套网关补丁叠在一起";
+    } else if (wallDown) {
+      title.textContent = wall.title || "两套网关都没接管 workbench";
+    } else if (styleLost) {
+      title.textContent = classic.title || "旧版风格被覆盖了";
+    } else if (af.ready && !upgrade.needsRepatch) {
+      const kind = active === "sub2api" ? "Sub2API 窄墙" : "YC 原生";
+      title.textContent = `${kind} · Cursor v${res.version || "?"} · 启动器 v${res.launcherVersion || "?"}`;
     } else if (upgrade.needsRepatch) {
       title.textContent = `Cursor 已升级到 v${res.version} — 建议重打补丁`;
     } else {
@@ -1297,8 +1533,12 @@ function paintHealthBanner(res) {
     }
   }
   if (hint) {
-    if (af.ready && !upgrade.needsRepatch) {
-      hint.textContent = res.profile || "网关原生 + MAX + 500k + 代理";
+    if (conflict || wallDown) {
+      hint.textContent = wall.why || "YC 原生和 Sub2API 窄墙同一时间只应打一套。不要重装客户端。";
+    } else if (styleLost) {
+      hint.textContent = classic.why || "官方图标 / 更新器重启不会带 --classic。";
+    } else if (af.ready && !upgrade.needsRepatch) {
+      hint.textContent = `${res.profile || (active === "sub2api" ? "Sub2API" : "YC 原生")} · 旧版风格只有启动器会带 --classic，官方图标会冲掉`;
     } else {
       const labels = steps.map((s) => s.label).join(" → ");
       hint.textContent = (labels || "有事项待处理") + (res.cursorRunning ? "（需先关 IDE）" : "");
@@ -1309,6 +1549,11 @@ function paintHealthBanner(res) {
     fixBtn.hidden = !need;
     fixBtn.textContent = res.cursorRunning ? "关 IDE 并一键补齐" : "一键补齐";
     fixBtn.disabled = false;
+  }
+  const gwBtn = $("btnRestoreGateway");
+  if (gwBtn) {
+    gwBtn.hidden = !(wallDown && wall.canRestoreGateway);
+    gwBtn.textContent = "恢复 YC workbench";
   }
 }
 
@@ -2236,6 +2481,7 @@ if ($("sandIncludeSubagent")) $("sandIncludeSubagent").onchange = () => refreshS
 if ($("btnWbDiagRefresh")) $("btnWbDiagRefresh").onclick = () => refreshWbDiag();
 if ($("btnHealthRefresh")) $("btnHealthRefresh").onclick = () => refreshWbDiag();
 if ($("btnAutofix")) $("btnAutofix").onclick = () => runAutofix();
+if ($("btnRestoreGateway")) $("btnRestoreGateway").onclick = () => runRestoreGateway();
 if ($("btnWbDiagFix500k")) $("btnWbDiagFix500k").onclick = () => runWbDiagFix500k();
 if ($("btnWbDiagRestore")) $("btnWbDiagRestore").onclick = () => runWbDiagRestore();
 if ($("btnIdeGateClose")) {
@@ -2261,6 +2507,14 @@ $("btnModelUnlockRefresh").onclick = () => refreshModelUnlock();
 $("modelUnlockMembership")?.addEventListener("change", () => saveModelUnlockMembership());
 $("btnShortcutDesktop").onclick = () => createChosenShortcuts(true, false);
 $("btnShortcutStart").onclick = () => createChosenShortcuts(false, true);
+if ($("btnShortcutRefreshIcon")) {
+  $("btnShortcutRefreshIcon").onclick = async () => {
+    if (!api()?.refresh_shortcut_icons) return toast("当前版本不能刷新图标");
+    const res = await api().refresh_shortcut_icons();
+    toast(res.ok ? (res.message || "已刷新图标") : (res.error || "刷新失败"));
+    await refreshShortcutStatus();
+  };
+}
 $("btnShortcutSkip").onclick = async () => {
   try { await api().skip_shortcut_prompt(); } catch {}
   $("shortcutDialog")?.close();

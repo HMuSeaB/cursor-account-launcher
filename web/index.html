@@ -86,6 +86,7 @@
       </div>
       <div class="health-banner-actions">
         <button type="button" class="btn primary" id="btnAutofix" hidden>一键补齐</button>
+        <button type="button" class="btn" id="btnRestoreGateway" hidden>恢复 YC workbench</button>
         <button type="button" class="btn ghost" id="btnHealthRefresh">刷新</button>
         <a class="btn ghost" id="btnLauncherUpdate" hidden target="_blank" rel="noreferrer">启动器有更新</a>
       </div>
@@ -135,7 +136,9 @@
       <div class="settings-grid" id="settingsGrid">
         <section class="settings-panel settings-span" id="wbDiagPanel">
           <h3 class="settings-title">日常状态（看这个就够）</h3>
+          <p class="hint settings-hint">YC 原生：自己的号、模型多、可开 Sand。Sub2API：窄模型墙。同一时间只应打一套。</p>
           <ol class="wb-checklist" id="wbChecklist" aria-live="polite"></ol>
+          <div class="wb-incidents" id="wbIncidents" hidden></div>
           <p class="wb-next-hint" id="wbNextHint">打开设置后自动扫描…</p>
           <div class="guard-actions">
             <button type="button" class="btn ghost" id="btnWbDiagRefresh">刷新</button>
@@ -172,7 +175,13 @@
             <button type="button" class="btn ghost" id="btnSandStreamRefresh">刷新</button>
           </div>
           <details class="adv-fold">
-            <summary>补丁层明细</summary>
+            <summary>版本与补丁明细</summary>
+            <p class="hint settings-hint" id="sandCompatHint"></p>
+            <p class="hint settings-hint" id="sandUpgradeAdvice"></p>
+            <p class="hint settings-hint">模型列表变多/变少先看当前是 YC 原生还是 Sub2API，再看是不是切到了 Agent/Edit/Ask 里的 Edit。这不归下面这些 Bot 规则管。L4 推理请求会伪装 sand；目录/配置请求保持 ide。</p>
+            <p class="sand-subhead">可改的包</p>
+            <ul class="sand-pkgs" id="sandStreamPackages"></ul>
+            <p class="sand-subhead">规则</p>
             <ul class="sand-layers" id="sandStreamLayers"></ul>
           </details>
         </section>
@@ -226,10 +235,11 @@
         </section>
         <section class="settings-panel" id="shortcutPanel" hidden>
           <h3 class="settings-title">快捷方式</h3>
-          <p class="hint settings-hint">放到桌面或开始菜单，方便下次打开。安装包里也可以勾选「创建桌面快捷方式」。</p>
+          <p class="hint settings-hint">放到桌面或开始菜单。换版本后若桌面还是旧图标，点「刷新图标」（Windows 会缓存 .lnk）。</p>
           <div class="guard-actions">
             <button type="button" class="btn" id="btnShortcutDesktop">放到桌面</button>
             <button type="button" class="btn ghost" id="btnShortcutStart">放到开始菜单</button>
+            <button type="button" class="btn ghost" id="btnShortcutRefreshIcon">刷新图标</button>
           </div>
           <pre class="mini" id="shortcutInfo">—</pre>
         </section>

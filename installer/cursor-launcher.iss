@@ -1,6 +1,6 @@
 #define MyAppName "Cursor 账号启动器"
 #define MyAppNameEn "Cursor Launcher"
-#define MyAppVersion "1.3.9"
+#define MyAppVersion "1.3.10"
 #define MyAppPublisher "HMuSeaB"
 #define MyAppURL "https://github.com/HMuSeaB/cursor-account-launcher"
 #define MyAppExeName "CursorLauncher.exe"
@@ -37,10 +37,11 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "..\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\assets\icon.ico"; DestDir: "{app}"; DestName: "app-{#MyAppVersion}.ico"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\{#MyAppNameEn}"; Filename: "{app}\{#MyAppExeName}"; Comment: "{#MyAppName}"
-Name: "{autodesktop}\{#MyAppNameEn}"; Filename: "{app}\{#MyAppExeName}"; Comment: "{#MyAppName}"; Tasks: desktopicon
+Name: "{autoprograms}\{#MyAppNameEn}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\app-{#MyAppVersion}.ico"; Comment: "{#MyAppName}"
+Name: "{autodesktop}\{#MyAppNameEn}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\app-{#MyAppVersion}.ico"; Comment: "{#MyAppName}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent

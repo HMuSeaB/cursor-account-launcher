@@ -42,3 +42,20 @@ def test_plan_autofix_not_circular_when_nested_in_report():
     report["autofix"] = plan_autofix(report)
     json.dumps(report)  # must not raise Circular reference
     assert "diagnostic" not in report["autofix"]
+
+
+def test_plan_autofix_sub2api_counts_as_gateway():
+    report = {
+        "ok": True,
+        "cursorRunning": False,
+        "layers": {"gateway": 0, "sub2api": 1},
+        "modelUnlock": {"installed": True, "maxOnly": True, "corrupted": False},
+        "ctxwin": {"patched": True},
+        "proxy": {
+            "preference": {"enabled": True, "bypass_gateway": False},
+            "live": {"argvProxyServer": "socks5://127.0.0.1:7891"},
+        },
+    }
+    plan = plan_autofix(report)
+    assert plan["ready"] is True
+    assert not any(s["id"] == "gateway" for s in plan["steps"])

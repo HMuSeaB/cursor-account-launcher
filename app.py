@@ -75,7 +75,9 @@ from launcher.window_state import attach_window_persistence, load_window_geom
 from launcher.session_guard import SessionGuardService
 from launcher.shortcuts import (
     create_shortcuts as make_shortcut_links,
+    is_frozen as launcher_is_frozen,
     mark_shortcut_prompted,
+    refresh_shortcut_icons as refresh_shortcut_icon_links,
     shortcut_status as get_shortcut_status,
 )
 from launcher.token_utils import parse_token
@@ -1099,6 +1101,12 @@ class Api(PatchesApiMixin):
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
+    def refresh_shortcut_icons(self) -> dict:
+        try:
+            return refresh_shortcut_icon_links()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
     def skip_shortcut_prompt(self) -> dict:
         try:
             return mark_shortcut_prompted()
@@ -1112,6 +1120,11 @@ def resource_path(rel: str) -> str:
 
 
 def main() -> None:
+    if launcher_is_frozen():
+        try:
+            refresh_shortcut_icon_links()
+        except Exception:
+            pass
     api = Api()
     geom = load_window_geom()
     window_kwargs = {
