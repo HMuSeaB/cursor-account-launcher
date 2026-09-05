@@ -238,7 +238,8 @@ class Api(PatchesApiMixin):
         acct = read_local_account()
         if not acct or not acct.get("token"):
             return {"ok": False, "error": "未检测到本机 Cursor 登录"}
-        touched = self._store.add_text(acct["token"])
+        # 已是完整 token，不要走 add_text：正则会再抠出内层 JWT，同优先级下顶掉 WS 前缀。
+        touched = self._store._ingest([(5, acct["token"])])
         account_id = touched[0]["id"] if touched else None
         email = acct.get("email")
         if account_id and email and "@" in email:
@@ -499,15 +500,23 @@ class Api(PatchesApiMixin):
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
-    def sand_stream_status(self) -> dict:
+    def sand_stream_status(self, profile: str = "full", include_subagent: bool = True) -> dict:
         try:
-            return read_sand_stream_status()
+            return read_sand_stream_status(profile=profile, include_subagent=include_subagent)
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
-    def sand_stream_apply(self) -> dict:
+    def sand_stream_apply(self, profile: str = "full", include_subagent: bool = True) -> dict:
         try:
-            return run_sand_stream_apply()
+            return run_sand_stream_apply(profile=profile, include_subagent=include_subagent)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def crash_diagnose(self) -> dict:
+        from launcher.crash_diag import diagnose
+
+        try:
+            return diagnose()
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 

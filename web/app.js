@@ -918,36 +918,58 @@ async function refreshCtxwin() {
   }
 }
 
+function _sandIncludeSubagent() {
+  return Boolean($("sandIncludeSubagent")?.checked);
+}
+
+function _sandLayerLine(layers, id, label, keys) {
+  const block = (layers && layers[id]) || {};
+  const parts = keys.map((key) => `${key}×${block[key] || 0}`);
+  return `${label}：${parts.join(" · ")}`;
+}
+
 function paintSandStream(res) {
   const info = $("sandStreamInfo");
-  const applyBtn = $("btnSandStreamApply");
+  const fullBtn = $("btnSandStreamApplyFull");
+  const streamBtn = $("btnSandStreamApplyStream");
   const restoreBtn = $("btnSandStreamRestore");
   if (!info) return;
   if (!res || !res.ok) {
     info.textContent = res?.error || "无法检测 Sand Stream 状态";
-    if (applyBtn) applyBtn.classList.add("is-blocked");
-    if (restoreBtn) restoreBtn.classList.add("is-blocked");
+    [fullBtn, streamBtn, restoreBtn].forEach((btn) => btn?.classList.add("is-blocked"));
     return;
   }
-  const hits = res.hits || {};
+  const layers = res.layers || {};
+  const state = res.fullReady
+    ? "状态：完整档已就绪"
+    : (res.toolsReady
+      ? "状态：工具层已就绪"
+      : (res.streamReady ? "状态：仅 Stream 已就绪" : (res.installed ? "状态：部分 Sand 补丁" : "状态：未启用")));
   const lines = [
-    res.streamMode ? "状态：Sand Stream 已就绪" : (res.installed ? "状态：部分 Sand 补丁" : "状态：未启用"),
+    state,
     `RPC：${res.endpoint || "aiserver.v1.InferenceService/Stream"}`,
-    `命中：route×${hits.managedLocalRoute || 0} · runtime×${hits.localRuntimeLoad || 0} · stream×${hits.directStream || 0} · host×${hits.agentHostEnablement || 0} · identity×${hits.agentHostIdentity || 0}`,
-    res.version ? `Cursor v${res.version}` : "",
+    _sandLayerLine(layers, "L1", "L1 路由", ["managedLocalRoute", "localRuntimeLoad", "agentHostEnablement", "agentHostIdentity"]),
+    _sandLayerLine(layers, "L4", "L4 协议", ["rpcRewrite", "streamWrap"]),
+    _sandLayerLine(layers, "L5", "L5 工具", ["moveExec"]),
+    _sandLayerLine(layers, "L6", "L6 子代理", ["taskTool", "subagentRoute", "actionRoute", "completionWake"]),
+    res.versionHint || (res.version ? `Cursor v${res.version}` : ""),
     res.running ? "IDE 正在运行，改文件前请先关闭" : "IDE 未运行，可以改文件",
   ].filter(Boolean);
+  if (res.missingLabels?.length) lines.push("缺失：" + res.missingLabels.join("、"));
   if (res.message) lines.push(res.message);
   info.textContent = lines.join("\n");
-  if (applyBtn) {
-    applyBtn.classList.toggle("is-blocked", !res.canApply);
-    applyBtn.title = res.running
-      ? "请先关闭 IDE"
-      : "启用 Sand 身份 + InferenceService/Stream 直连（与 MAX/500k 独立）";
+  const blocked = !res.canApply;
+  if (fullBtn) {
+    fullBtn.classList.toggle("is-blocked", blocked);
+    fullBtn.title = res.running ? "请先关闭 IDE" : "L0–L5，可选 L6";
+  }
+  if (streamBtn) {
+    streamBtn.classList.toggle("is-blocked", blocked);
+    streamBtn.title = res.running ? "请先关闭 IDE" : "L0–L4 + HDRFIX_V2，不装工具层";
   }
   if (restoreBtn) {
     restoreBtn.classList.toggle("is-blocked", !res.canRestore);
-    restoreBtn.title = res.installed ? "去掉 Sand Stream 补丁" : "当前未安装";
+    restoreBtn.title = res.installed ? "去掉本模块全部 Sand 补丁" : "当前未安装";
   }
   syncIdeGate(Boolean(lastCursorStatus?.running || res.running));
 }
@@ -955,17 +977,18 @@ function paintSandStream(res) {
 async function refreshSandStream() {
   if (!api()?.sand_stream_status) return;
   try {
-    paintSandStream(await api().sand_stream_status());
+    paintSandStream(await api().sand_stream_status("full", _sandIncludeSubagent()));
   } catch (e) {
     paintSandStream({ ok: false, error: String(e) });
   }
 }
 
-async function runSandStream(kind) {
-  const label = kind === "restore" ? "还原 Sand Stream" : "启用 Sand Stream";
+async function runSandStream(kind, profile) {
+  const label = kind === "restore" ? "还原 Sand Stream" : (profile === "stream" ? "启用仅 Stream" : "启用完整 Sand");
   if (!(await requireIdeClosed(label))) return;
-  const status = await api().sand_stream_status();
-  if (kind === "apply" && !status.canApply) {
+  const includeSubagent = _sandIncludeSubagent();
+  const status = await api().sand_stream_status(profile === "stream" ? "stream" : "full", includeSubagent);
+  if (kind !== "restore" && !status.canApply) {
     paintSandStream(status);
     return toast(status.running ? "请先关闭 IDE" : (status.error || "当前不能打补丁"));
   }
@@ -973,21 +996,65 @@ async function runSandStream(kind) {
     paintSandStream(status);
     return toast(status.installed ? (status.running ? "请先关闭 IDE" : "无法还原") : "当前没有 Sand Stream 补丁");
   }
-  if (kind === "apply") {
+  if (kind !== "restore") {
+    const extra = profile === "stream"
+      ? "仅 Stream：不装 move_exec / Task。"
+      : (includeSubagent ? "完整档：工具 + Task/子代理。" : "完整档：工具层，不含 Task/子代理。");
     const ok = window.confirm(
-      "将 client-type 改为 sand，并注入 InferenceService/Stream 路由。\n\n与「仅 MAX / 500k」独立。确定？"
+      `${extra}\n两档都强制 HDRFIX_V2（Agent 走 ide）。与「仅 MAX / 500k」独立。\n\n确定？`
     );
     if (!ok) return;
   }
-  const fn = kind === "restore" ? "sand_stream_restore" : "sand_stream_apply";
   const info = $("sandStreamInfo");
-  if (info) info.textContent = kind === "restore" ? "正在还原…" : "正在启用 Sand Stream…";
-  const res = await api()[fn]();
+  if (info) info.textContent = kind === "restore" ? "正在还原…" : "正在写入 Sand 补丁…";
+  const res = kind === "restore"
+    ? await api().sand_stream_restore()
+    : await api().sand_stream_apply(profile === "stream" ? "stream" : "full", includeSubagent);
   paintSandStream(res);
   if (!res.ok) return toast(res.error || "失败");
   if (res.skipped) return toast(res.message || "无需操作");
-  toast(kind === "restore" ? "已还原 Sand Stream，请再启动 IDE" : "已启用 Sand Stream，请再启动 IDE");
+  if (res.complete === false && res.missingLabels?.length) {
+    toast("已写入能打到的层，仍缺：" + res.missingLabels.join("、"));
+  } else {
+    toast(kind === "restore" ? "已还原 Sand Stream，请再启动 IDE" : "已启用 Sand Stream，请再启动 IDE");
+  }
   refreshWbDiag();
+}
+
+function paintCrashDiag(res) {
+  const title = $("crashHeadline");
+  const advice = $("crashAdvice");
+  const list = $("crashFindings");
+  if (!title) return;
+  if (!res || !res.ok) {
+    title.textContent = "崩溃原因";
+    if (advice) advice.textContent = res?.error || "无法读取 Cursor 日志";
+    if (list) list.innerHTML = "";
+    return;
+  }
+  title.textContent = res.headline || "崩溃原因";
+  if (advice) advice.textContent = res.advice || "";
+  if (list) {
+    const items = (res.likely || []).slice(0, 4);
+    const recent = (res.recentExtensions || []).slice(0, 4).map((e) => e.id).filter(Boolean);
+    list.innerHTML = items.map((item) => {
+      const tone = item.severity === "critical" ? "critical" : (item.severity === "warn" ? "warn" : "ok");
+      const ext = item.extensionId ? ` · ${esc(item.extensionId)}` : "";
+      const detail = item.detail ? `<small>${esc(item.detail)}</small>` : "";
+      return `<li class="wb-diag-rec ${tone}"><strong>${esc(item.title)}${ext}</strong>${detail}</li>`;
+    }).join("") + (recent.length && !items.some((i) => i.extensionId)
+      ? `<li class="wb-diag-rec"><strong>最近安装的扩展</strong><small>${esc(recent.join("、"))}</small></li>`
+      : "");
+  }
+}
+
+async function refreshCrashDiag() {
+  if (!api()?.crash_diagnose) return;
+  try {
+    paintCrashDiag(await api().crash_diagnose());
+  } catch (e) {
+    paintCrashDiag({ ok: false, error: String(e) });
+  }
 }
 
 function _wbChip(label, tone) {
@@ -1099,6 +1166,7 @@ async function refreshWbDiag() {
     paintWbDiag({ ok: false, error: String(e) });
     paintHealthBanner({ ok: false, error: String(e) });
   }
+  refreshCrashDiag();
   refreshLauncherUpdate();
 }
 
@@ -2065,9 +2133,11 @@ if ($("disableAutoUpdate")) {
 $("btnCtxwinApply").onclick = () => runCtxwin("apply");
 $("btnCtxwinRestore").onclick = () => runCtxwin("restore");
 $("btnCtxwinRefresh").onclick = () => refreshCtxwin();
-if ($("btnSandStreamApply")) $("btnSandStreamApply").onclick = () => runSandStream("apply");
+if ($("btnSandStreamApplyFull")) $("btnSandStreamApplyFull").onclick = () => runSandStream("apply", "full");
+if ($("btnSandStreamApplyStream")) $("btnSandStreamApplyStream").onclick = () => runSandStream("apply", "stream");
 if ($("btnSandStreamRestore")) $("btnSandStreamRestore").onclick = () => runSandStream("restore");
 if ($("btnSandStreamRefresh")) $("btnSandStreamRefresh").onclick = () => refreshSandStream();
+if ($("sandIncludeSubagent")) $("sandIncludeSubagent").onchange = () => refreshSandStream();
 if ($("btnWbDiagRefresh")) $("btnWbDiagRefresh").onclick = () => refreshWbDiag();
 if ($("btnHealthRefresh")) $("btnHealthRefresh").onclick = () => refreshWbDiag();
 if ($("btnAutofix")) $("btnAutofix").onclick = () => runAutofix();

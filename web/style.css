@@ -876,6 +876,16 @@ html[data-theme="dark"] .btn.danger {
 .settings-panel .mini { margin-top: 0; }
 .settings-span { grid-column: 1 / -1; }
 
+.crash-box {
+  display: grid;
+  gap: 6px;
+  margin-top: 2px;
+}
+.crash-box strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+
 .wb-diag-chips {
   display: flex;
   flex-wrap: wrap;
