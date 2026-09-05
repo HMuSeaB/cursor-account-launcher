@@ -78,6 +78,41 @@ def _decode_jwt_payload(jwt: str) -> dict:
         return {}
 
 
+def _user_id_from_jwt(jwt: str | None) -> str:
+    """从 JWT 的 sub 取 user_xxx，取不到返回空串。"""
+    sub = str(_decode_jwt_payload(str(jwt or "")).get("sub") or "")
+    user_id = sub.split("|")[-1].strip()
+    return user_id if user_id.startswith("user_") else ""
+
+
+def _cached_user_id(values: dict[str, str]) -> str:
+    """state.vscdb 里缓存的 userId。Cursor 自己重新登录时不会同步，可能是上个账号的残留。"""
+    for key in USER_ID_KEYS:
+        val = (values.get(f"uid:{key}") or "").strip()
+        if val.startswith("auth0|"):
+            val = val.split("|", 1)[-1]
+        if val.startswith("user_"):
+            return val
+    return ""
+
+
+def _cached_email(values: dict[str, str], user_id: str) -> str:
+    """cachedEmail 只在缓存 userId 与 accessToken 同属一个账号时才可信。"""
+    email = (values.get("email") or "").strip()
+    if "@" not in email:
+        return ""
+    cached_uid = _cached_user_id(values)
+    if user_id and cached_uid and cached_uid != user_id:
+        return ""
+    return email
+
+
+def _ws_token_owner(token: str) -> str:
+    """WS token 归属的 userId：优先信 JWT 的 sub，其次信 user_xxx:: 前缀。"""
+    head, sep, tail = token.partition("::")
+    return _user_id_from_jwt(tail if sep else token) or (head.strip() if sep else "")
+
+
 def _normalize_session_token(raw: str | None) -> str | None:
     if not raw:
         return None
@@ -155,18 +190,7 @@ def _read_db_values(conn: sqlite3.Connection) -> dict[str, str]:
 
 
 def _compose_ws_token(access_token: str, values: dict[str, str]) -> str | None:
-    user_id = None
-    claims = _decode_jwt_payload(access_token)
-    sub = str(claims.get("sub") or "")
-    if sub:
-        user_id = sub.split("|")[-1].strip()
-        if user_id.startswith("auth0|"):
-            user_id = user_id[6:]
-    if not user_id or not user_id.startswith("user_"):
-        for key, val in values.items():
-            if key.startswith("uid:") and val and "@" not in val and val.startswith("user_"):
-                user_id = val
-                break
+    user_id = _user_id_from_jwt(access_token) or _cached_user_id(values)
     if user_id and access_token:
         composed = f"{user_id}::{access_token}"
         if _normalize_session_token(composed):
@@ -174,11 +198,21 @@ def _compose_ws_token(access_token: str, values: dict[str, str]) -> str | None:
     return None
 
 
-def _find_ws_token_in_db(conn: sqlite3.Connection) -> str | None:
+def _find_ws_token_in_db(conn: sqlite3.Connection, user_id: str = "") -> str | None:
+    """找本机 WS token。user_id 非空时只认属于该账号的，避免捡到上个账号的残留。"""
+
+    def accept(raw: str) -> str | None:
+        token = _normalize_session_token(raw)
+        if not token:
+            return None
+        if user_id and _ws_token_owner(token) != user_id:
+            return None
+        return token
+
     for key in WORKOS_SESSION_DB_KEYS:
         row = conn.execute("SELECT value FROM ItemTable WHERE key=?", (key,)).fetchone()
         if row and row[0]:
-            token = _normalize_session_token(str(row[0]))
+            token = accept(str(row[0]))
             if token:
                 return token
     try:
@@ -188,7 +222,7 @@ def _find_ws_token_in_db(conn: sqlite3.Connection) -> str | None:
             "AND key NOT LIKE 'terminal.%' AND lower(key) NOT LIKE '%workbench.%' LIMIT 8"
         ).fetchall()
         for row in rows:
-            token = _normalize_session_token(str(row[0]))
+            token = accept(str(row[0]))
             if token:
                 return token
     except Exception:
@@ -210,8 +244,9 @@ def read_local_account() -> dict | None:
         if not access:
             return None
 
-        ws_token = _find_ws_token_in_db(conn) or _compose_ws_token(access, values)
-        email = values.get("email") or ""
+        user_id = _user_id_from_jwt(access) or _cached_user_id(values)
+        ws_token = _find_ws_token_in_db(conn, user_id) or _compose_ws_token(access, values)
+        email = _cached_email(values, user_id)
         return {
             "token": ws_token or access,
             "accessToken": access,
@@ -227,28 +262,26 @@ def read_local_account() -> dict | None:
 
 
 def peek_local_identity() -> dict:
-    """只读本机正在用的邮箱 / userId，不导入账号、不碰 token。"""
+    """只读本机正在用的邮箱 / userId，不导入账号、不碰 token。
+
+    userId 以 accessToken 的 sub 为准。cursorAuth/cachedUserId 这类缓存键在 Cursor
+    自己重新登录后不会同步更新，直接读会指到上一个账号上。
+    """
     out = {"email": "", "userId": ""}
     try:
         conn = _open_db(readonly=True)
     except Exception:
         return out
     try:
-        for field, key in (
-            ("email", "cursorAuth/cachedEmail"),
-            ("userId", "cursorAuth/cachedUserId"),
-        ):
-            row = conn.execute("SELECT value FROM ItemTable WHERE key=?", (key,)).fetchone()
-            if row and row[0]:
-                value = str(row[0]).strip()
-                if field == "userId" and value.startswith("auth0|"):
-                    value = value.split("|", 1)[-1]
-                out[field] = value
-        return out
+        values = _read_db_values(conn)
     except Exception:
         return out
     finally:
         conn.close()
+    user_id = _user_id_from_jwt(values.get("token")) or _cached_user_id(values)
+    out["userId"] = user_id
+    out["email"] = _cached_email(values, user_id)
+    return out
 
 
 def write_local_account(

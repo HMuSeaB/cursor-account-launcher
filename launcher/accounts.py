@@ -75,8 +75,18 @@ def _extract_from_obj(obj, out: list) -> None:
 
 
 def tokens_from_text(text: str) -> list[tuple[int, str]]:
-    out = [(5, m.group(0)) for m in WS_RE.finditer(text)]
-    out.extend((5, m.group(0)) for m in JWT_RE.finditer(text))
+    out: list[tuple[int, str]] = []
+    covered: list[tuple[int, int]] = []
+    for match in WS_RE.finditer(text):
+        out.append((5, match.group(0)))
+        covered.append(match.span())
+    for match in JWT_RE.finditer(text):
+        start, end = match.span()
+        # 同优先级下后收的会覆盖先收的：裸 JWT 若是某个 user_xxx::jwt 的一部分，
+        # 收下它就会把 WS 前缀顶掉，设备管理和会话接口随后全部失效。
+        if any(lo <= start and end <= hi for lo, hi in covered):
+            continue
+        out.append((5, match.group(0)))
     return out
 
 
