@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 # 发版时与 installer / GitHub tag 对齐
-LAUNCHER_VERSION = "1.3.7"
+LAUNCHER_VERSION = "1.3.8"
 GITHUB_REPO = "HMuSeaB/cursor-account-launcher"
 RELEASES_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
