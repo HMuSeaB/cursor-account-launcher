@@ -231,5 +231,5 @@ L8  CAM：Rules Preseed（`_lastPushedRulesProto=[]`）+ push_req_context 超时
 - [x] 步骤 4 L8 Preseed + push_req_context 50ms
 - [x] 步骤 5 状态机 / UI 文案 / 已知 marker
 - [x] 步骤 6 单测 + 本地参考；`python -m pytest tests -q` 全绿
-- 未 bump `LAUNCHER_VERSION`（仍 1.3.8）；未 commit
+- 已随 v1.3.9 发版
 - `.cursorignore` 已改为 `/installers/`
