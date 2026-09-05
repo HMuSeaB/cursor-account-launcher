@@ -922,60 +922,143 @@ function _sandIncludeSubagent() {
   return Boolean($("sandIncludeSubagent")?.checked);
 }
 
-function _sandLayerLine(layers, id, label, keys) {
-  const block = (layers && layers[id]) || {};
-  const parts = keys.map((key) => `${key}×${block[key] || 0}`);
-  return `${label}：${parts.join(" · ")}`;
+const SAND_LAYER_SPEC = [
+  ["L0", "身份分流", ["hdrfixV2"]],
+  ["L1", "本地路由", ["managedLocalRoute", "localRuntimeLoad", "agentHostEnablement", "agentHostIdentity"]],
+  ["L2", "Direct 对话", ["directStream"]],
+  ["L3", "传输", ["transportHost"]],
+  ["L4", "协议改写", ["rpcRewrite", "streamWrap"]],
+  ["L5", "工具执行", ["moveExec"]],
+  ["L6", "子代理", ["taskTool", "subagentRoute", "actionRoute", "completionWake"]],
+  ["L7", "工作区", ["maxTokens", "rulesSkills", "mcpFilesystem", "userRules"]],
+  ["L8", "首问加速", ["rulesPreseed", "pushContextTimeout"]],
+];
+
+const SAND_CORE_MISSING = new Set([
+  "managedLocalRoute",
+  "localRuntimeLoad",
+  "agentHostEnablement",
+  "agentHostIdentity",
+  "directStream",
+  "hdrfixV2",
+  "rpcRewrite",
+  "streamWrap",
+  "transportHost",
+]);
+
+const SAND_TASK_MISSING = new Set([
+  "taskTool",
+  "subagentRoute",
+  "subagentSession",
+  "actionRoute",
+  "resumeMode",
+  "completionWake",
+  "maxTokens",
+  "rulesSkills",
+  "mcpFilesystem",
+  "userRules",
+  "rulesPreseed",
+  "pushContextTimeout",
+]);
+
+function _sandMainMissing(res) {
+  const keys = res.missing || [];
+  const labels = res.missingLabels || [];
+  if (!res.installed) return [];
+  if (res.fullReady) return [];
+  const pick = (allow) => keys
+    .map((key, i) => (allow.has(key) ? labels[i] : ""))
+    .filter(Boolean);
+  if (!res.streamReady) return pick(SAND_CORE_MISSING);
+  if (res.toolsReady && _sandIncludeSubagent()) return pick(SAND_TASK_MISSING);
+  return [];
 }
 
 function paintSandStream(res) {
-  const info = $("sandStreamInfo");
+  const stateEl = $("sandStreamState");
+  const copyEl = $("sandStreamCopy");
+  const missingEl = $("sandStreamMissing");
+  const layersEl = $("sandStreamLayers");
   const fullBtn = $("btnSandStreamApplyFull");
   const streamBtn = $("btnSandStreamApplyStream");
   const restoreBtn = $("btnSandStreamRestore");
-  if (!info) return;
+  const setBlocked = (applyBlocked, restoreBlocked) => {
+    fullBtn?.classList.toggle("is-blocked", applyBlocked);
+    streamBtn?.classList.toggle("is-blocked", applyBlocked);
+    restoreBtn?.classList.toggle("is-blocked", restoreBlocked);
+  };
+  if (!stateEl && !copyEl) return;
   if (!res || !res.ok) {
-    info.textContent = res?.error || "无法检测 Sand Stream 状态";
-    [fullBtn, streamBtn, restoreBtn].forEach((btn) => btn?.classList.add("is-blocked"));
+    if (stateEl) {
+      stateEl.textContent = "不可用";
+      stateEl.dataset.state = "critical";
+    }
+    if (copyEl) copyEl.textContent = res?.error || "无法检测 Bot 补丁状态";
+    if (missingEl) missingEl.innerHTML = "";
+    if (layersEl) layersEl.innerHTML = "";
+    setBlocked(true, true);
     return;
   }
-  const layers = res.layers || {};
-  const state = res.fullReady
-    ? "状态：完整档已就绪"
-    : (res.toolsReady
-      ? "状态：工具层已就绪"
-      : (res.streamReady ? "状态：仅 Stream 已就绪" : (res.installed ? "状态：部分 Sand 补丁" : "状态：未启用")));
-  const lines = [
-    state,
-    `RPC：${res.endpoint || "aiserver.v1.InferenceService/Stream"}`,
-    _sandLayerLine(layers, "L0", "L0 身份", ["hdrfixV2"]),
-    _sandLayerLine(layers, "L1", "L1 路由", ["managedLocalRoute", "localRuntimeLoad", "agentHostEnablement", "agentHostIdentity"]),
-    _sandLayerLine(layers, "L2", "L2 Direct", ["directStream"]),
-    _sandLayerLine(layers, "L3", "L3 传输", ["transportHost"]),
-    _sandLayerLine(layers, "L4", "L4 协议", ["rpcRewrite", "streamWrap"]),
-    _sandLayerLine(layers, "L5", "L5 工具", ["moveExec"]),
-    _sandLayerLine(layers, "L6", "L6 子代理", ["taskTool", "subagentRoute", "actionRoute", "completionWake"]),
-    _sandLayerLine(layers, "L7", "L7 工作区", ["maxTokens", "rulesSkills", "mcpFilesystem", "userRules"]),
-    _sandLayerLine(layers, "L8", "L8 首问等待", ["rulesPreseed", "pushContextTimeout"]),
+
+  let title = "未启用";
+  let tone = "off";
+  let copy = "还没打补丁。日常用「启用完整」；只要对话通路就用「仅对话」。";
+  if (res.fullReady) {
+    title = "完整档";
+    tone = "ok";
+    copy = "工具和子代理可用，Bot 走 Direct Stream。";
+  } else if (res.toolsReady) {
+    title = "工具已开";
+    tone = "ok";
+    copy = "对话和工具可用。勾选 Task 后再启用完整，可补子代理。";
+  } else if (res.streamReady) {
+    title = "仅对话";
+    tone = "ok";
+    copy = "Bot 已走 Direct Stream，还没装工具和子代理。";
+  } else if (res.installed) {
+    title = "不完整";
+    tone = "warn";
+    copy = "有残留标记，但对话通路还没打齐。";
+  }
+  const meta = [
     res.versionHint || (res.version ? `Cursor v${res.version}` : ""),
-    res.running ? "IDE 正在运行，改文件前请先关闭" : "IDE 未运行，可以改文件",
-  ].filter(Boolean);
-  if (res.missingLabels?.length) lines.push("缺失：" + res.missingLabels.join("、"));
-  if (res.message) lines.push(res.message);
-  info.textContent = lines.join("\n");
+    res.running ? "请先关 IDE 再改文件" : "",
+  ].filter(Boolean).join(" · ");
+  if (stateEl) {
+    stateEl.textContent = title;
+    stateEl.dataset.state = tone;
+  }
+  if (copyEl) copyEl.textContent = [copy, meta].filter(Boolean).join(" ");
+
+  if (missingEl) {
+    missingEl.innerHTML = "";
+    const shown = _sandMainMissing(res);
+    if (shown.length) {
+      const item = document.createElement("li");
+      item.className = "wb-diag-rec warn";
+      const strong = document.createElement("strong");
+      strong.textContent = "还缺";
+      item.appendChild(strong);
+      item.appendChild(document.createTextNode(shown.join("、")));
+      missingEl.appendChild(item);
+    }
+  }
+
+  if (layersEl) {
+    const layers = res.layers || {};
+    layersEl.innerHTML = SAND_LAYER_SPEC.map(([id, label, keys]) => {
+      const block = layers[id] || {};
+      const on = keys.filter((key) => Number(block[key] || 0) > 0).length;
+      const cls = on === keys.length ? "is-on" : (on > 0 ? "is-partial" : "is-off");
+      return `<li class="sand-layer ${cls}"><span>${esc(id)} ${esc(label)}</span><span>${on}/${keys.length}</span></li>`;
+    }).join("");
+  }
+
   const blocked = !res.canApply;
-  if (fullBtn) {
-    fullBtn.classList.toggle("is-blocked", blocked);
-    fullBtn.title = res.running ? "请先关闭 IDE" : "L0–L5，可选 L6–L8（Task V3）";
-  }
-  if (streamBtn) {
-    streamBtn.classList.toggle("is-blocked", blocked);
-    streamBtn.title = res.running ? "请先关闭 IDE" : "L0–L4 Direct Stream + HDRFIX_V2，不装工具层";
-  }
-  if (restoreBtn) {
-    restoreBtn.classList.toggle("is-blocked", !res.canRestore);
-    restoreBtn.title = res.installed ? "去掉本模块全部 Sand 补丁" : "当前未安装";
-  }
+  setBlocked(blocked, !res.canRestore);
+  if (fullBtn) fullBtn.title = res.running ? "请先关闭 IDE" : "对话 + 工具，可选子代理";
+  if (streamBtn) streamBtn.title = res.running ? "请先关闭 IDE" : "只打 Direct Stream，不含工具";
+  if (restoreBtn) restoreBtn.title = res.installed ? "去掉本模块全部 Sand 补丁" : "当前未安装";
   syncIdeGate(Boolean(lastCursorStatus?.running || res.running));
 }
 
@@ -989,7 +1072,7 @@ async function refreshSandStream() {
 }
 
 async function runSandStream(kind, profile) {
-  const label = kind === "restore" ? "还原 Sand Stream" : (profile === "stream" ? "启用仅 Stream" : "启用完整 Sand");
+  const label = kind === "restore" ? "还原 Grok Bot" : (profile === "stream" ? "启用仅对话" : "启用完整档");
   if (!(await requireIdeClosed(label))) return;
   const includeSubagent = _sandIncludeSubagent();
   const status = await api().sand_stream_status(profile === "stream" ? "stream" : "full", includeSubagent);
@@ -999,29 +1082,36 @@ async function runSandStream(kind, profile) {
   }
   if (kind === "restore" && !status.canRestore) {
     paintSandStream(status);
-    return toast(status.installed ? (status.running ? "请先关闭 IDE" : "无法还原") : "当前没有 Sand Stream 补丁");
+    return toast(status.installed ? (status.running ? "请先关闭 IDE" : "无法还原") : "当前没有 Bot 补丁");
   }
   if (kind !== "restore") {
     const extra = profile === "stream"
-      ? "仅 Stream：Grok Bot Direct，不装 move_exec / Task。"
-      : (includeSubagent ? "完整档：工具 + Task V3 / 子代理。" : "完整档：工具层，不含 Task/子代理。");
-    const ok = window.confirm(
-      `${extra}\n两档都强制 HDRFIX_V2（Agent 走 ide）。与「仅 MAX / 500k」独立。\n\n确定？`
-    );
+      ? "只改 Bot 对话通路，不装工具和子代理。"
+      : (_sandIncludeSubagent() ? "打上对话通路、工具和子代理。" : "打上对话通路和工具，不含子代理。");
+    const ok = window.confirm(`${extra}\n改的是 Cursor 安装目录里的文件。确定？`);
     if (!ok) return;
   }
-  const info = $("sandStreamInfo");
-  if (info) info.textContent = kind === "restore" ? "正在还原…" : "正在写入 Sand 补丁…";
+  const copy = $("sandStreamCopy");
+  const stateEl = $("sandStreamState");
+  if (stateEl) {
+    stateEl.textContent = "处理中";
+    stateEl.dataset.state = "busy";
+  }
+  if (copy) copy.textContent = kind === "restore" ? "正在还原…" : "正在写入补丁…";
   const res = kind === "restore"
     ? await api().sand_stream_restore()
     : await api().sand_stream_apply(profile === "stream" ? "stream" : "full", includeSubagent);
   paintSandStream(res);
   if (!res.ok) return toast(res.error || "失败");
-  if (res.skipped) return toast(res.message || "无需操作");
-  if (res.complete === false && res.missingLabels?.length) {
-    toast("已写入能打到的层，仍缺：" + res.missingLabels.join("、"));
+  if (res.skipped) {
+    toast(res.message || "无需操作");
+  } else if (kind !== "restore" && res.complete === false) {
+    const shown = _sandMainMissing(res);
+    if (shown.length) toast("已写入，仍缺：" + shown.join("、"));
+    else if (res.streamReady && !res.fullReady) toast("对话通路已写入，请再启动 IDE");
+    else toast("已写入能打到的层，请再启动 IDE");
   } else {
-    toast(kind === "restore" ? "已还原 Sand Stream，请再启动 IDE" : "已启用 Sand Stream，请再启动 IDE");
+    toast(kind === "restore" ? "已还原，请再启动 IDE" : "已启用，请再启动 IDE");
   }
   refreshWbDiag();
 }

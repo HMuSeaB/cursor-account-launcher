@@ -154,6 +154,28 @@
             <ul class="wb-diag-recs" id="crashFindings"></ul>
           </div>
         </section>
+        <section class="settings-panel settings-span" id="sandStreamPanel">
+          <div class="sand-head">
+            <div>
+              <h3 class="settings-title">Grok Bot</h3>
+              <p class="hint settings-hint">Bot 对话走 Direct Stream。完整档再加工具和子代理；仅对话只改通路。</p>
+            </div>
+            <span class="sand-state" id="sandStreamState" data-state="off">检测中</span>
+          </div>
+          <p class="sand-copy" id="sandStreamCopy" aria-live="polite"></p>
+          <ul class="wb-diag-recs" id="sandStreamMissing"></ul>
+          <label class="check-row"><input type="checkbox" id="sandIncludeSubagent" checked /> 完整档含 Task / 子代理</label>
+          <div class="guard-actions">
+            <button type="button" class="btn" id="btnSandStreamApplyFull" data-needs-closed>启用完整</button>
+            <button type="button" class="btn ghost" id="btnSandStreamApplyStream" data-needs-closed>仅对话</button>
+            <button type="button" class="btn ghost" id="btnSandStreamRestore" data-needs-closed>还原</button>
+            <button type="button" class="btn ghost" id="btnSandStreamRefresh">刷新</button>
+          </div>
+          <details class="adv-fold">
+            <summary>补丁层明细</summary>
+            <ul class="sand-layers" id="sandStreamLayers"></ul>
+          </details>
+        </section>
         <section class="settings-panel">
           <h3 class="settings-title">网络代理</h3>
           <label class="check-row"><input type="checkbox" id="proxyEnabled" /> 开代理（settings / 环境变量）</label>
@@ -213,9 +235,9 @@
         </section>
         <section class="settings-panel settings-span">
           <details class="adv-fold">
-            <summary>手动补丁（一般不用 — 请用顶栏「一键补齐」）</summary>
-            <p class="hint settings-hint">日常走主界面一键补齐即可。这里留给急救和特殊情况。</p>
-            <h3 class="settings-title">仅解锁 MAX / 急救</h3>
+            <summary>急救补丁（MAX / 500k / 侧边栏）</summary>
+            <p class="hint settings-hint">日常用顶栏「一键补齐」。Grok Bot 在上面单独一栏。</p>
+            <h3 class="settings-title">仅解锁 MAX</h3>
             <div class="guard-actions">
               <button type="button" class="btn" id="btnModelUnlockApplyMax" data-needs-closed>仅解锁 MAX</button>
               <button type="button" class="btn ghost" id="btnModelUnlockRepair" data-needs-closed>修复黑屏</button>
@@ -229,16 +251,6 @@
               <button type="button" class="btn ghost" id="btnCtxwinRefresh">刷新状态</button>
             </div>
             <pre class="mini" id="ctxwinInfo">—</pre>
-            <h3 class="settings-title">Sand Stream 模式</h3>
-            <p class="hint settings-hint">Bot 走 Grok Bot Direct Stream（绕过官方 RunInference）。完整档含工具执行器 + Task V3；仅 Stream 不装 move_exec / Task。两档都强制 HDRFIX_V2（Agent 出 ide）。</p>
-            <label class="check-row"><input type="checkbox" id="sandIncludeSubagent" checked /> 含 Task/子代理（仅完整档）</label>
-            <div class="guard-actions">
-              <button type="button" class="btn" id="btnSandStreamApplyFull" data-needs-closed>启用完整</button>
-              <button type="button" class="btn ghost" id="btnSandStreamApplyStream" data-needs-closed>仅 Stream</button>
-              <button type="button" class="btn ghost" id="btnSandStreamRestore" data-needs-closed>还原 Sand Stream</button>
-              <button type="button" class="btn ghost" id="btnSandStreamRefresh">刷新状态</button>
-            </div>
-            <pre class="mini" id="sandStreamInfo">—</pre>
             <details class="adv-fold">
               <summary>完整解锁 / 侧边栏（极易黑屏，默认别开）</summary>
               <div class="form-row settings-inline">
