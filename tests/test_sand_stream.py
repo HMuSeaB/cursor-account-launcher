@@ -388,3 +388,12 @@ def test_known_v131_markers_are_not_foreign_hits():
     )
     assert _external_marker_count(cam_only) == 0
     assert _external_marker_count('"sand"/*ZZZ_SAND_CLIENT_MODE_V1*/') >= 1
+
+
+def test_bytes_may_need_sand_patch_skips_unrelated():
+    from launcher.sand_stream import _bytes_may_have_sand_patch, _bytes_may_need_sand_patch
+
+    assert _bytes_may_need_sand_patch(b"function hre(e){return 1}") is True
+    assert _bytes_may_need_sand_patch(b"console.log(1)") is False
+    assert _bytes_may_have_sand_patch(b"/*SAND_FOO_V1*/") is True
+    assert _bytes_may_have_sand_patch(b"console.log(1)") is False

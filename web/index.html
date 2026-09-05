@@ -182,7 +182,9 @@
             <summary>版本与补丁明细</summary>
             <p class="hint settings-hint" id="sandCompatHint"></p>
             <p class="hint settings-hint" id="sandUpgradeAdvice"></p>
-            <p class="hint settings-hint">模型列表变多/变少先看当前是 YC 原生还是 Sub2API，再看是不是切到了 Agent/Edit/Ask 里的 Edit。这不归下面这些 Bot 规则管。L4 推理请求会伪装 sand；目录/配置请求保持 ide。</p>
+            <p class="hint settings-hint">出站：HDRFIX / RPC / 指纹。回包：完整解锁的会员 fetch。两套钩子不要叠打。模型列表变多/变少先看 YC 还是 Sub2API，再看是不是切到了 Agent/Edit/Ask 里的 Edit。</p>
+            <p class="sand-subhead">请求头与 fetch</p>
+            <ul class="sand-layers" id="sandHeaderLayers"></ul>
             <p class="sand-subhead">可改的包</p>
             <ul class="sand-pkgs" id="sandStreamPackages"></ul>
             <p class="sand-subhead">规则</p>

@@ -4,9 +4,11 @@ from launcher.sand_report import adjust_compat_scope, evaluate_compat
 from launcher.sand_stream import (
     ANCHOR_VERSION,
     DIRECT_STREAM_ANCHOR,
+    SAND_AGENT_IDE_MARKER,
     SAND_DIRECT_STREAM_MARKER,
     SAND_RPC_REWRITE_MARKER,
     apply_patch_to_content,
+    inspect_content_hits,
 )
 
 
@@ -112,7 +114,14 @@ def test_rpc_only_counts_extension_host():
     assert row["files"] == ["out/vs/workbench/api/node/extensionHostProcess.js"]
 
     marked = evaluate_compat(
-        [("extensionHostProcess.js", "head" + SAND_RPC_REWRITE_MARKER + "tail")]
+        [
+            (
+                "extensionHostProcess.js",
+                SAND_RPC_REWRITE_MARKER
+                + 'function catalogUrl(u){return /AvailableModels/.test(u)}'
+                + 'set("x-sand-box-namespace","prod");set("x-cursor-client-version","0.18.0")',
+            )
+        ]
     )
     assert _rule(marked, "rpcRewrite")["status"] == "applied"
 
@@ -173,3 +182,94 @@ def test_version_hint_against_anchor():
     current = evaluate_compat([], cursor_version=ANCHOR_VERSION)
     assert current["versionOk"] is True
     assert current["versionHint"] == ""
+
+
+def test_agent_ide_pending_then_applied():
+    src = "return{headers:e,credentialFingerprint:t}"
+    row = _rule(evaluate_compat([("workbench.desktop.main.js", src)]), "agentIde")
+    assert row["status"] == "pending"
+    patched, _ = apply_patch_to_content(src, profile="stream")
+    assert SAND_AGENT_IDE_MARKER in patched
+    assert inspect_content_hits(patched)["agentIde"] >= 1
+    row = _rule(evaluate_compat([("workbench.desktop.main.js", patched)]), "agentIde")
+    assert row["status"] == "applied"
+    assert "MODEL_MEMBERSHIP_SPOOF" not in patched
+    assert "SAND_MEMBERSHIP_SPOOF" not in patched
+
+
+def test_agent_ide_missing_without_fingerprint():
+    row = _rule(evaluate_compat([("workbench.desktop.main.js", "console.log(1)")]), "agentIde")
+    assert row["status"] == "missing"
+    assert row["missKind"] == "feature_absent"
+
+
+def test_rpc_stale_without_catalog_is_partial():
+    row = _rule(
+        evaluate_compat(
+            [("extensionHostProcess.js", "head" + SAND_RPC_REWRITE_MARKER + "tail")]
+        ),
+        "rpcRewrite",
+    )
+    assert row["status"] == "partial"
+    assert "目录" in (row["fix"] or "")
+
+
+def test_rpc_current_sand_rpc_js_is_applied():
+    from pathlib import Path
+
+    from launcher.sand_stream import _rpc_snippet
+
+    snippet = _rpc_snippet()
+    assert "catalogUrl" in snippet
+    row = _rule(evaluate_compat([("extensionHostProcess.js", snippet)]), "rpcRewrite")
+    assert row["status"] == "applied"
+    assert Path(__file__).resolve().parent.parent.joinpath("launcher", "sand_rpc.js").is_file()
+
+
+def test_membership_fetch_is_optional_and_read_only():
+    empty = evaluate_compat([("workbench.desktop.main.js", "plain")])
+    row = _rule(empty, "membershipFetch")
+    assert row["status"] == "pending"
+    assert row["optional"] is True
+    assert row["title"] not in empty["summary"]["missing"]
+    assert "membershipFetch" not in empty["packages"][0]["canPatch"]
+    assert empty["packages"][0]["patchable"] is False
+    assert "fetch" in empty["packages"][0]["roles"]
+
+    marked = evaluate_compat(
+        [("workbench.desktop.main.js", "/*MODEL_MEMBERSHIP_SPOOF_V1*/(function(){})();")]
+    )
+    row = _rule(marked, "membershipFetch")
+    assert row["status"] == "applied"
+    assert row["optional"] is True
+
+
+def test_header_layers_and_package_roles():
+    data = evaluate_compat(
+        [
+            ("workbench.desktop.main.js", 'g.header.set("x-cursor-client-type","ide");'),
+            ("extensionHostProcess.js", "function x(){}"),
+        ],
+        cursor_version="3.12.30",
+    )
+    layers = data["headerLayers"]
+    assert layers["relation"] == "older"
+    keys = [row["key"] for row in layers["rows"]]
+    assert keys == ["hdrfixV2", "rpcRewrite", "agentIde", "membershipFetch"]
+    assert _rule(data, "managedLocalRoute")["missKind"] == "package_absent"
+    assert _rule(data, "rpcRewrite")["status"] == "pending"
+    assert _rule(data, "rpcRewrite")["missKind"] != "package_absent"
+
+    host = next(pkg for pkg in data["packages"] if pkg["name"].endswith("extensionHostProcess.js"))
+    assert "header" in host["roles"]
+    assert host["canPatch"] == ["rpcRewrite"]
+
+    wb = next(pkg for pkg in data["packages"] if pkg["name"].endswith("workbench.desktop.main.js"))
+    assert "header" in wb["roles"]
+    assert "hdrfixV2" in wb["canPatch"]
+    assert "membershipFetch" not in wb["canPatch"]
+
+
+def test_evaluate_compat_marks_direct_stream_missing_without_anchor():
+    data = evaluate_compat([("workbench.desktop.main.js", "x" * 8000)])
+    assert _rule(data, "directStream")["status"] == "missing"

@@ -873,10 +873,11 @@ html[data-theme="dark"] .btn.danger {
   height: 100%;
   z-index: 40;
   margin: 0;
-  padding: 12px 16px 16px;
+  padding: 0;
   border-radius: 0;
   overflow: hidden;
   box-shadow: none;
+  background: var(--bg);
 }
 html.settings-open,
 html.settings-open body {
@@ -904,7 +905,12 @@ body.settings-open .shell > :not(.settings-fold) {
   flex-shrink: 0;
 }
 .settings-fold summary::-webkit-details-marker { display: none; }
-.settings-fold[open] summary { margin-bottom: 10px; }
+.settings-fold[open] > summary {
+  margin: 0;
+  padding: 12px 16px 10px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
 .settings-fold[open] .settings-fold-title::after {
   content: " · 点击收起";
   font-weight: 500;
@@ -916,10 +922,19 @@ body.settings-open .shell > :not(.settings-fold) {
 }
 .settings-fold[open] .settings-sheet {
   display: block;
-  height: calc(100% - 44px);
-  overflow: auto;
+  position: absolute;
+  top: 52px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  min-height: 0;
+  height: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   overscroll-behavior: contain;
-  padding-right: 2px;
+  padding: 12px 16px 48px;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 .settings-fold-meta {
   font-weight: 500;

@@ -83,3 +83,11 @@ def test_settings_html_is_an_overlay_sheet():
     assert 'class="settings-sheet"' in html
     assert html.count("<details") == html.count("</details>")
     assert 'id="btnRotateMachine"' not in html  # 按钮由详情 JS 注入，避免列表页常驻
+    css = (Path(__file__).resolve().parents[1] / "web" / "style.css").read_text(encoding="utf-8")
+    open_sheet = css.split(".settings-fold[open] .settings-sheet")[1].split("}")[0]
+    assert "position: absolute" in open_sheet
+    assert "min-height: 0" in open_sheet
+    assert "overflow-y: auto" in open_sheet
+    js = (Path(__file__).resolve().parents[1] / "web" / "app.js").read_text(encoding="utf-8")
+    assert "layoutSettingsSheet" in js
+    assert "sheet.style.top" in js

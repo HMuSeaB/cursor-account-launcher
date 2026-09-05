@@ -152,6 +152,29 @@ WORKBENCH_NAMES = frozenset({"workbench.desktop.main.js", "workbench.glass.main.
 RPC_FILE_NAMES = frozenset(
     {"extensionHostProcess.js", "extensionHostWorkerMain.js"}
 )
+_SAND_PATCH_HINTS = (
+    b"x-cursor-client-type",
+    b"isGlass",
+    b"header.set",
+    b"function hre(",
+    b"_agentHostEnabled",
+    b"clientIdentity:{clientType",
+    b"gate-off",
+    b"agent_host_local_loop",
+    b"checkFeatureGate",
+    b"AgentService",
+    b"InferenceService",
+    b"_backendTransport",
+    b"createAgentHost",
+    b"waitForProviderRegistration",
+    b"subagentTypeName",
+    b"userMessageAction",
+    b"[push_req_context]",
+    b"_lastPushedRulesProto",
+    b"SAND_",
+    b"KC_SAND",
+    b"credentialFingerprint",
+)
 
 ELIGIBILITY_PREFIXES: tuple[str, ...] = (
     "function r4g(e){const{adminSettingsService:t",
@@ -443,6 +466,7 @@ HIT_LABELS = {
     "transportHost": "L3 transport→api2",
     "rpcRewrite": "L4 RPC 改写钩子",
     "streamWrap": "L4 stream wrap",
+    "agentIde": "L4 指纹对象钉 ide",
     "moveExec": "L5 工具执行器",
     "taskTool": "L6 Task 工具",
     "subagentRoute": "L6 子代理路由",
@@ -1489,6 +1513,7 @@ def inspect_content_hits(content: str) -> dict[str, int]:
         "userRules": content.count(SAND_USER_RULES_MARKER),
         "rulesPreseed": content.count(SAND_RULES_PRESEED_MARKER),
         "pushContextTimeout": content.count(SAND_PUSH_CONTEXT_TIMEOUT_MARKER),
+        "agentIde": content.count(SAND_AGENT_IDE_MARKER),
         "launcherMarker": content.count(LAUNCHER_SAND_MARKER),
     }
 
@@ -1639,7 +1664,7 @@ def _relative_target_name(layout: SandLayout, path: Path) -> str:
         return path.name
 
 
-def inspect_status(layout: SandLayout) -> PatchStatus:
+def inspect_status(layout: SandLayout, *, include_compat: bool = True) -> PatchStatus:
     from launcher.sand_report import evaluate_compat
 
     totals: dict[str, int] = {}
@@ -1650,38 +1675,42 @@ def inspect_status(layout: SandLayout) -> PatchStatus:
     for target in layout.target_paths:
         content = target.read_text(encoding="utf-8", errors="ignore")
         rel = _relative_target_name(layout, target)
-        snaps.append((rel, content))
+        if include_compat:
+            snaps.append((rel, content))
         hits = inspect_content_hits(content)
         launcher_markers += hits.get("launcherMarker") or 0
         if sum(hits.values()):
             patched_files.append(rel)
         for key, value in hits.items():
             totals[key] = totals.get(key, 0) + value
-        client_count = hits.get("client") or 0
-        eligibility_count = hits.get("eligibility") or 0
-        legacy_client_count = len(
-            re.findall(rf"([\"'])sand\1{LEGACY_CLIENT_MARKER_PATTERN}", content)
-        )
-        legacy_eligibility_count = content.count("return!1;" + LEGACY_SAND_ELIGIBILITY_MARKER)
-        external_marker_count += max(
-            0,
-            len(re.findall(CLIENT_MARKER_GUARD_PATTERN, content))
-            - client_count
-            - legacy_client_count,
-        )
-        external_marker_count += max(
-            0,
-            len(re.findall(ELIGIBILITY_MARKER_GUARD_PATTERN, content))
-            - eligibility_count
-            - legacy_eligibility_count,
-        )
-    compat = evaluate_compat(snaps, cursor_version=layout.version)
+        if "SAND_" in content or "KC_SAND" in content:
+            client_count = hits.get("client") or 0
+            eligibility_count = hits.get("eligibility") or 0
+            legacy_client_count = len(
+                re.findall(rf"([\"'])sand\1{LEGACY_CLIENT_MARKER_PATTERN}", content)
+            )
+            legacy_eligibility_count = content.count("return!1;" + LEGACY_SAND_ELIGIBILITY_MARKER)
+            external_marker_count += max(
+                0,
+                len(re.findall(CLIENT_MARKER_GUARD_PATTERN, content))
+                - client_count
+                - legacy_client_count,
+            )
+            external_marker_count += max(
+                0,
+                len(re.findall(ELIGIBILITY_MARKER_GUARD_PATTERN, content))
+                - eligibility_count
+                - legacy_eligibility_count,
+            )
+    compat_data = (
+        evaluate_compat(snaps, cursor_version=layout.version) if include_compat else {}
+    )
     return PatchStatus(
         hits=totals,
         patched_files=tuple(patched_files),
         external_marker_count=external_marker_count,
         launcher_markers=launcher_markers,
-        compat=compat,
+        compat=compat_data,
     )
 
 
@@ -1833,6 +1862,14 @@ def _add_stats(total: PatchStats | RemoveStats, stats: PatchStats | RemoveStats)
         setattr(total, item.name, getattr(total, item.name) + getattr(stats, item.name))
 
 
+def _bytes_may_need_sand_patch(data: bytes) -> bool:
+    return any(hint in data for hint in _SAND_PATCH_HINTS)
+
+
+def _bytes_may_have_sand_patch(data: bytes) -> bool:
+    return b"SAND_" in data or b"KC_SAND" in data
+
+
 def _build_install_plan(
     layout: SandLayout,
     *,
@@ -1844,6 +1881,8 @@ def _build_install_plan(
     total = PatchStats()
     for target in layout.target_paths:
         original = target.read_bytes()
+        if not _bytes_may_need_sand_patch(original):
+            continue
         originals[target] = original
         content = original.decode("utf-8")
         next_content, stats = apply_patch_to_content(
@@ -1866,6 +1905,8 @@ def _build_uninstall_plan(layout: SandLayout) -> tuple[dict[Path, bytes], Remove
     total = RemoveStats()
     for target in layout.target_paths:
         original = target.read_bytes()
+        if not _bytes_may_have_sand_patch(original):
+            continue
         originals[target] = original
         content = original.decode("utf-8")
         next_content, stats = remove_patch_from_content(content)
@@ -1985,7 +2026,7 @@ def apply(profile: str = "full", include_subagent: bool = True) -> dict[str, Any
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
 
-    before = inspect_status(layout)
+    before = inspect_status(layout, include_compat=False)
     if before.external_marker_count and not before.launcher_markers:
         return {
             "ok": False,
@@ -2059,7 +2100,7 @@ def restore() -> dict[str, Any]:
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
 
-    before = inspect_status(layout)
+    before = inspect_status(layout, include_compat=False)
     if not before.installed:
         st = _status_payload(layout, before, running=False)
         st["ok"] = True

@@ -1077,7 +1077,7 @@ const SAND_LAYER_SPEC = [
   ["L1", "本地路由", ["managedLocalRoute", "localRuntimeLoad", "agentHostEnablement", "agentHostIdentity"]],
   ["L2", "Direct 对话", ["directStream"]],
   ["L3", "传输", ["transportHost"]],
-  ["L4", "协议改写", ["rpcRewrite", "streamWrap"]],
+  ["L4", "协议改写", ["rpcRewrite", "streamWrap", "agentIde"]],
   ["L5", "工具执行", ["moveExec"]],
   ["L6", "子代理", ["taskTool", "subagentRoute", "actionRoute", "completionWake"]],
   ["L7", "工作区", ["maxTokens", "rulesSkills", "mcpFilesystem", "userRules"]],
@@ -1137,6 +1137,18 @@ function _sandRulePill(row) {
   return ["bad", miss[row.missKind] || row.statusLabel || "锚点缺失"];
 }
 
+const SAND_KEY_LABELS = {
+  hdrfixV2: "身份分流",
+  agentIde: "指纹",
+  rpcRewrite: "RPC封装",
+  streamWrap: "stream wrap",
+  membershipFetch: "会员回包",
+};
+
+function _sandKeyLabel(key) {
+  return SAND_KEY_LABELS[key] || key;
+}
+
 function _sandPkgKind(pkg) {
   const leftover = (pkg.canPatch || []).length;
   const marked = (pkg.patched || []).length;
@@ -1151,6 +1163,7 @@ function paintSandStream(res) {
   const copyEl = $("sandStreamCopy");
   const missingEl = $("sandStreamMissing");
   const layersEl = $("sandStreamLayers");
+  const headerEl = $("sandHeaderLayers");
   const pkgsEl = $("sandStreamPackages");
   const hintEl = $("sandCompatHint");
   const adviceEl = $("sandUpgradeAdvice");
@@ -1171,6 +1184,7 @@ function paintSandStream(res) {
     if (copyEl) copyEl.textContent = res?.error || "无法检测 Bot 补丁状态";
     if (missingEl) missingEl.innerHTML = "";
     if (layersEl) layersEl.innerHTML = "";
+    if (headerEl) headerEl.innerHTML = "";
     if (pkgsEl) pkgsEl.innerHTML = "";
     if (hintEl) hintEl.textContent = "";
     if (adviceEl) adviceEl.textContent = "";
@@ -1215,11 +1229,27 @@ function paintSandStream(res) {
       compat.cursorVersion ? `本机 Cursor v${compat.cursorVersion}` : "",
       compat.anchorVersion ? `锚点 ${compat.anchorVersion}` : "",
       compat.versionHint || "",
+      (compat.headerLayers && compat.headerLayers.hint) || "",
     ].filter(Boolean);
     hintEl.textContent = bits.join(" · ");
   }
   if (adviceEl) {
     adviceEl.textContent = (compat.upgrade && compat.upgrade.advice) || "";
+  }
+
+  if (headerEl) {
+    const rows = (compat.headerLayers && compat.headerLayers.rows) || [];
+    headerEl.innerHTML = rows.map((row) => {
+      const fake = {
+        optional: row.key === "membershipFetch",
+        status: row.status,
+        statusLabel: row.statusLabel,
+        missKind: "",
+      };
+      const [cls, label] = _sandRulePill(fake);
+      const extra = compat.headerLayers && compat.headerLayers.relation === "older" ? row.onOlder : "";
+      return `<li class="sand-rule"><span class="pill ${esc(cls)}">${esc(label)}</span><div><div class="sand-rule-title">${esc(row.title || "")}</div>${extra ? `<div class="hint">${esc(extra)}</div>` : ""}</div></li>`;
+    }).join("");
   }
 
   if (missingEl) {
@@ -1261,7 +1291,7 @@ function paintSandStream(res) {
     const idle = packages.length - live.length;
     pkgsEl.innerHTML = live.map((pkg) => {
       const [cls, label, keys] = _sandPkgKind(pkg);
-      const keyText = [...new Set(keys)].join("、");
+      const keyText = [...new Set(keys)].map(_sandKeyLabel).join("、");
       return `<li class="sand-pkg" title="${esc(pkg.name)}"><span class="pill ${esc(cls)}">${esc(label)}</span><div><span class="sand-pkg-name">${esc(pkg.name)}</span>${keyText ? `<span class="sand-pkg-keys">${esc(keyText)}</span>` : ""}</div></li>`;
     }).join("");
     if (!live.length) {
@@ -1308,33 +1338,39 @@ async function refreshSandStream() {
   }
 }
 
-async function runSandStream(kind, profile) {
-  const label = kind === "restore" ? "还原 Grok Bot" : (profile === "stream" ? "启用仅对话" : "启用完整档");
-  if (!(await requireIdeClosed(label))) return;
-  const includeSubagent = _sandIncludeSubagent();
-  const status = await api().sand_stream_status(profile === "stream" ? "stream" : "full", includeSubagent);
-  if (kind !== "restore" && !status.canApply) {
-    paintSandStream(status);
-    return toast(status.running ? "请先关闭 IDE" : (status.error || "当前不能打补丁"));
-  }
-  if (kind === "restore" && !status.canRestore) {
-    paintSandStream(status);
-    return toast(status.installed ? (status.running ? "请先关闭 IDE" : "无法还原") : "当前没有 Bot 补丁");
-  }
-  if (kind !== "restore") {
-    const extra = profile === "stream"
-      ? "只改 Bot 对话通路，不装工具和子代理。"
-      : (_sandIncludeSubagent() ? "打上对话通路、工具和子代理。" : "打上对话通路和工具，不含子代理。");
-    const ok = window.confirm(`${extra}\n改的是 Cursor 安装目录里的文件。确定？`);
-    if (!ok) return;
-  }
+function _paintSandBusy(text) {
   const copy = $("sandStreamCopy");
   const stateEl = $("sandStreamState");
   if (stateEl) {
     stateEl.textContent = "处理中";
     stateEl.dataset.state = "busy";
   }
-  if (copy) copy.textContent = kind === "restore" ? "正在还原…" : "正在写入补丁…";
+  if (copy) copy.textContent = text;
+}
+
+async function runSandStream(kind, profile) {
+  const label = kind === "restore" ? "还原 Grok Bot" : (profile === "stream" ? "启用仅对话" : "启用完整档");
+  _paintSandBusy("先确认 IDE 已关…");
+  toast(label + "：处理中，请稍等");
+  await new Promise((r) => setTimeout(r, 50));
+  if (!(await requireIdeClosed(label))) {
+    refreshSandStream();
+    return;
+  }
+  if (kind !== "restore") {
+    const extra = profile === "stream"
+      ? "只改 Bot 对话通路，不装工具和子代理。"
+      : (_sandIncludeSubagent() ? "打上对话通路、工具和子代理。" : "打上对话通路和工具，不含子代理。");
+    const ok = window.confirm(`${extra}\n改的是 Cursor 安装目录里的文件，大约半分钟。确定？`);
+    if (!ok) {
+      refreshSandStream();
+      return;
+    }
+  }
+  _paintSandBusy(kind === "restore" ? "正在还原…" : "正在写入补丁，大约半分钟…");
+  toast(kind === "restore" ? "正在还原 Grok Bot…" : "正在写入 Grok Bot 补丁…");
+  await new Promise((r) => setTimeout(r, 50));
+  const includeSubagent = _sandIncludeSubagent();
   const res = kind === "restore"
     ? await api().sand_stream_restore()
     : await api().sand_stream_apply(profile === "stream" ? "stream" : "full", includeSubagent);
@@ -2594,14 +2630,55 @@ $("btnShortcutCreate").onclick = async () => {
 $("shortcutDialog")?.addEventListener("cancel", () => {
   try { api()?.skip_shortcut_prompt(); } catch {}
 });
+function nearestScrollY(el) {
+  let n = el;
+  while (n && n !== document.documentElement) {
+    if (n instanceof HTMLElement) {
+      const oy = getComputedStyle(n).overflowY;
+      if ((oy === "auto" || oy === "scroll") && n.scrollHeight > n.clientHeight + 1) {
+        return n;
+      }
+    }
+    n = n.parentElement;
+  }
+  return null;
+}
+function layoutSettingsSheet() {
+  const fold = document.querySelector(".settings-fold");
+  const sheet = fold?.querySelector(".settings-sheet");
+  if (!sheet) return;
+  if (!fold.open) {
+    sheet.style.top = "";
+    return;
+  }
+  const summary = fold.querySelector(":scope > summary");
+  const summaryH = summary ? Math.ceil(summary.getBoundingClientRect().height) : 52;
+  sheet.style.top = `${summaryH}px`;
+}
 document.querySelector(".settings-fold")?.addEventListener("toggle", (ev) => {
   const open = Boolean(ev.target.open);
   document.documentElement.classList.toggle("settings-open", open);
   document.body.classList.toggle("settings-open", open);
+  requestAnimationFrame(layoutSettingsSheet);
   if (open) {
     refreshWbDiag({ force: false });
   }
 });
+window.addEventListener("resize", layoutSettingsSheet);
+document.querySelector(".settings-fold")?.addEventListener("wheel", (ev) => {
+  const fold = ev.currentTarget;
+  if (!fold.open) return;
+  const sheet = fold.querySelector(".settings-sheet");
+  if (!sheet) return;
+  const scroller = nearestScrollY(ev.target);
+  if (scroller && scroller !== sheet) return;
+  const max = sheet.scrollHeight - sheet.clientHeight;
+  if (max <= 1) return;
+  const next = Math.min(max, Math.max(0, sheet.scrollTop + ev.deltaY));
+  if (next === sheet.scrollTop) return;
+  sheet.scrollTop = next;
+  ev.preventDefault();
+}, { passive: false });
 document.addEventListener("keydown", (ev) => {
   if (ev.key !== "Escape") return;
   if (document.querySelector("dialog.modal[open]")) return;

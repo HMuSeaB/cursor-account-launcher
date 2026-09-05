@@ -61,8 +61,11 @@ def test_settings_no_proxy_must_be_array_not_string(tmp_path, monkeypatch):
     settings.write_text("{\n  \"editor.fontSize\": 14\n}\n", encoding="utf-8")
     argv = tmp_path / "argv.json"
     argv.write_text('{\n\t"crash-reporter-id": "keep"\n}\n', encoding="utf-8")
+    bak = tmp_path / "proxy-backups"
+    bak.mkdir()
     monkeypatch.setattr(cp, "settings_json_path", lambda: str(settings))
     monkeypatch.setattr(cp, "argv_json_path", lambda: argv)
+    monkeypatch.setattr(cp, "_proxy_backup_dir", lambda: bak)
 
     cfg = ProxyConfig(enabled=True, proxy_type="socks5", host="127.0.0.1", port=7891)
     res = cp.apply_proxy(cfg)
@@ -132,6 +135,46 @@ def test_proxy_flags_insert_before_light_workspace():
     assert args[-1] == folder
     assert "--proxy-server=http://127.0.0.1:7890" in args
     assert launch_args(light=False) == ["--classic"]
+
+
+def test_salvage_concatenated_argv_keeps_real_crash_id():
+    from launcher.cursor_proxy import salvage_argv
+
+    raw = """{
+	"crash-reporter-id": "keep"
+},
+
+	// Allows to disable crash reporting.
+	"enable-crash-reporter": true,
+	"crash-reporter-id": "632f130f-3960-4e94-b1ff-15462fb2b57f"
+}
+"""
+    data = salvage_argv(raw)
+    assert data["crash-reporter-id"] == "632f130f-3960-4e94-b1ff-15462fb2b57f"
+    assert data["enable-crash-reporter"] is True
+
+
+def test_repair_argv_json_rewrites_corrupt_file(tmp_path):
+    from launcher.cursor_proxy import repair_argv_json
+
+    path = tmp_path / "argv.json"
+    path.write_text(
+        '{\n\t"crash-reporter-id": "keep"\n},\n\n'
+        '\t"enable-crash-reporter": true,\n'
+        '\t"crash-reporter-id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"\n}\n',
+        encoding="utf-8",
+    )
+    res = repair_argv_json(path)
+    assert res["ok"] is True
+    assert res.get("repaired") is True
+    text = path.read_text(encoding="utf-8")
+    assert "keep" not in text
+    assert "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" in text
+    import json
+    from launcher.cursor_proxy import _strip_json_comments
+
+    data = json.loads(_strip_json_comments(text))
+    assert data["crash-reporter-id"].startswith("aaaaaaaa")
 
 
 def test_apply_argv_proxy_roundtrip(tmp_path):

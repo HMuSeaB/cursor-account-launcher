@@ -72,10 +72,21 @@ def validate_content(
         issues.append("workbench 内容过短，可能已被截断")
 
     bal = _balance_score(text)
+    orig_bal = _balance_score(original) if original else None
     if not bal["ok"]:
-        issues.append(
-            f"括号/字符串可能不平衡（depth={bal['depth']} mismatch={bal['mismatch']}）"
-        )
+        if orig_bal is None:
+            issues.append(
+                f"括号/字符串可能不平衡（depth={bal['depth']} mismatch={bal['mismatch']}）"
+            )
+        elif orig_bal["ok"]:
+            issues.append(
+                f"原文件括号平衡，补丁后失衡 — 拒绝写入（depth={bal['depth']} mismatch={bal['mismatch']}）"
+            )
+        elif bal["mismatch"] > orig_bal["mismatch"] or bal["depth"] > orig_bal["depth"]:
+            issues.append(
+                f"补丁后括号失衡比原文更差（depth {orig_bal['depth']}→{bal['depth']} "
+                f"mismatch {orig_bal['mismatch']}→{bal['mismatch']}）"
+            )
 
     if original is not None and original:
         # 补丁不应把文件砍短超过 5%，也不该暴涨超过 2MB（误注入）
@@ -85,10 +96,6 @@ def validate_content(
             )
         if len(text) > len(original) + 2_000_000:
             issues.append("补丁后长度暴涨，疑似误注入")
-
-        orig_bal = _balance_score(original)
-        if orig_bal["ok"] and not bal["ok"]:
-            issues.append("原文件括号平衡，补丁后失衡 — 拒绝写入")
 
     return issues
 

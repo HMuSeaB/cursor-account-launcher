@@ -10,7 +10,12 @@ from pathlib import Path
 from launcher.ctxwin import ctxwin_status
 from launcher.cursor_install import resolve_layout
 from launcher.cursor_process import is_cursor_running
-from launcher.cursor_proxy import ProxyConfig, proxy_backup_status, read_current_proxy
+from launcher.cursor_proxy import (
+    ProxyConfig,
+    proxy_backup_status,
+    read_current_proxy,
+    repair_argv_json,
+)
 from launcher.workbench import backup as wb_backup
 from launcher.workbench.layers import scan_files
 
@@ -475,6 +480,11 @@ def _collect_full_diagnostic() -> dict:
     ctxwin = ctxwin_status()
     proxy_pref = _read_proxy_pref()
     proxy_cfg = ProxyConfig.from_dict(proxy_pref)
+    argv_repair: dict = {}
+    try:
+        argv_repair = repair_argv_json()
+    except Exception as exc:
+        argv_repair = {"ok": False, "error": str(exc)}
     proxy_live = read_current_proxy()
     backup = wb_backup.backup_status(files)
 
@@ -534,6 +544,16 @@ def _collect_full_diagnostic() -> dict:
                 "title": classic["title"],
                 "action": classic["action"],
                 "detail": classic["why"],
+            },
+        )
+    if argv_repair.get("repaired"):
+        recs.insert(
+            0,
+            {
+                "severity": "info",
+                "title": "已修好损坏的 argv.json",
+                "action": "用启动器重启 IDE",
+                "detail": "Cursor 提示 argv.json 有错 / 安装损坏，就是这个文件写成了两段 JSON。",
             },
         )
     if upgrade.get("needsRepatch") or upgrade.get("upgraded"):

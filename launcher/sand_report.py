@@ -15,6 +15,7 @@ from launcher.sand_stream import (
     AGENT_HOST_ENABLEMENT_RE,
     AGENT_HOST_IDENTITY_ORIGINAL,
     AGENT_HOST_MOVE_EXEC_ORIGINAL,
+    AGENT_IDE_INJECT_RE,
     ANCHOR_VERSION,
     DIRECT_STREAM_ANCHOR_RE,
     ELIGIBILITY_PREFIXES,
@@ -36,6 +37,7 @@ from launcher.sand_stream import (
     SAND_AGENT_HOST_ENABLEMENT_MARKER,
     SAND_AGENT_HOST_IDENTITY_MARKER,
     SAND_AGENT_HOST_MOVE_EXEC_MARKER,
+    SAND_AGENT_IDE_MARKER,
     SAND_DIRECT_STREAM_MARKER,
     SAND_ELIGIBILITY_MARKER,
     SAND_HDRFIX_V2_FN,
@@ -79,6 +81,28 @@ MISS_LABEL = {
 
 MISSING_FIX = f"当前 Cursor 不是 {ANCHOR_VERSION}，或这个构建里压缩名变了，这条打不上。"
 PENDING_FIX = "关 IDE 后重新启用即可补上。"
+RPC_STALE_FIX = (
+    "旧 RPC 会把目录请求也改成 sand，关 IDE 后重新启用 Grok Bot 会换成带目录守卫的片段。"
+)
+MEMBERSHIP_FIX = "这是完整解锁的 fetch 回包伪装，不归 Grok Bot。不要为了补这一条去点启用完整。"
+MEMBERSHIP_MARKERS = (
+    "/*MODEL_MEMBERSHIP_SPOOF_V1*/",
+    "/*SAND_MEMBERSHIP_SPOOF_V1*/",
+)
+WORKBENCH_FILE_NAMES = frozenset(
+    {"workbench.desktop.main.js", "workbench.glass.main.js"}
+)
+HEADER_ROLE_KEYS = frozenset({"hdrfixV2", "agentIde", "rpcRewrite", "streamWrap"})
+FETCH_ROLE_KEYS = frozenset({"membershipFetch"})
+HEADER_LAYER_META = (
+    ("hdrfixV2", "workbench 身份分流", "3.12 通常可打"),
+    ("rpcRewrite", "extensionHost 出站封装", "3.12 仍有 extensionHost"),
+    ("agentIde", "指纹对象钉 ide", "有 credentialFingerprint 才打得上"),
+    ("membershipFetch", "会员/目录回包", "完整解锁才打，不归 Grok Bot"),
+)
+HEADER_LAYER_HINT = (
+    "出站伪装看 HDRFIX/RPC/指纹；回包伪装看完整解锁，不要点 Grok Bot 去补会员 fetch。"
+)
 MISS_FIX = {
     "package_absent": f"这个安装里没有对应的包（例如 3.12 没有 cursor-agent-host）。装 Cursor {ANCHOR_VERSION} 后再打。",
     "shape_changed": f"相关代码还在，但和 {ANCHOR_VERSION} 压缩名对不上。不要硬打；升到锚点版本，或等启动器更新锚点。",
@@ -88,6 +112,7 @@ MISS_FIX = {
 # 缺失时用来区分「包没了 / 压缩名变了 / 这版根本没有」
 RELATED_NEEDLES: dict[str, tuple[str, ...]] = {
     "hdrfixV2": ("x-cursor-client-type",),
+    "agentIde": ("credentialFingerprint:",),
     "eligibility": ("adminSettingsService:",),
     "managedLocalRoute": ('reason:"gate-off"', 'runtime:"managed-local"'),
     "localRuntimeLoad": ("agent_host_local_loop",),
@@ -180,8 +205,71 @@ def _transport_leftover(content: str) -> bool:
     return any(old in content for old, _new in _TRANSPORT_HOST_SWAPS)
 
 
+def _rpc_quality_ok(content: str) -> bool:
+    has_guard = "catalogUrl" in content or "AvailableModels" in content
+    return (
+        has_guard
+        and "x-sand-box-namespace" in content
+        and "0.18.0" in content
+    )
+
+
 def _rpc_leftover(content: str) -> bool:
-    return SAND_RPC_REWRITE_MARKER not in content
+    if SAND_RPC_REWRITE_MARKER not in content:
+        return True
+    return not _rpc_quality_ok(content)
+
+
+def _agent_ide_leftover(content: str) -> bool:
+    if SAND_AGENT_IDE_MARKER in content:
+        return False
+    return AGENT_IDE_INJECT_RE.search(content) is not None
+
+
+def _membership_leftover(content: str) -> bool:
+    return not any(marker in content for marker in MEMBERSHIP_MARKERS)
+
+
+def _spec_optional(spec: RuleSpec, *, want_full: bool, want_l6: bool) -> bool:
+    if spec.required == "unlock":
+        return True
+    if spec.required == "full" and not want_full:
+        return True
+    if spec.required == "l6" and not want_l6:
+        return True
+    return False
+
+
+def _package_roles(keys: set[str]) -> list[str]:
+    roles: list[str] = []
+    if keys & HEADER_ROLE_KEYS:
+        roles.append("header")
+    if keys & FETCH_ROLE_KEYS:
+        roles.append("fetch")
+    if keys - HEADER_ROLE_KEYS - FETCH_ROLE_KEYS:
+        roles.append("other")
+    return roles
+
+
+def _header_layers(rules_out: list[dict[str, Any]], upgrade: dict[str, Any]) -> dict[str, Any]:
+    by_key = {row["key"]: row for row in rules_out}
+    rows = []
+    for key, title, on_older in HEADER_LAYER_META:
+        row = by_key.get(key) or {}
+        rows.append(
+            {
+                "key": key,
+                "title": title,
+                "status": row.get("status") or "missing",
+                "statusLabel": row.get("statusLabel") or "",
+                "onOlder": on_older,
+            }
+        )
+    return {
+        "relation": upgrade.get("relation") or "unknown",
+        "hint": HEADER_LAYER_HINT,
+        "rows": rows,
+    }
 
 
 def _stream_wrap_leftover(content: str) -> bool:
@@ -284,6 +372,24 @@ RULES: tuple[RuleSpec, ...] = (
         "L4",
         (SAND_STREAM_WRAP_MARKER,),
         _stream_wrap_leftover,
+    ),
+    RuleSpec(
+        "agentIde",
+        "指纹对象钉 ide",
+        "credentialFingerprint 随行请求保持 x-cursor-client-type=ide，避免 Agent 跟 Bot 抢身份",
+        "L4",
+        (SAND_AGENT_IDE_MARKER,),
+        _agent_ide_leftover,
+    ),
+    RuleSpec(
+        "membershipFetch",
+        "会员 / 目录回包",
+        "完整解锁才有的 fetch 回包 deepMerge；与 L4 出站 sandHdr 不是同一条钩子。Grok Bot 启用不写这一条。",
+        "fetch",
+        MEMBERSHIP_MARKERS,
+        _membership_leftover,
+        required="unlock",
+        file_names=WORKBENCH_FILE_NAMES,
     ),
     RuleSpec(
         "moveExec",
@@ -514,10 +620,15 @@ def evaluate_file(content: str, file_name: str) -> dict[str, dict[str, bool]]:
             continue
         marked = any(marker in content for marker in spec.markers)
         leftover = False
-        try:
-            leftover = bool(spec.leftover(content))
-        except Exception:
+        needles = RELATED_NEEDLES.get(spec.key) or ()
+        # 40MB workbench 上每条规则跑 leftover 正则会卡死 UI；没有相关针就不必搜。
+        if needles and not marked and not any(needle in content for needle in needles):
             leftover = False
+        else:
+            try:
+                leftover = bool(spec.leftover(content))
+            except Exception:
+                leftover = False
         out[spec.key] = {"marked": marked, "leftover": leftover}
     return out
 
@@ -530,6 +641,7 @@ def evaluate_compat(
     profile: str = "full",
 ) -> dict[str, Any]:
     """files: (file_name, content)。"""
+    spec_by_key = {spec.key: spec for spec in RULES}
     per_file: list[dict[str, Any]] = []
     agg: dict[str, dict[str, int]] = {
         spec.key: {"marked": 0, "leftover": 0, "files_marked": [], "files_leftover": []}
@@ -537,15 +649,23 @@ def evaluate_compat(
     }
     for file_name, content in files:
         hits = evaluate_file(content, file_name)
-        can_patch = [key for key, flags in hits.items() if flags["leftover"]]
+        leftover_keys = [key for key, flags in hits.items() if flags["leftover"]]
         patched = [key for key, flags in hits.items() if flags["marked"]]
+        can_patch = [
+            key for key in leftover_keys if spec_by_key[key].required != "unlock"
+        ]
+        optional_patch = [
+            key for key in leftover_keys if spec_by_key[key].required == "unlock"
+        ]
         per_file.append(
             {
                 "name": file_name,
                 "present": True,
                 "patchable": bool(can_patch or patched),
                 "canPatch": can_patch,
+                "optionalCanPatch": optional_patch,
                 "patched": patched,
+                "roles": _package_roles(set(can_patch) | set(patched) | set(optional_patch)),
             }
         )
         for key, flags in hits.items():
@@ -573,14 +693,20 @@ def evaluate_compat(
         miss_kind = ""
         if status == "missing":
             miss_kind = _classify_missing(spec, files)
-        optional = spec.required == "full" and not want_full
-        if spec.required == "l6" and not want_l6:
-            optional = True
+        optional = _spec_optional(spec, want_full=want_full, want_l6=want_l6)
         fix = ""
         if status == "pending":
-            fix = PENDING_FIX
+            fix = MEMBERSHIP_FIX if spec.required == "unlock" else PENDING_FIX
         elif status == "partial":
-            fix = "有的位置改了、有的还没改。" + PENDING_FIX
+            stale_rpc = False
+            if spec.key == "rpcRewrite":
+                for file_name, content in files:
+                    if not _applies_to(spec, file_name):
+                        continue
+                    if SAND_RPC_REWRITE_MARKER in content and not _rpc_quality_ok(content):
+                        stale_rpc = True
+                        break
+            fix = RPC_STALE_FIX if stale_rpc else ("有的位置改了、有的还没改。" + PENDING_FIX)
         elif status == "missing" and not optional:
             fix = MISS_FIX.get(miss_kind) or MISSING_FIX
         status_label = STATUS_LABEL[status]
@@ -608,6 +734,7 @@ def evaluate_compat(
     pending = [row for row in counted if row["status"] in ("pending", "partial")]
     version = (cursor_version or "").strip()
     version_ok = version.startswith(ANCHOR_VERSION)
+    upgrade = _upgrade_advice(version)
     return {
         "cursorVersion": version,
         "anchorVersion": ANCHOR_VERSION,
@@ -625,7 +752,8 @@ def evaluate_compat(
         },
         "packages": per_file,
         "rules": rules_out,
-        "upgrade": _upgrade_advice(version),
+        "upgrade": upgrade,
+        "headerLayers": _header_layers(rules_out, upgrade),
         "notes": [
             {
                 "title": "请求头伪装",
@@ -659,7 +787,11 @@ def adjust_compat_scope(
     for row in compat.get("rules") or []:
         item = dict(row)
         required = item.get("required") or "stream"
-        optional = (required == "full" and not want_full) or (required == "l6" and not want_l6)
+        optional = (
+            required == "unlock"
+            or (required == "full" and not want_full)
+            or (required == "l6" and not want_l6)
+        )
         item["optional"] = optional
         if item.get("status") == "missing":
             kind = item.get("missKind") or ""

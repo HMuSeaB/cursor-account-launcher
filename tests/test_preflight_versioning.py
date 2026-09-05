@@ -26,6 +26,28 @@ def test_preflight_length_guard():
     assert any("缩短" in i or "过短" in i for i in issues)
 
 
+def test_preflight_allows_minified_js_already_unbalanced():
+    """3.18+ workbench 含正则字面量，粗括号扫描对原文就会 mismatch；不能因此拒绝 MAX。"""
+    from launcher.workbench.preflight import _balance_score
+
+    original = "var r=/)/;const o={hideMaxToggle:C()||E()};" + ("x" * 2000)
+    patched = original.replace(
+        "hideMaxToggle:C()||E()",
+        "hideMaxToggle:!1/*MODEL_SHOW_MAX_V1*//*ORIG:C()||E()*/",
+    )
+    orig_bal = _balance_score(original)
+    assert orig_bal["ok"] == 0
+    issues = validate_content(patched, original=original)
+    assert not any("括号" in i for i in issues)
+
+
+def test_preflight_rejects_when_patch_worsens_balance():
+    original = "const o={ok:!0};" + ("x" * 2000)
+    patched = original + "{{{"
+    issues = validate_content(patched, original=original)
+    assert any("失衡" in i or "括号" in i for i in issues)
+
+
 def test_plan_autofix_not_circular_when_nested_in_report():
     """模拟 diagnostic 把 autofix 挂回 report 后仍可 json 序列化。"""
     report = {

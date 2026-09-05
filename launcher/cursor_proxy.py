@@ -221,6 +221,71 @@ def _load_jsonc(path: str | Path) -> dict[str, Any]:
         return {}
 
 
+_CRASH_ID_RE = re.compile(
+    r'"crash-reporter-id"\s*:\s*"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-'
+    r'[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"'
+)
+_ENABLE_CRASH_RE = re.compile(r'"enable-crash-reporter"\s*:\s*(true|false)')
+
+
+def salvage_argv(text: str) -> dict[str, Any]:
+    """从损坏的 argv.json 里尽量捞出 crash-reporter-id 等键。"""
+    stripped = _strip_json_comments(text)
+    out: dict[str, Any] = {}
+    try:
+        data = json.loads(stripped)
+        if isinstance(data, dict):
+            out.update(data)
+    except json.JSONDecodeError:
+        try:
+            data, idx = json.JSONDecoder().raw_decode(stripped.lstrip())
+            if isinstance(data, dict):
+                out.update(data)
+            rest = stripped.lstrip()[idx:].lstrip(" \t\r\n,")
+            if rest:
+                blob = rest if rest.startswith("{") else "{" + rest
+                extra = json.loads(blob)
+                if isinstance(extra, dict):
+                    out.update(extra)
+        except Exception:
+            pass
+    uuids = _CRASH_ID_RE.findall(text)
+    if uuids:
+        out["crash-reporter-id"] = uuids[-1]
+    elif str(out.get("crash-reporter-id") or "") in {"keep", "keep-me"}:
+        out.pop("crash-reporter-id", None)
+    if "enable-crash-reporter" not in out:
+        flag = _ENABLE_CRASH_RE.search(text)
+        if flag:
+            out["enable-crash-reporter"] = flag.group(1) == "true"
+    return {k: v for k, v in out.items() if k != "crash-reporter-id" or v not in {"keep", "keep-me"}}
+
+
+def repair_argv_json(path: Path | None = None) -> dict[str, Any]:
+    """把语法损坏的 argv.json 重写成合法 JSONC，保住 crash-reporter-id。"""
+    target = path or argv_json_path()
+    if not target.is_file():
+        return {"ok": True, "skipped": True, "reason": "missing"}
+    raw = target.read_text(encoding="utf-8-sig")
+    try:
+        current = json.loads(_strip_json_comments(raw))
+        if isinstance(current, dict):
+            return {"ok": True, "skipped": True, "reason": "valid", "path": str(target)}
+    except Exception:
+        pass
+    data = salvage_argv(raw)
+    if not data:
+        return {"ok": False, "error": f"无法从损坏的 {target} 恢复任何键", "path": str(target)}
+    _save_argv(target, data)
+    return {
+        "ok": True,
+        "repaired": True,
+        "path": str(target),
+        "keys": list(data.keys()),
+        "crashReporterId": data.get("crash-reporter-id") or "",
+    }
+
+
 def _load_settings() -> dict[str, Any]:
     path = settings_json_path()
     if not path:
@@ -267,11 +332,13 @@ def apply_argv_proxy(config: ProxyConfig, path: Path | None = None) -> dict:
     target = path or argv_json_path()
     existing = _load_jsonc(target)
     if not existing and target.is_file():
-        return {
-            "ok": False,
-            "error": f"无法解析 {target}，已跳过以免覆盖 crash-reporter-id",
-            "path": str(target),
-        }
+        existing = salvage_argv(target.read_text(encoding="utf-8-sig"))
+        if not existing:
+            return {
+                "ok": False,
+                "error": f"无法解析 {target}，已跳过以免覆盖 crash-reporter-id",
+                "path": str(target),
+            }
     merged = merge_argv_proxy(existing, config)
     _save_argv(target, merged)
     return {"ok": True, "path": str(target), "proxyServer": merged.get("proxy-server", "")}
