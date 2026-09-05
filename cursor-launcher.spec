@@ -13,7 +13,13 @@ a = Analysis(
     ["app.py"],
     pathex=[],
     binaries=webview_binaries,
-    datas=[("web", "web"), ("scripts", "scripts"), ("assets", "assets"), *webview_datas],
+    datas=[
+        ("web", "web"),
+        ("scripts", "scripts"),
+        ("assets", "assets"),
+        ("launcher/sand_rpc.js", "launcher"),
+        *webview_datas,
+    ],
     hiddenimports=[
         "webview",
         "webview.platforms.winforms",
