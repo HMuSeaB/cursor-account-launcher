@@ -230,7 +230,7 @@
             </div>
             <pre class="mini" id="ctxwinInfo">—</pre>
             <h3 class="settings-title">Sand Stream 模式</h3>
-            <p class="hint settings-hint">Bot 对话走 <code>InferenceService/Stream</code>。完整档含工具执行器；仅 Stream 不装 move_exec / Task。两档都强制 HDRFIX_V2（Agent 出 ide）。</p>
+            <p class="hint settings-hint">Bot 走 Grok Bot Direct Stream（绕过官方 RunInference）。完整档含工具执行器 + Task V3；仅 Stream 不装 move_exec / Task。两档都强制 HDRFIX_V2（Agent 出 ide）。</p>
             <label class="check-row"><input type="checkbox" id="sandIncludeSubagent" checked /> 含 Task/子代理（仅完整档）</label>
             <div class="guard-actions">
               <button type="button" class="btn" id="btnSandStreamApplyFull" data-needs-closed>启用完整</button>

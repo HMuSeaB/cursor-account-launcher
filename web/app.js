@@ -948,10 +948,15 @@ function paintSandStream(res) {
   const lines = [
     state,
     `RPC：${res.endpoint || "aiserver.v1.InferenceService/Stream"}`,
+    _sandLayerLine(layers, "L0", "L0 身份", ["hdrfixV2"]),
     _sandLayerLine(layers, "L1", "L1 路由", ["managedLocalRoute", "localRuntimeLoad", "agentHostEnablement", "agentHostIdentity"]),
+    _sandLayerLine(layers, "L2", "L2 Direct", ["directStream"]),
+    _sandLayerLine(layers, "L3", "L3 传输", ["transportHost"]),
     _sandLayerLine(layers, "L4", "L4 协议", ["rpcRewrite", "streamWrap"]),
     _sandLayerLine(layers, "L5", "L5 工具", ["moveExec"]),
     _sandLayerLine(layers, "L6", "L6 子代理", ["taskTool", "subagentRoute", "actionRoute", "completionWake"]),
+    _sandLayerLine(layers, "L7", "L7 工作区", ["maxTokens", "rulesSkills", "mcpFilesystem", "userRules"]),
+    _sandLayerLine(layers, "L8", "L8 首问等待", ["rulesPreseed", "pushContextTimeout"]),
     res.versionHint || (res.version ? `Cursor v${res.version}` : ""),
     res.running ? "IDE 正在运行，改文件前请先关闭" : "IDE 未运行，可以改文件",
   ].filter(Boolean);
@@ -961,11 +966,11 @@ function paintSandStream(res) {
   const blocked = !res.canApply;
   if (fullBtn) {
     fullBtn.classList.toggle("is-blocked", blocked);
-    fullBtn.title = res.running ? "请先关闭 IDE" : "L0–L5，可选 L6";
+    fullBtn.title = res.running ? "请先关闭 IDE" : "L0–L5，可选 L6–L8（Task V3）";
   }
   if (streamBtn) {
     streamBtn.classList.toggle("is-blocked", blocked);
-    streamBtn.title = res.running ? "请先关闭 IDE" : "L0–L4 + HDRFIX_V2，不装工具层";
+    streamBtn.title = res.running ? "请先关闭 IDE" : "L0–L4 Direct Stream + HDRFIX_V2，不装工具层";
   }
   if (restoreBtn) {
     restoreBtn.classList.toggle("is-blocked", !res.canRestore);
@@ -998,8 +1003,8 @@ async function runSandStream(kind, profile) {
   }
   if (kind !== "restore") {
     const extra = profile === "stream"
-      ? "仅 Stream：不装 move_exec / Task。"
-      : (includeSubagent ? "完整档：工具 + Task/子代理。" : "完整档：工具层，不含 Task/子代理。");
+      ? "仅 Stream：Grok Bot Direct，不装 move_exec / Task。"
+      : (includeSubagent ? "完整档：工具 + Task V3 / 子代理。" : "完整档：工具层，不含 Task/子代理。");
     const ok = window.confirm(
       `${extra}\n两档都强制 HDRFIX_V2（Agent 走 ide）。与「仅 MAX / 500k」独立。\n\n确定？`
     );

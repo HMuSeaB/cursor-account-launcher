@@ -1,7 +1,8 @@
-"""Sand Stream 模式：client-type 分流 + InferenceService/Stream。
+"""Sand Stream 模式：client-type 分流 + Grok Bot Direct Stream。
 
-与 model_unlock 分离。补丁核对齐 SandClaimer 1.1.9（条件 Stream、HDRFIX_V2、
-transport→api2、move_exec、RPC 改写），L6 对齐 v1.2.6 子代理层。
+与 model_unlock 分离。L2 对齐 v1.3.1 grokbot-direct（无条件 Joe，绕过
+RunInference）；保留 HDRFIX_V2、RPC 改写、transport→api2、move_exec。
+L6 为 Task V3 / Action V2；L7/L8 为工作区能力与首问等待。
 写入仍走统一备份 + workbench 预检。
 """
 
@@ -22,7 +23,7 @@ from launcher.cursor_process import is_cursor_running, resolve_install
 from launcher.workbench.manager import WorkbenchWriteError, sync_product_checksums, write_atomic
 from launcher.workbench.preflight import PreflightError, assert_safe
 
-MODULE_VERSION = "1.1.0"
+MODULE_VERSION = "1.2.0"
 ANCHOR_VERSION = "3.18.9"
 
 SAND_CLIENT_MARKER = "/*SAND_CLIENT_MODE_V1*/"
@@ -48,6 +49,13 @@ HDRFIX_V2_REMOVE_RE = re.compile(
 )
 SAND_MANAGED_LOCAL_ROUTE_MARKER = "/*SAND_MANAGED_LOCAL_ROUTE_V1*/"
 SAND_DIRECT_STREAM_MARKER = "/*SAND_DIRECT_INFERENCE_STREAM_V1*/"
+SAND_SESSION_STREAM_MARKER = "/*SAND_SESSION_INFERENCE_STREAM_V1*/"
+SAND_MAX_TOKENS_MARKER = "/*SAND_MAX_TOKENS_V1*/"
+SAND_RULES_SKILLS_MARKER = "/*SAND_RULES_SKILLS_V4*/"
+SAND_MCP_FILESYSTEM_MARKER = "/*SAND_MCP_FILESYSTEM_V1*/"
+SAND_USER_RULES_MARKER = "/*SAND_USER_RULES_V1*/"
+SAND_RULES_PRESEED_MARKER = "/*SAND_RULES_PRESEED_V1*/"
+SAND_PUSH_CONTEXT_TIMEOUT_MARKER = "/*SAND_PUSH_CONTEXT_TIMEOUT_V1*/"
 SAND_AGENT_HOST_ENABLEMENT_MARKER = "/*SAND_AGENT_HOST_ENABLEMENT_V1*/"
 SAND_LOCAL_RUNTIME_LOAD_MARKER = "/*SAND_LOCAL_RUNTIME_LOAD_V1*/"
 SAND_AGENT_HOST_IDENTITY_MARKER = "/*SAND_AGENT_HOST_IDENTITY_V1*/"
@@ -61,9 +69,11 @@ SAND_STREAM_WRAP_MARKER = "/*SAND_STREAM_WRAP_V1*/"
 SAND_TRANSPORT_HOST_MARKER = "/*SAND_TRANSPORT_HOST_V1*/"
 SAND_MANAGED_SUBAGENT_ROUTE_MARKER = "/*SAND_MANAGED_SUBAGENT_ROUTE_V1*/"
 SAND_MANAGED_SUBAGENT_SESSION_MARKER = "/*SAND_MANAGED_SUBAGENT_SESSION_V1*/"
-SAND_MANAGED_TASK_TOOL_MARKER = "/*SAND_MANAGED_TASK_TOOL_V2*/"
+SAND_MANAGED_TASK_TOOL_MARKER = "/*SAND_MANAGED_TASK_TOOL_V3*/"
+LEGACY_SAND_MANAGED_TASK_TOOL_MARKER_V2 = "/*SAND_MANAGED_TASK_TOOL_V2*/"
 LEGACY_SAND_MANAGED_TASK_TOOL_MARKER = "/*SAND_MANAGED_TASK_TOOL_V1*/"
-SAND_MANAGED_ACTION_ROUTE_MARKER = "/*SAND_MANAGED_ACTION_ROUTE_V1*/"
+SAND_MANAGED_ACTION_ROUTE_MARKER = "/*SAND_MANAGED_ACTION_ROUTE_V2*/"
+LEGACY_SAND_MANAGED_ACTION_ROUTE_MARKER = "/*SAND_MANAGED_ACTION_ROUTE_V1*/"
 SAND_SUBAGENT_RESUME_MODE_MARKER = "/*SAND_SUBAGENT_RESUME_AGENT_MODE_V1*/"
 SAND_SUBAGENT_COMPLETION_WAKE_MARKER = "/*SAND_SUBAGENT_COMPLETION_WAKE_V1*/"
 LAUNCHER_SAND_MARKER = "/*CURSOR_LAUNCHER_SAND_STREAM_V1*/"
@@ -177,6 +187,9 @@ AGENT_HOST_IDENTITY_PATCHED = (
 DIRECT_STREAM_ANCHOR = (
     "function hre(e){return t=>{return n=this,o=void 0,s=function*(){"
 )
+DIRECT_STREAM_ANCHOR_RE = re.compile(
+    r"function ([A-Za-z_$][\w$]*)\(e\)\{return t=>\{return n=this,o=void 0,s=function\*\(\)\{"
+)
 AGENT_HOST_ENABLEMENT_RE = re.compile(
     r"(this\._agentHostEnabled=)([A-Za-z_$][A-Za-z0-9_$]*)(,)"
 )
@@ -244,6 +257,18 @@ MANAGED_ACTION_ROUTE_PATCHED = (
     "return"
     + SAND_MANAGED_ACTION_ROUTE_MARKER
     + '!["userMessageAction","summarizeAction","resumeAction",'
+    '"backgroundTaskCompletionAction","executePlanAction"].includes(e.actionCase)?'
+    '"action-not-supported":'
+    '"userMessageAction"===e.actionCase&&'
+    'e.simulatedUserMessage?"simulated-message-not-supported":'
+    'void 0===e.modelId?"model-not-supported":'
+    'e.hasModelCredentials?"private-model-not-supported":'
+    'e.hasUnsupportedRunOptions?"run-options-not-supported":void 0'
+)
+MANAGED_ACTION_ROUTE_PATCHED_V1 = (
+    "return"
+    + LEGACY_SAND_MANAGED_ACTION_ROUTE_MARKER
+    + '!["userMessageAction","summarizeAction","resumeAction",'
     '"backgroundTaskCompletionAction"].includes(e.actionCase)?'
     '"action-not-supported":'
     '"userMessageAction"===e.actionCase&&'
@@ -257,6 +282,15 @@ MANAGED_ACTION_ROUTE_PATCHED = (
 SUBAGENT_RESUME_MODE_ORIGINAL = (
     "e.resumeAgentId&&e.mode===Mn.FL.UNSPECIFIED&&!e.readonly?"
     "oe.xyI.UNSPECIFIED:"
+)
+SUBAGENT_RESUME_MODE_RE = re.compile(
+    r"e\.resumeAgentId&&e\.mode===([A-Za-z_$][\w$]*)\.FL\.UNSPECIFIED&&!e\.readonly\?"
+    r"oe\.xyI\.UNSPECIFIED:"
+)
+SUBAGENT_RESUME_MODE_PATCH_RE = re.compile(
+    r"e\.resumeAgentId&&e\.mode===([A-Za-z_$][\w$]*)\.FL\.UNSPECIFIED&&!e\.readonly\?"
+    + re.escape(SAND_SUBAGENT_RESUME_MODE_MARKER)
+    + r"oe\.xyI\.AGENT:"
 )
 SUBAGENT_RESUME_MODE_PATCHED = (
     "e.resumeAgentId&&e.mode===Mn.FL.UNSPECIFIED&&!e.readonly?"
@@ -278,6 +312,18 @@ MANAGED_SUBAGENT_SESSION_ORIGINAL = (
     "enableReadToolNegativeOffset:!0,enableSandboxSharedBuildCache:!0,"
     "nalLoopDetection:!0};"
 )
+MANAGED_SUBAGENT_SESSION_RE = re.compile(
+    r"const ([A-Za-z_$][\w$]*)=\{enableEmptyResponseRetry:!0,enableGrepBroadGlobGuard:!0,"
+    r"enableReadToolNegativeOffset:!0,enableSandboxSharedBuildCache:!0,"
+    r"nalLoopDetection:!0\};"
+)
+MANAGED_SUBAGENT_SESSION_PATCH_RE = re.compile(
+    r"const ([A-Za-z_$][\w$]*)=\{enableEmptyResponseRetry:!0,enableGrepBroadGlobGuard:!0,"
+    r"enableReadToolNegativeOffset:!0,enableSandboxSharedBuildCache:!0,"
+    r"nalLoopDetection:!0,useClientSideSubagent:!0"
+    + re.escape(SAND_MANAGED_SUBAGENT_SESSION_MARKER)
+    + r"\};"
+)
 MANAGED_SUBAGENT_SESSION_PATCHED = (
     "const Cre={enableEmptyResponseRetry:!0,enableGrepBroadGlobGuard:!0,"
     "enableReadToolNegativeOffset:!0,enableSandboxSharedBuildCache:!0,"
@@ -287,6 +333,76 @@ MANAGED_SUBAGENT_SESSION_PATCHED = (
 )
 MANAGED_TASK_TOOL_ORIGINAL = (
     "isGenerateImageModelRestricted:!1,taskToolProps:void 0},resolvers:"
+)
+
+RULES_SKILLS_EXEC_ORIGINAL = (
+    "async function aa(e){if(j.cursor.cursorAgentHostEnabled){"
+    "const r=(t=oa,n=e.extensionPath,{...t,extensionPath:n});"
+    "return void e.subscriptions.push(j.cursor.registerAgentHostRuntime(r))}"
+    "var t,n;j.cursor.cursorAgentHostEnabled||(await na(e),ia=!0)}"
+)
+RULES_SKILLS_EXEC_PATCHED = (
+    "async function aa(e){if(j.cursor.cursorAgentHostEnabled){"
+    "const r=(t=oa,n=e.extensionPath,{...t,extensionPath:n});"
+    "e.subscriptions.push(j.cursor.registerAgentHostRuntime(r));"
+    + SAND_RULES_SKILLS_MARKER
+    + "await na(e,{registerAgentExecProvider:!1,"
+    "runtimeExtensionPath:e.extensionPath}),ia=!0;return}"
+    "var t,n;j.cursor.cursorAgentHostEnabled||(await na(e),ia=!0)}"
+)
+MCP_FILESYSTEM_ORIGINAL = (
+    "const t=e.requestContext?.mcpFileSystemOptions,"
+    "n=!0===e.featureFlags?.enableMCPFileSystem,"
+    'o=t?.workspaceProjectDir??""'
+)
+MCP_FILESYSTEM_PATCHED = (
+    "const t=e.requestContext?.mcpFileSystemOptions,"
+    "n=!0" + SAND_MCP_FILESYSTEM_MARKER + ","
+    'o=t?.workspaceProjectDir??""'
+)
+USER_RULES_ORIGINAL_RE = re.compile(
+    r"injectLocalModeNonFileRules\((?P<arg>[A-Za-z_$])\)\{if\(!(?P<flags>"
+    r"[A-Za-z_$][A-Za-z0-9_$]*)\.localMode\)return;"
+)
+USER_RULES_PATCHED_RE = re.compile(
+    r"injectLocalModeNonFileRules\((?P<arg>[A-Za-z_$])\)\{if\(!1&&!(?P<flags>"
+    r"[A-Za-z_$][A-Za-z0-9_$]*)\.localMode\)return;"
+    + re.escape(SAND_USER_RULES_MARKER)
+)
+USER_RULES_SAMPLE = "injectLocalModeNonFileRules(e){if(!f.localMode)return;"
+MAX_TOKENS_ORIGINAL = (
+    "t.resolveExtendedUsage({inputTokens:n.inputTokens,"
+    "outputTokens:n.outputTokens,cacheReadTokens:n.cacheReadTokens,"
+    "cacheWriteTokens:n.cacheWriteTokens,maxTokens:n.maxTokens})"
+)
+MAX_TOKENS_PATCHED = (
+    "t.resolveExtendedUsage({inputTokens:n.inputTokens,"
+    "outputTokens:n.outputTokens,cacheReadTokens:n.cacheReadTokens,"
+    "cacheWriteTokens:n.cacheWriteTokens,maxTokens:(()=>{"
+    'const c=this.requestedModel?.parameters?.find(p=>p.id==="context")?.value;'
+    "if(void 0===c)return n.maxTokens;"
+    "const s=String(c).trim().toLowerCase();const num=parseFloat(s);"
+    "if(!Number.isFinite(num)||num<=0)return n.maxTokens;"
+    'const mult=s.endsWith("k")?1e3:s.endsWith("m")?1e6:s.endsWith("b")?1e9:1;'
+    "return num*mult})()})" + SAND_MAX_TOKENS_MARKER
+)
+RULES_PRESEED_ORIGINAL = "this._lastPushedRulesProto=void 0,this._providerRulesCache=new Map"
+RULES_PRESEED_PATCHED = (
+    "this._lastPushedRulesProto=[]"
+    + SAND_RULES_PRESEED_MARKER
+    + ",this._providerRulesCache=new Map"
+)
+PUSH_CONTEXT_TIMEOUT_MS = 50
+PUSH_CONTEXT_TIMEOUT_ORIGINAL_RE = re.compile(
+    r'("\[push_req_context\]",)([A-Za-z_$][\w$]*)=1e4'
+)
+PUSH_CONTEXT_TIMEOUT_PATCHED_RE = re.compile(
+    r'("\[push_req_context\]",)([A-Za-z_$][\w$]*)=(?:50|200|500)'
+    + re.escape(SAND_PUSH_CONTEXT_TIMEOUT_MARKER)
+)
+PUSH_CONTEXT_TIMEOUT_MIGRATE_RE = re.compile(
+    r'("\[push_req_context\]",)([A-Za-z_$][\w$]*)=(?:200|500)'
+    + re.escape(SAND_PUSH_CONTEXT_TIMEOUT_MARKER)
 )
 
 CORE_HIT_KEYS = (
@@ -305,13 +421,23 @@ L6_HIT_KEYS = (
     "resumeMode",
     "completionWake",
 )
+L7_HIT_KEYS = (
+    "maxTokens",
+    "rulesSkills",
+    "mcpFilesystem",
+    "userRules",
+)
+L8_HIT_KEYS = (
+    "rulesPreseed",
+    "pushContextTimeout",
+)
 HIT_LABELS = {
     "hdrfixV2": "L0 HDRFIX_V2（Agent→ide）",
     "managedLocalRoute": "L1 managed-local 路由",
     "localRuntimeLoad": "L1 本地 runtime",
     "agentHostEnablement": "L1 强制 agent-host",
     "agentHostIdentity": "L1 agent-host 身份",
-    "directStream": "L2 条件化 Stream",
+    "directStream": "L2 Grok Bot Direct",
     "transportHost": "L3 transport→api2",
     "rpcRewrite": "L4 RPC 改写钩子",
     "streamWrap": "L4 stream wrap",
@@ -322,6 +448,12 @@ HIT_LABELS = {
     "actionRoute": "L6 action 白名单",
     "resumeMode": "L6 resume mode",
     "completionWake": "L6 完成唤醒",
+    "maxTokens": "L7 maxTokens / 1M",
+    "rulesSkills": "L7 Rules/Skills exec",
+    "mcpFilesystem": "L7 MCP filesystem",
+    "userRules": "L7 User Rules",
+    "rulesPreseed": "L8 Rules Preseed",
+    "pushContextTimeout": "L8 push_req_context 50ms",
 }
 
 
@@ -381,6 +513,15 @@ class PatchStats:
     managed_subagent_session: int = 0
     managed_task_tool: int = 0
     migrated_task_tool: int = 0
+    migrated_action_route: int = 0
+    migrated_session_stream: int = 0
+    migrated_direct_stream: int = 0
+    max_tokens: int = 0
+    rules_skills: int = 0
+    mcp_filesystem: int = 0
+    user_rules: int = 0
+    rules_preseed: int = 0
+    push_context_timeout: int = 0
 
     @property
     def total(self) -> int:
@@ -404,6 +545,12 @@ class RemoveStats:
     subagent_completion_wake: int = 0
     managed_subagent_session: int = 0
     managed_task_tool: int = 0
+    max_tokens: int = 0
+    rules_skills: int = 0
+    mcp_filesystem: int = 0
+    user_rules: int = 0
+    rules_preseed: int = 0
+    push_context_timeout: int = 0
 
     @property
     def total(self) -> int:
@@ -514,12 +661,14 @@ def _joe_stream_session_js() -> str:
         'if(void 0===n)throw new Error("Sand direct Stream requires requestedModel");'
         'const o=String(n.modelId||""),i=o.toLowerCase(),'
         'r=new Map((n.parameters||[]).map(e=>[e.id,e.value])),'
+        'c=String(r.get("context")||"").toLowerCase(),'
         's=new Joe(e,n,void 0,void 0).getSession(),'
         'p={getExecutor:e=>new RK(s.getExecutor(e))},'
         'a={vendor:i.includes("grok")?"xai":i.includes("gemini")?"gemini":'
         'i.includes("claude")||i.includes("opus")||i.includes("sonnet")||i.includes("fable")?'
         '"anthropic":i.includes("gpt")||i.includes("codex")?"openai":"unknown",'
         'promptVersion:"latest",reasoningEffort:r.get("effort"),'
+        'agentTokenLimit:c==="1m"?1e6:c==="300k"?3e5:c==="200k"?2e5:void 0,'
         'isGrok45ProductPrompt:i.includes("grok"),'
         'isClaude4x:i.includes("claude")||i.includes("opus")||i.includes("sonnet")||i.includes("fable"),'
         'isFable5:i.includes("fable-5"),'
@@ -578,7 +727,7 @@ def _legacy_direct_stream_injection() -> str:
     )
 
 
-def _direct_stream_injection() -> str:
+def _conditional_direct_stream_injection() -> str:
     return (
         "{"
         + SAND_DIRECT_STREAM_MARKER
@@ -586,6 +735,10 @@ def _direct_stream_injection() -> str:
         + _joe_stream_session_js()
         + "}}"
     )
+
+
+def _direct_stream_injection() -> str:
+    return "{" + SAND_DIRECT_STREAM_MARKER + _joe_stream_session_js() + "}"
 
 
 DIRECT_STREAM_SNIPPET_RE = re.compile(
@@ -599,7 +752,11 @@ def _strip_direct_stream_injection(content: str) -> tuple[str, int]:
     if SAND_DIRECT_STREAM_MARKER not in content:
         return content, 0
     total = 0
-    for exact in (_direct_stream_injection(), _legacy_direct_stream_injection()):
+    for exact in (
+        _direct_stream_injection(),
+        _conditional_direct_stream_injection(),
+        _legacy_direct_stream_injection(),
+    ):
         count = content.count(exact)
         if count:
             content = content.replace(exact, "")
@@ -635,16 +792,23 @@ def _rpc_snippet() -> str:
 def _managed_task_tool_props(
     custom_subagent_normalizer: str = "()=>[]",
     marker: str = SAND_MANAGED_TASK_TOOL_MARKER,
-    model_catalog: str = "new Map([[i,{slug:i}]])",
+    model_catalog: str | None = None,
+    parent_model_name: str = "e.requestedModel.modelId",
+    is_model_valid: str = "t=>t===e.requestedModel.modelId||t===i",
 ) -> str:
+    if model_catalog is None:
+        model_catalog = (
+            "new Map([[e.requestedModel.modelId,{slug:e.requestedModel.modelId}],"
+            "[i,{slug:e.requestedModel.modelId}]])"
+        )
     return (
         "{"
         + marker
-        + "parentRequestedModelName:i,"
+        + f"parentRequestedModelName:{parent_model_name},"
         "parentModelParameters:e.requestedModel.parameters,"
         "parentMaxMode:l,"
         "isModelBlocked:()=>!1,"
-        "isModelValid:e=>e===i,"
+        f"isModelValid:{is_model_valid},"
         "requiresMaxMode:()=>!1,"
         "compareModelCosts:()=>0,"
         'subagentModelForcePolicy:"none",'
@@ -665,6 +829,20 @@ def _managed_task_tool_patched() -> str:
     )
 
 
+def _managed_task_tool_patched_v126() -> str:
+    return (
+        "isGenerateImageModelRestricted:!1,taskToolProps:"
+        "void 0!==e.runOptions.subagentTypeName?void 0:"
+        + _managed_task_tool_props(
+            marker=LEGACY_SAND_MANAGED_TASK_TOOL_MARKER_V2,
+            model_catalog="new Map([[i,{slug:i}]])",
+            parent_model_name="i",
+            is_model_valid="e=>e===i",
+        )
+        + "},resolvers:"
+    )
+
+
 def _managed_task_tool_patched_v124() -> str:
     return (
         "isGenerateImageModelRestricted:!1,taskToolProps:"
@@ -672,6 +850,8 @@ def _managed_task_tool_patched_v124() -> str:
             "e=>e",
             LEGACY_SAND_MANAGED_TASK_TOOL_MARKER,
             "new Map",
+            parent_model_name="i",
+            is_model_valid="e=>e===i",
         )
         + "},resolvers:"
     )
@@ -684,6 +864,8 @@ def _managed_task_tool_patched_v125() -> str:
         + _managed_task_tool_props(
             marker=LEGACY_SAND_MANAGED_TASK_TOOL_MARKER,
             model_catalog="new Map",
+            parent_model_name="i",
+            is_model_valid="e=>e===i",
         )
         + "},resolvers:"
     )
@@ -707,8 +889,19 @@ def _strip_l6(content: str, stats: RemoveStats | None = None) -> str:
     if stats:
         stats.managed_action_route += n
     next_content, n = _replace_count(
-        next_content, SUBAGENT_RESUME_MODE_PATCHED, SUBAGENT_RESUME_MODE_ORIGINAL
+        next_content, MANAGED_ACTION_ROUTE_PATCHED_V1, MANAGED_ACTION_ROUTE_ORIGINAL
     )
+    if stats:
+        stats.managed_action_route += n
+
+    def restore_resume(match: re.Match[str]) -> str:
+        return (
+            "e.resumeAgentId&&e.mode==="
+            + match.group(1)
+            + ".FL.UNSPECIFIED&&!e.readonly?oe.xyI.UNSPECIFIED:"
+        )
+
+    next_content, n = SUBAGENT_RESUME_MODE_PATCH_RE.subn(restore_resume, next_content)
     if stats:
         stats.subagent_resume_mode += n
 
@@ -724,13 +917,23 @@ def _strip_l6(content: str, stats: RemoveStats | None = None) -> str:
     next_content, n = SUBAGENT_COMPLETION_WAKE_PATCH_RE.subn(disable_wake, next_content)
     if stats:
         stats.subagent_completion_wake += n
-    next_content, n = _replace_count(
-        next_content, MANAGED_SUBAGENT_SESSION_PATCHED, MANAGED_SUBAGENT_SESSION_ORIGINAL
-    )
+
+    def restore_session(match: re.Match[str]) -> str:
+        ident = match.group(1)
+        return (
+            "const "
+            + ident
+            + "={enableEmptyResponseRetry:!0,enableGrepBroadGlobGuard:!0,"
+            "enableReadToolNegativeOffset:!0,enableSandboxSharedBuildCache:!0,"
+            "nalLoopDetection:!0};"
+        )
+
+    next_content, n = MANAGED_SUBAGENT_SESSION_PATCH_RE.subn(restore_session, next_content)
     if stats:
         stats.managed_subagent_session += n
     for patched in (
         _managed_task_tool_patched(),
+        _managed_task_tool_patched_v126(),
         _managed_task_tool_patched_v125(),
         _managed_task_tool_patched_v124(),
     ):
@@ -758,13 +961,26 @@ def _apply_l6(content: str, stats: PatchStats) -> str:
     )
     stats.managed_subagent_route += n
     next_content, n = _replace_count(
+        next_content, MANAGED_ACTION_ROUTE_PATCHED_V1, MANAGED_ACTION_ROUTE_PATCHED
+    )
+    stats.migrated_action_route += n
+    next_content, n = _replace_count(
         next_content, MANAGED_ACTION_ROUTE_ORIGINAL, MANAGED_ACTION_ROUTE_PATCHED
     )
     stats.managed_action_route += n
-    next_content, n = _replace_count(
-        next_content, SUBAGENT_RESUME_MODE_ORIGINAL, SUBAGENT_RESUME_MODE_PATCHED
-    )
-    stats.subagent_resume_mode += n
+    if SAND_SUBAGENT_RESUME_MODE_MARKER not in next_content:
+
+        def enable_resume(match: re.Match[str]) -> str:
+            return (
+                "e.resumeAgentId&&e.mode==="
+                + match.group(1)
+                + ".FL.UNSPECIFIED&&!e.readonly?"
+                + SAND_SUBAGENT_RESUME_MODE_MARKER
+                + "oe.xyI.AGENT:"
+            )
+
+        next_content, n = SUBAGENT_RESUME_MODE_RE.subn(enable_resume, next_content)
+        stats.subagent_resume_mode += n
     if SAND_SUBAGENT_COMPLETION_WAKE_MARKER not in next_content:
 
         def enable_wake(match: re.Match[str]) -> str:
@@ -779,17 +995,113 @@ def _apply_l6(content: str, stats: PatchStats) -> str:
 
         next_content, n = SUBAGENT_COMPLETION_WAKE_RE.subn(enable_wake, next_content)
         stats.subagent_completion_wake += n
-    next_content, n = _replace_count(
-        next_content, MANAGED_SUBAGENT_SESSION_ORIGINAL, MANAGED_SUBAGENT_SESSION_PATCHED
-    )
-    stats.managed_subagent_session += n
-    for previous in (_managed_task_tool_patched_v125(), _managed_task_tool_patched_v124()):
+    if SAND_MANAGED_SUBAGENT_SESSION_MARKER not in next_content:
+
+        def enable_session(match: re.Match[str]) -> str:
+            ident = match.group(1)
+            return (
+                "const "
+                + ident
+                + "={enableEmptyResponseRetry:!0,enableGrepBroadGlobGuard:!0,"
+                "enableReadToolNegativeOffset:!0,enableSandboxSharedBuildCache:!0,"
+                "nalLoopDetection:!0,useClientSideSubagent:!0"
+                + SAND_MANAGED_SUBAGENT_SESSION_MARKER
+                + "};"
+            )
+
+        next_content, n = MANAGED_SUBAGENT_SESSION_RE.subn(enable_session, next_content)
+        stats.managed_subagent_session += n
+    for previous in (
+        _managed_task_tool_patched_v126(),
+        _managed_task_tool_patched_v125(),
+        _managed_task_tool_patched_v124(),
+    ):
         next_content, n = _replace_count(next_content, previous, _managed_task_tool_patched())
         stats.migrated_task_tool += n
     next_content, n = _replace_count(
         next_content, MANAGED_TASK_TOOL_ORIGINAL, _managed_task_tool_patched()
     )
     stats.managed_task_tool += n
+    return next_content
+
+
+def _apply_l78(content: str, stats: PatchStats) -> str:
+    next_content, n = _replace_count(content, MAX_TOKENS_ORIGINAL, MAX_TOKENS_PATCHED)
+    stats.max_tokens += n
+    next_content, n = _replace_count(
+        next_content, RULES_SKILLS_EXEC_ORIGINAL, RULES_SKILLS_EXEC_PATCHED
+    )
+    stats.rules_skills += n
+    next_content, n = _replace_count(next_content, MCP_FILESYSTEM_ORIGINAL, MCP_FILESYSTEM_PATCHED)
+    stats.mcp_filesystem += n
+
+    def enable_user_rules(match: re.Match[str]) -> str:
+        return (
+            "injectLocalModeNonFileRules("
+            + match.group("arg")
+            + "){if(!1&&!"
+            + match.group("flags")
+            + ".localMode)return;"
+            + SAND_USER_RULES_MARKER
+        )
+
+    if SAND_USER_RULES_MARKER not in next_content:
+        next_content, n = USER_RULES_ORIGINAL_RE.subn(enable_user_rules, next_content)
+        stats.user_rules += n
+
+    next_content, n = _replace_count(next_content, RULES_PRESEED_ORIGINAL, RULES_PRESEED_PATCHED)
+    stats.rules_preseed += n
+
+    def set_push_timeout(match: re.Match[str]) -> str:
+        stats.push_context_timeout += 1
+        return (
+            match.group(1)
+            + match.group(2)
+            + "="
+            + str(PUSH_CONTEXT_TIMEOUT_MS)
+            + SAND_PUSH_CONTEXT_TIMEOUT_MARKER
+        )
+
+    next_content, _n = PUSH_CONTEXT_TIMEOUT_MIGRATE_RE.subn(set_push_timeout, next_content)
+    next_content, _n = PUSH_CONTEXT_TIMEOUT_ORIGINAL_RE.subn(set_push_timeout, next_content)
+    return next_content
+
+
+def _strip_l78(content: str, stats: RemoveStats | None = None) -> str:
+    next_content, n = _replace_count(content, MAX_TOKENS_PATCHED, MAX_TOKENS_ORIGINAL)
+    if stats:
+        stats.max_tokens += n
+    next_content, n = _replace_count(
+        next_content, RULES_SKILLS_EXEC_PATCHED, RULES_SKILLS_EXEC_ORIGINAL
+    )
+    if stats:
+        stats.rules_skills += n
+    next_content, n = _replace_count(next_content, MCP_FILESYSTEM_PATCHED, MCP_FILESYSTEM_ORIGINAL)
+    if stats:
+        stats.mcp_filesystem += n
+
+    def restore_user_rules(match: re.Match[str]) -> str:
+        return (
+            "injectLocalModeNonFileRules("
+            + match.group("arg")
+            + "){if(!"
+            + match.group("flags")
+            + ".localMode)return;"
+        )
+
+    next_content, n = USER_RULES_PATCHED_RE.subn(restore_user_rules, next_content)
+    if stats:
+        stats.user_rules += n
+    next_content, n = _replace_count(next_content, RULES_PRESEED_PATCHED, RULES_PRESEED_ORIGINAL)
+    if stats:
+        stats.rules_preseed += n
+
+    def restore_push_timeout(match: re.Match[str]) -> str:
+        return match.group(1) + match.group(2) + "=1e4"
+
+    next_content, n = PUSH_CONTEXT_TIMEOUT_PATCHED_RE.subn(restore_push_timeout, next_content)
+    if stats:
+        stats.push_context_timeout += n
     return next_content
 
 
@@ -811,6 +1123,7 @@ def apply_patch_to_content(
 
     if not want_l6:
         next_content = _strip_l6(next_content)
+        next_content = _strip_l78(next_content)
     if not want_full:
         next_content = _strip_move_exec(next_content)
 
@@ -944,19 +1257,22 @@ def apply_patch_to_content(
             )
             stats.move_exec += n
 
-    conditional_injection = _direct_stream_injection()
-    if conditional_injection not in next_content:
-        next_content, _stripped = _strip_direct_stream_injection(next_content)
-        if (
-            SAND_DIRECT_STREAM_MARKER not in next_content
-            and DIRECT_STREAM_ANCHOR in next_content
-        ):
-            next_content = next_content.replace(
-                DIRECT_STREAM_ANCHOR,
-                DIRECT_STREAM_ANCHOR + conditional_injection,
-                1,
-            )
+    migrated_session = next_content.count(SAND_SESSION_STREAM_MARKER)
+    if migrated_session:
+        next_content = next_content.replace(SAND_SESSION_STREAM_MARKER, "")
+        stats.migrated_session_stream += migrated_session
+
+    direct_injection = _direct_stream_injection()
+    if SAND_DIRECT_STREAM_MARKER in next_content and direct_injection not in next_content:
+        next_content, stripped = _strip_direct_stream_injection(next_content)
+        stats.migrated_direct_stream += stripped
+    if SAND_DIRECT_STREAM_MARKER not in next_content:
+
+        def inject_direct(match: re.Match[str]) -> str:
             stats.direct_stream += 1
+            return match.group(0) + direct_injection
+
+        next_content, _n = DIRECT_STREAM_ANCHOR_RE.subn(inject_direct, next_content, count=1)
 
     if SAND_AGENT_HOST_ENABLEMENT_MARKER not in next_content:
 
@@ -982,6 +1298,7 @@ def apply_patch_to_content(
 
     if want_l6:
         next_content = _apply_l6(next_content, stats)
+        next_content = _apply_l78(next_content, stats)
 
     for old, new in _TRANSPORT_HOST_SWAPS:
         if new in next_content:
@@ -1099,6 +1416,10 @@ def remove_patch_from_content(content: str) -> tuple[str, RemoveStats]:
     next_content = _strip_move_exec(next_content, stats)
     next_content, direct_count = _strip_direct_stream_injection(next_content)
     stats.direct_stream += direct_count
+    session_count = next_content.count(SAND_SESSION_STREAM_MARKER)
+    if session_count:
+        next_content = next_content.replace(SAND_SESSION_STREAM_MARKER, "")
+        stats.direct_stream += session_count
     next_content, agent_host_count = AGENT_HOST_ENABLEMENT_PATCH_RE.subn(
         lambda m: m.group(2) + m.group(1) + m.group(3),
         next_content,
@@ -1107,6 +1428,7 @@ def remove_patch_from_content(content: str) -> tuple[str, RemoveStats]:
     if AGENTEXEC_SKIP_PATCHED in next_content:
         next_content = next_content.replace(AGENTEXEC_SKIP_PATCHED, AGENTEXEC_SKIP_ORIGINAL)
     next_content = _strip_l6(next_content, stats)
+    next_content = _strip_l78(next_content, stats)
 
     residual_marker_re = re.compile(
         r'(["\'])(?:ide|sand|glass)\1((?:/\*SAND[A-Z0-9_]*_V1\*/)+)'
@@ -1144,12 +1466,21 @@ def inspect_content_hits(content: str) -> dict[str, int]:
         "rpcRewrite": content.count(SAND_RPC_REWRITE_MARKER),
         "streamWrap": content.count(SAND_STREAM_WRAP_MARKER),
         "transportHost": content.count(SAND_TRANSPORT_HOST_MARKER),
-        "taskTool": content.count(SAND_MANAGED_TASK_TOOL_MARKER),
+        "taskTool": content.count(SAND_MANAGED_TASK_TOOL_MARKER)
+        + content.count(LEGACY_SAND_MANAGED_TASK_TOOL_MARKER_V2)
+        + content.count(LEGACY_SAND_MANAGED_TASK_TOOL_MARKER),
         "subagentRoute": content.count(SAND_MANAGED_SUBAGENT_ROUTE_MARKER),
         "subagentSession": content.count(SAND_MANAGED_SUBAGENT_SESSION_MARKER),
-        "actionRoute": content.count(SAND_MANAGED_ACTION_ROUTE_MARKER),
+        "actionRoute": content.count(SAND_MANAGED_ACTION_ROUTE_MARKER)
+        + content.count(LEGACY_SAND_MANAGED_ACTION_ROUTE_MARKER),
         "resumeMode": content.count(SAND_SUBAGENT_RESUME_MODE_MARKER),
         "completionWake": content.count(SAND_SUBAGENT_COMPLETION_WAKE_MARKER),
+        "maxTokens": content.count(SAND_MAX_TOKENS_MARKER),
+        "rulesSkills": content.count(SAND_RULES_SKILLS_MARKER),
+        "mcpFilesystem": content.count(SAND_MCP_FILESYSTEM_MARKER),
+        "userRules": content.count(SAND_USER_RULES_MARKER),
+        "rulesPreseed": content.count(SAND_RULES_PRESEED_MARKER),
+        "pushContextTimeout": content.count(SAND_PUSH_CONTEXT_TIMEOUT_MARKER),
         "launcherMarker": content.count(LAUNCHER_SAND_MARKER),
     }
 
@@ -1165,6 +1496,8 @@ def classify_readiness(
     for key in CORE_HIT_KEYS:
         if int(hits.get(key) or 0) <= 0:
             missing.append(key)
+    if int(hits.get("directStream") or 0) <= 0:
+        missing.append("directStream")
     if int(hits.get("hdrfixV2") or 0) <= 0:
         missing.append("hdrfixV2")
     for key in L4_HIT_KEYS:
@@ -1178,7 +1511,15 @@ def classify_readiness(
         for key in L6_HIT_KEYS:
             if int(hits.get(key) or 0) <= 0:
                 missing.append(key)
-    stream_ready = all(int(hits.get(key) or 0) > 0 for key in CORE_HIT_KEYS)
+        for key in L7_HIT_KEYS:
+            if int(hits.get(key) or 0) <= 0:
+                missing.append(key)
+        for key in L8_HIT_KEYS:
+            if int(hits.get(key) or 0) <= 0:
+                missing.append(key)
+    stream_ready = all(int(hits.get(key) or 0) > 0 for key in CORE_HIT_KEYS) and int(
+        hits.get("directStream") or 0
+    ) > 0
     tools_ready = stream_ready and int(hits.get("moveExec") or 0) > 0
     full_ready = tools_ready and all(int(hits.get(key) or 0) > 0 for key in L6_HIT_KEYS)
     core_missing = [key for key in CORE_HIT_KEYS if int(hits.get(key) or 0) <= 0]
@@ -1525,7 +1866,7 @@ def _message(ready: dict[str, Any], installed: bool) -> str:
     if ready.get("toolsReady"):
         return "工具层已就绪；Task/子代理未齐，见缺失项"
     if ready.get("streamReady"):
-        return "仅 Stream 已就绪（对话应走 InferenceService/Stream）"
+        return "仅 Stream 已就绪（Grok Bot Direct / InferenceService.Stream）"
     if installed:
         return "检测到部分 Sand 补丁；关 IDE 后重新启用可补全，见缺失项"
     return "未启用；Bot 对话需 Sand Stream 补丁才会走 InferenceService/Stream"
@@ -1575,6 +1916,8 @@ def _status_payload(
             "L4": {"rpcRewrite": hits.get("rpcRewrite") or 0, "streamWrap": hits.get("streamWrap") or 0},
             "L5": {"moveExec": hits.get("moveExec") or 0},
             "L6": {key: hits.get(key) or 0 for key in L6_HIT_KEYS},
+            "L7": {key: hits.get(key) or 0 for key in L7_HIT_KEYS},
+            "L8": {key: hits.get(key) or 0 for key in L8_HIT_KEYS},
         },
     }
 
