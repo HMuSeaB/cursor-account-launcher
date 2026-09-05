@@ -208,3 +208,23 @@ def test_find_gateway_extensions(tmp_path, monkeypatch):
     assert found["yc"] == ["local.cursor-yc-3.4.9"]
     assert found["sub2api"] == ["henxinfwq.sub2api-cursor-0.2.97"]
     assert found["other"] == ["bajie.bajie-chat-0.7.31"]
+
+
+def test_run_full_diagnostic_reuses_cache(monkeypatch):
+    from launcher.workbench import diagnostic as diag
+
+    diag.reset_diagnostic_cache()
+    calls = {"n": 0}
+
+    def fake_collect():
+        calls["n"] += 1
+        return {"ok": True, "n": calls["n"]}
+
+    monkeypatch.setattr(diag, "_collect_full_diagnostic", fake_collect)
+    first = diag.run_full_diagnostic(force=False)
+    second = diag.run_full_diagnostic(force=False)
+    assert calls["n"] == 1
+    assert first == second
+    forced = diag.run_full_diagnostic(force=True)
+    assert calls["n"] == 2
+    assert forced["n"] == 2

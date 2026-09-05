@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import time
 from pathlib import Path
 
 from launcher.cursor_process import _load_config, update_config
@@ -85,7 +86,15 @@ def _icon_location(target: Path) -> str:
     return f"{target},0"
 
 
+_FOLDER_TTL = 120.0
+_folder_cache: dict[str, tuple[float, Path | None]] = {}
+
+
 def _folder(kind: str) -> Path | None:
+    now = time.monotonic()
+    hit = _folder_cache.get(kind)
+    if hit and (now - hit[0]) < _FOLDER_TTL:
+        return hit[1]
     r = run_hidden(
         ["powershell", "-NoProfile", "-Command", f"[Environment]::GetFolderPath('{kind}')"],
         capture_output=True,
@@ -96,10 +105,10 @@ def _folder(kind: str) -> Path | None:
         check=False,
     )
     text = (r.stdout or "").strip()
-    if not text:
-        return None
-    path = Path(text)
-    return path if path.is_dir() else None
+    path = Path(text) if text else None
+    found = path if path and path.is_dir() else None
+    _folder_cache[kind] = (now, found)
+    return found
 
 
 def desktop_dir() -> Path | None:
@@ -161,7 +170,8 @@ def _create_link(link: Path, target: Path) -> None:
         raise RuntimeError(err or f"powershell 退出码 {result.returncode}")
 
 
-def _notify_shell(paths: list[Path]) -> None:
+def _notify_shell(paths: list[Path], *, rebuild: bool = False) -> None:
+    """只通知被改过的 .lnk。ASSOCCHANGED+FLUSH 会让资源管理器重建整份图标缓存，窗口拖起来会卡。"""
     if sys.platform != "win32" or not paths:
         return
     import ctypes
@@ -170,20 +180,21 @@ def _notify_shell(paths: list[Path]) -> None:
     shcne_updateitem = 0x00002000
     shcne_assocchanged = 0x08000000
     shcnf_pathw = 0x0005
-    shcnf_flush = 0x1000
     shcnf_idlist = 0x0000
     for path in paths:
         try:
             shell32.SHChangeNotify(
                 shcne_updateitem,
-                shcnf_pathw | shcnf_flush,
+                shcnf_pathw,
                 ctypes.c_wchar_p(str(path)),
                 None,
             )
         except Exception:
             continue
+    if not rebuild:
+        return
     try:
-        shell32.SHChangeNotify(shcne_assocchanged, shcnf_idlist | shcnf_flush, None, None)
+        shell32.SHChangeNotify(shcne_assocchanged, shcnf_idlist, None, None)
     except Exception:
         pass
 
@@ -238,7 +249,7 @@ def create_shortcuts(*, desktop: bool = False, start_menu: bool = False) -> dict
             _create_link(dest, exe)
             written.append(dest)
             made.append("开始菜单")
-        _notify_shell(written + [exe])
+        _notify_shell(written)
     except Exception as exc:
         return {"ok": False, "error": str(exc), **shortcut_status()}
     update_config(shortcutPrompted=True)
@@ -248,8 +259,12 @@ def create_shortcuts(*, desktop: bool = False, start_menu: bool = False) -> dict
     return status
 
 
-def refresh_shortcut_icons() -> dict:
-    """覆盖已有 .lnk 的 IconLocation，让桌面跟上当前版本图标。"""
+def refresh_shortcut_icons(*, force: bool = False) -> dict:
+    """覆盖已有 .lnk 的 IconLocation。force=False 时同一版本只做一次，且不重建整份图标缓存。"""
+    ver = _version_slug()
+    cfg = _load_config()
+    if not force and str(cfg.get("iconShortcutVersion") or "") == ver:
+        return {"ok": True, "updated": 0, "skipped": True, "reason": "already current"}
     exe = launcher_exe()
     if not exe:
         return {"ok": True, "updated": 0, "skipped": True}
@@ -259,7 +274,8 @@ def refresh_shortcut_icons() -> dict:
         for link in _iter_existing_links():
             _create_link(link, exe)
             updated.append(str(link))
-        _notify_shell([Path(p) for p in updated] + [exe])
+        _notify_shell([Path(p) for p in updated], rebuild=force)
+        update_config(iconShortcutVersion=ver)
     except Exception as exc:
         return {"ok": False, "error": str(exc), "updated": len(updated), "icon": str(ico) if ico else ""}
     return {

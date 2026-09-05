@@ -88,7 +88,7 @@ html[data-theme="dark"] body {
 .shell {
   max-width: 1180px;
   margin: 0 auto;
-  padding: 20px 18px 32px;
+  padding: 20px 18px 76px;
   display: grid;
   gap: 14px;
 }
@@ -408,6 +408,8 @@ html[data-theme="dark"] .pill.warn {
   margin-top: 8px;
   font-family: var(--mono);
   font-size: 11px;
+  max-height: 9em;
+  overflow: auto;
 }
 
 .accounts-wrap { width: 100%; }
@@ -511,7 +513,27 @@ html[data-theme="dark"] .pill.warn {
 html[data-theme="dark"] .tag.ultra { background: rgba(4,120,87,.18); color: #6ee7b7; border-color: rgba(110,231,183,.25); }
 html[data-theme="dark"] .tag.pro { background: rgba(37,99,235,.2); color: #93c5fd; border-color: rgba(147,197,253,.28); }
 html[data-theme="dark"] .tag.trial { background: rgba(180,83,9,.2); color: #fcd34d; border-color: rgba(252,211,77,.28); }
-html[data-theme="dark"] .tag.custom { background: rgba(109,40,217,.22); color: #c4b5fd; border-color: rgba(196,181,253,.28); }
+.tag.machine {
+  text-transform: none;
+  font-family: var(--mono);
+  font-weight: 600;
+  letter-spacing: 0;
+  font-size: 10px;
+  max-width: 18ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tag.machine.warn {
+  background: #fff7ed;
+  color: #c2410c;
+  border-color: rgba(194, 65, 12, 0.2);
+}
+html[data-theme="dark"] .tag.machine.warn {
+  background: rgba(194, 65, 12, 0.2);
+  color: #fdba74;
+  border-color: rgba(253, 186, 116, 0.28);
+}
 
 .acc-sub, .acc-stats { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.45; }
 
@@ -829,7 +851,46 @@ html[data-theme="dark"] .btn.danger {
   border-radius: var(--radius-sm);
 }
 
-.settings-fold { padding: 14px 16px 16px; }
+.settings-fold {
+  padding: 10px 16px;
+}
+.settings-fold:not([open]) {
+  position: fixed;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  width: min(1180px, calc(100vw - 36px));
+  z-index: 20;
+}
+.settings-fold[open] {
+  position: fixed;
+  inset: 0;
+  left: 0;
+  bottom: 0;
+  transform: none;
+  width: auto;
+  max-width: none;
+  height: 100%;
+  z-index: 40;
+  margin: 0;
+  padding: 12px 16px 16px;
+  border-radius: 0;
+  overflow: hidden;
+  box-shadow: none;
+}
+html.settings-open,
+html.settings-open body {
+  overflow: hidden;
+  height: 100%;
+}
+body.settings-open .shell {
+  padding: 0;
+  max-width: none;
+  gap: 0;
+}
+body.settings-open .shell > :not(.settings-fold) {
+  display: none !important;
+}
 .settings-fold summary {
   cursor: pointer;
   font-weight: 650;
@@ -840,9 +901,26 @@ html[data-theme="dark"] .btn.danger {
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
+  flex-shrink: 0;
 }
 .settings-fold summary::-webkit-details-marker { display: none; }
-.settings-fold[open] summary { margin-bottom: 14px; }
+.settings-fold[open] summary { margin-bottom: 10px; }
+.settings-fold[open] .settings-fold-title::after {
+  content: " · 点击收起";
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--muted);
+}
+.settings-sheet {
+  display: none;
+}
+.settings-fold[open] .settings-sheet {
+  display: block;
+  height: calc(100% - 44px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
 .settings-fold-meta {
   font-weight: 500;
   font-size: 12px;
@@ -882,6 +960,20 @@ html[data-theme="dark"] .btn.danger {
 .settings-panel .btn { justify-self: start; margin-top: 2px; }
 .settings-panel .mini { margin-top: 0; }
 .settings-span { grid-column: 1 / -1; }
+details.settings-panel > summary.settings-title {
+  cursor: pointer;
+  list-style: none;
+}
+details.settings-panel > summary.settings-title::-webkit-details-marker { display: none; }
+details.settings-panel > summary.settings-title::after {
+  content: " · 展开";
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--muted);
+}
+details.settings-panel[open] > summary.settings-title::after {
+  content: " · 收起";
+}
 
 .sand-head {
   display: flex;
@@ -1152,7 +1244,6 @@ html[data-theme="dark"] .sand-layer.is-partial {
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--card, var(--bg-elevated));
-  box-shadow: 0 1px 0 var(--border);
 }
 .ide-gate-main { min-width: 0; flex: 1; }
 .ide-gate-main strong { display: block; font-size: 13px; margin-bottom: 2px; }

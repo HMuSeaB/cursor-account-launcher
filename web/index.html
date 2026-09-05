@@ -120,9 +120,10 @@
 
     <details class="card settings-fold">
       <summary>
-        <span>设置与补丁</span>
+        <span class="settings-fold-title">设置与补丁</span>
         <span class="settings-fold-meta" id="settingsMeta"></span>
       </summary>
+      <div class="settings-sheet">
       <div class="ide-gate" id="ideGate" data-state="unknown" aria-live="polite">
         <div class="ide-gate-main">
           <strong id="ideGateTitle">检测 IDE 状态…</strong>
@@ -139,7 +140,7 @@
           <p class="hint settings-hint">YC 原生：自己的号、模型多、可开 Sand。Sub2API：窄模型墙。同一时间只应打一套。</p>
           <ol class="wb-checklist" id="wbChecklist" aria-live="polite"></ol>
           <div class="wb-incidents" id="wbIncidents" hidden></div>
-          <p class="wb-next-hint" id="wbNextHint">打开设置后自动扫描…</p>
+          <p class="wb-next-hint" id="wbNextHint">点刷新可重新扫描补丁状态</p>
           <div class="guard-actions">
             <button type="button" class="btn ghost" id="btnWbDiagRefresh">刷新</button>
             <button type="button" class="btn ghost" id="btnWbDiagFix500k" data-needs-closed hidden>启用 500k</button>
@@ -151,11 +152,14 @@
             <ul class="wb-diag-recs" id="wbDiagRecs"></ul>
             <pre class="mini" id="wbDiagInfo">—</pre>
           </details>
-          <div class="crash-box" id="crashDiagBox">
-            <strong id="crashHeadline">崩溃原因</strong>
-            <p class="hint settings-hint" id="crashAdvice">打开设置后会读 Cursor 日志，判断是不是刚装的插件把 IDE 打崩了。</p>
-            <ul class="wb-diag-recs" id="crashFindings"></ul>
-          </div>
+          <details class="adv-fold">
+            <summary>崩溃日志</summary>
+            <div class="crash-box" id="crashDiagBox">
+              <strong id="crashHeadline">崩溃原因</strong>
+              <p class="hint settings-hint" id="crashAdvice">点「刷新」会读 Cursor 日志，判断是不是刚装的插件把 IDE 打崩了。</p>
+              <ul class="wb-diag-recs" id="crashFindings"></ul>
+            </div>
+          </details>
         </section>
         <section class="settings-panel settings-span" id="sandStreamPanel">
           <div class="sand-head">
@@ -185,8 +189,8 @@
             <ul class="sand-layers" id="sandStreamLayers"></ul>
           </details>
         </section>
-        <section class="settings-panel">
-          <h3 class="settings-title">网络代理</h3>
+        <details class="settings-panel">
+          <summary class="settings-title">网络代理</summary>
           <label class="check-row"><input type="checkbox" id="proxyEnabled" /> 开代理（settings / 环境变量）</label>
           <label class="field-label" for="proxyRoute">你的 Cursor 是哪种？</label>
           <select id="proxyRoute" aria-label="路由模式">
@@ -217,9 +221,9 @@
             </div>
           </details>
           <pre class="mini" id="proxyDetectInfo">检测中…</pre>
-        </section>
-        <section class="settings-panel">
-          <h3 class="settings-title">Cursor 安装路径</h3>
+        </details>
+        <details class="settings-panel">
+          <summary class="settings-title">Cursor 安装路径</summary>
           <label class="field-label" for="cursorPath">可执行文件</label>
           <input id="cursorPath" spellcheck="false" placeholder="留空则自动检测 Cursor.exe" />
           <button type="button" class="btn" id="btnSavePath">保存路径</button>
@@ -232,7 +236,7 @@
           <pre class="mini" id="updateInfo">—</pre>
           <p class="hint settings-hint">右上角三条杠：轻量启动、削减内存、关闭 IDE、压缩状态库。顶栏状态可点一下削减内存。</p>
           <pre class="mini" id="cursorInfo">—</pre>
-        </section>
+        </details>
         <section class="settings-panel" id="shortcutPanel" hidden>
           <h3 class="settings-title">快捷方式</h3>
           <p class="hint settings-hint">放到桌面或开始菜单。换版本后若桌面还是旧图标，点「刷新图标」（Windows 会缓存 .lnk）。</p>
@@ -281,6 +285,7 @@
             </details>
           </details>
         </section>
+      </div>
       </div>
     </details>
   </div>

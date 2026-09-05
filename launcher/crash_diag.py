@@ -225,6 +225,10 @@ def summarize_crash(
     }
 
 
+_MAX_LOG_FILES = 8
+_MAX_LOG_BYTES = 400_000
+
+
 def _iter_log_files(root: Path, *, sessions: int = 3) -> list[Path]:
     if not root.is_dir():
         return []
@@ -237,10 +241,11 @@ def _iter_log_files(root: Path, *, sessions: int = 3) -> list[Path]:
     for folder in dirs:
         for path in folder.rglob("*.log"):
             files.append(path)
-    return files
+    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return files[:_MAX_LOG_FILES]
 
 
-def _read_tail(path: Path, max_bytes: int = 1_500_000) -> str:
+def _read_tail(path: Path, max_bytes: int = _MAX_LOG_BYTES) -> str:
     try:
         size = path.stat().st_size
         with path.open("rb") as handle:

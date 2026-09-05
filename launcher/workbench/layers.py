@@ -90,60 +90,80 @@ class LayerScan:
         }
 
 
-def scan_sub2api(text: str) -> tuple[int, str, int]:
+def scan_sub2api_bytes(data: bytes) -> tuple[int, str, int]:
     """Sub2API 改的是 cursorCreds / localhost 端口，不是 43111/__bajie。"""
-    hits = text.count(SUB2API_BRIDGE_MARKER)
-    markers = sum(text.count(marker) for marker in SUB2API_MARKERS)
-    found = SUB2API_ENDPOINT_RE.search(text or "")
-    endpoint = found.group(1) if found else ""
+    mark = SUB2API_BRIDGE_MARKER.encode("ascii")
+    hits = data.count(mark)
+    markers = sum(data.count(marker.encode("ascii")) for marker in SUB2API_MARKERS)
+    endpoint = ""
+    if hits:
+        idx = data.find(mark)
+        window = data[idx : idx + 320].decode("ascii", errors="ignore")
+        found = SUB2API_ENDPOINT_RE.search(window)
+        endpoint = found.group(1) if found else ""
     return hits, endpoint, markers
 
 
-def scan_content(text: str) -> LayerScan:
-    broken = text.count("hideMaxToggle:!1;" + MARKER_SHOW_MAX)
-    gateway = len(BAJIE_RE.findall(text))
-    sub2_hits, sub2_endpoint, sub2_markers = scan_sub2api(text)
+def scan_sub2api(text: str) -> tuple[int, str, int]:
+    """Sub2API 改的是 cursorCreds / localhost 端口，不是 43111/__bajie。"""
+    return scan_sub2api_bytes((text or "").encode("utf-8"))
+
+
+def scan_bytes(data: bytes) -> LayerScan:
+    if not data:
+        return LayerScan()
+    show_max_b = MARKER_SHOW_MAX.encode("ascii")
+    broken = data.count(b"hideMaxToggle:!1;" + show_max_b)
+    gateway = data.count(BAJIE_PREFIX.encode("ascii"))
+    sub2_hits, sub2_endpoint, sub2_markers = scan_sub2api_bytes(data)
     return LayerScan(
         gateway_hits=gateway,
         sub2api_hits=sub2_hits,
         sub2api_markers=sub2_markers,
         sub2api_endpoint=sub2_endpoint,
-        model_lock=text.count(MARKER_MODEL),
-        full_picker=text.count(MARKER_FULL),
-        treatment=text.count(MARKER_TREAT),
-        named_view=text.count(MARKER_NAMED),
-        catalog=text.count(MARKER_CATALOG),
-        mem_pro=text.count(MARKER_MEM),
-        max_mode=text.count(MARKER_MAX),
-        show_max=text.count(MARKER_SHOW_MAX),
-        fetch_spoof=text.count(MARKER_FETCH),
+        model_lock=data.count(MARKER_MODEL.encode("ascii")),
+        full_picker=data.count(MARKER_FULL.encode("ascii")),
+        treatment=data.count(MARKER_TREAT.encode("ascii")),
+        named_view=data.count(MARKER_NAMED.encode("ascii")),
+        catalog=data.count(MARKER_CATALOG.encode("ascii")),
+        mem_pro=data.count(MARKER_MEM.encode("ascii")),
+        max_mode=data.count(MARKER_MAX.encode("ascii")),
+        show_max=data.count(show_max_b),
+        fetch_spoof=data.count(MARKER_FETCH.encode("ascii")),
         broken_show_max=broken,
     )
+
+
+def scan_content(text: str) -> LayerScan:
+    return scan_bytes((text or "").encode("utf-8"))
+
+
+def _merge_scan(total: LayerScan, layer: LayerScan) -> None:
+    total.gateway_hits += layer.gateway_hits
+    total.sub2api_hits += layer.sub2api_hits
+    total.sub2api_markers += layer.sub2api_markers
+    if layer.sub2api_endpoint and not total.sub2api_endpoint:
+        total.sub2api_endpoint = layer.sub2api_endpoint
+    total.model_lock += layer.model_lock
+    total.full_picker += layer.full_picker
+    total.treatment += layer.treatment
+    total.named_view += layer.named_view
+    total.catalog += layer.catalog
+    total.mem_pro += layer.mem_pro
+    total.max_mode += layer.max_mode
+    total.show_max += layer.show_max
+    total.fetch_spoof += layer.fetch_spoof
+    total.broken_show_max += layer.broken_show_max
 
 
 def scan_files(files: list[Path]) -> LayerScan:
     total = LayerScan()
     for path in files:
         try:
-            text = path.read_text(encoding="utf-8", errors="ignore")
+            data = path.read_bytes()
         except OSError:
             continue
-        layer = scan_content(text)
-        total.gateway_hits += layer.gateway_hits
-        total.sub2api_hits += layer.sub2api_hits
-        total.sub2api_markers += layer.sub2api_markers
-        if layer.sub2api_endpoint and not total.sub2api_endpoint:
-            total.sub2api_endpoint = layer.sub2api_endpoint
-        total.model_lock += layer.model_lock
-        total.full_picker += layer.full_picker
-        total.treatment += layer.treatment
-        total.named_view += layer.named_view
-        total.catalog += layer.catalog
-        total.mem_pro += layer.mem_pro
-        total.max_mode += layer.max_mode
-        total.show_max += layer.show_max
-        total.fetch_spoof += layer.fetch_spoof
-        total.broken_show_max += layer.broken_show_max
+        _merge_scan(total, scan_bytes(data))
     return total
 
 

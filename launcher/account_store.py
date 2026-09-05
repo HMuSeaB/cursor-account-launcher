@@ -20,6 +20,25 @@ from .accounts import (
 from .token_utils import parse_token
 
 
+def canonical_machine_id(device_ids: dict | None) -> str:
+    """Desktop 身份优先 serviceMachineId / machineid 文件，其次 telemetry。"""
+    if not isinstance(device_ids, dict):
+        return ""
+    for key in ("serviceMachineId", "machineId", "telemetryMachineId"):
+        val = str(device_ids.get(key) or "").strip()
+        if val:
+            return val
+    return ""
+
+
+def short_machine_id(device_ids: dict | None, n: int = 12) -> str:
+    raw = canonical_machine_id(device_ids)
+    if not raw:
+        return ""
+    compact = raw.replace("-", "").replace("{", "").replace("}", "")
+    return compact[:n]
+
+
 def _has_ws_token(token: str | None) -> bool:
     text = str(token or "")
     return "::" in text or "%3a%3a" in text.lower()
@@ -151,7 +170,8 @@ class AccountStore(_BaseStore):
             if key in item:
                 out[key] = item[key]
         out["hasWsToken"] = _has_ws_token(item.get("token"))
-        out["hasDeviceIds"] = bool((item.get("deviceIds") or {}).get("machineId") or (item.get("deviceIds") or {}).get("serviceMachineId"))
+        out["hasDeviceIds"] = bool(canonical_machine_id(item.get("deviceIds")))
+        out["machineIdShort"] = short_machine_id(item.get("deviceIds"))
         out["hasRefreshToken"] = bool(item.get("refreshTokenEnc"))
         if include_token:
             raw = item.get("token") or ""

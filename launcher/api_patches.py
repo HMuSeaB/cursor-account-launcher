@@ -4,11 +4,13 @@ from __future__ import annotations
 
 
 class PatchesApiMixin:
-    def workbench_diagnostic(self) -> dict:
+    def workbench_diagnostic(self, force: bool = True) -> dict:
         from launcher.workbench.diagnostic import run_full_diagnostic
 
         try:
-            return run_full_diagnostic()
+            if isinstance(force, str):
+                force = force.strip().lower() not in ("0", "false", "no", "")
+            return run_full_diagnostic(force=bool(force))
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 

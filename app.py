@@ -10,7 +10,13 @@ import time
 
 import webview
 
-from launcher.account_store import AccountStore, SessionGuardStore, sort_account_rows
+from launcher.account_store import (
+    AccountStore,
+    SessionGuardStore,
+    canonical_machine_id,
+    short_machine_id,
+    sort_account_rows,
+)
 from launcher.ctxwin import ctxwin_apply as run_ctxwin_apply
 from launcher.ctxwin import ctxwin_restore as run_ctxwin_restore
 from launcher.ctxwin import ctxwin_status as read_ctxwin_status
@@ -64,6 +70,7 @@ from launcher.session_keep import merge_keep_ids, pick_auto_keep_sessions, sessi
 from launcher.local_cursor import (
     generate_fingerprint,
     peek_local_identity,
+    peek_local_machine_short,
     read_fingerprint,
     read_local_account,
     reset_machine_ids,
@@ -159,7 +166,47 @@ class Api(PatchesApiMixin):
         detail = self._store.get_detail(account_id)
         if not detail:
             return {"ok": False, "error": "账号不存在"}
+        local = read_fingerprint()
+        bound = canonical_machine_id(detail.get("deviceIds"))
+        live = canonical_machine_id(local)
+        detail["machineMatch"] = bool(bound and live and bound == live)
+        detail["localMachineShort"] = short_machine_id(local)
         return {"ok": True, "account": detail}
+
+    def rotate_account_machine(self, account_id: str) -> dict:
+        """生成新指纹并绑到该账号。若该号正是本机登录，立刻写入（需 IDE 已关）。"""
+        item = self._store.get(account_id)
+        if not item:
+            return {"ok": False, "error": "账号不存在"}
+        ident = peek_local_identity()
+        is_local = bool(ident.get("userId") and ident["userId"] == account_id)
+        if is_local and is_cursor_running():
+            return {"ok": False, "error": "请先关闭 IDE，再更换本机正在使用的机器码"}
+        ids = generate_fingerprint()
+        self._store.set_device_ids(account_id, ids)
+        wrote_local = False
+        if is_local:
+            result = write_fingerprint(ids)
+            if not result.get("ok"):
+                return {
+                    "ok": False,
+                    "error": "已保存到启动器，但写入本机失败：" + "；".join(result.get("errors") or []),
+                    "account": self._store.get_detail(account_id),
+                }
+            wrote_local = True
+        detail = self._store.get_detail(account_id)
+        if not detail:
+            return {"ok": False, "error": "绑定失败"}
+        live = canonical_machine_id(read_fingerprint())
+        bound = canonical_machine_id(detail.get("deviceIds"))
+        detail["machineMatch"] = bool(bound and live and bound == live)
+        detail["localMachineShort"] = short_machine_id(read_fingerprint())
+        return {
+            "ok": True,
+            "account": detail,
+            "wroteLocal": wrote_local,
+            "machineIdShort": short_machine_id(ids),
+        }
 
     def update_account(self, account_id: str, meta: dict) -> dict:
         updated = self._store.update_meta(
@@ -426,6 +473,7 @@ class Api(PatchesApiMixin):
                 "processCount": len(procs),
                 "localEmail": identity.get("email") or "",
                 "localUserId": identity.get("userId") or "",
+                "localMachineShort": peek_local_machine_short(),
                 "lastAccountId": str(_load_config().get("lastAccountId") or ""),
             }
         except Exception as exc:
@@ -435,6 +483,7 @@ class Api(PatchesApiMixin):
                 "running": is_cursor_running(),
                 "localEmail": identity.get("email") or "",
                 "localUserId": identity.get("userId") or "",
+                "localMachineShort": peek_local_machine_short(),
                 "lastAccountId": str(_load_config().get("lastAccountId") or ""),
             }
 
@@ -1101,9 +1150,9 @@ class Api(PatchesApiMixin):
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
-    def refresh_shortcut_icons(self) -> dict:
+    def refresh_shortcut_icons(self, force: bool = True) -> dict:
         try:
-            return refresh_shortcut_icon_links()
+            return refresh_shortcut_icon_links(force=bool(force))
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -1120,11 +1169,6 @@ def resource_path(rel: str) -> str:
 
 
 def main() -> None:
-    if launcher_is_frozen():
-        try:
-            refresh_shortcut_icon_links()
-        except Exception:
-            pass
     api = Api()
     geom = load_window_geom()
     window_kwargs = {
@@ -1145,6 +1189,22 @@ def main() -> None:
     )
     api._window = window
     attach_window_persistence(window)
+
+    def _kickoff_icon_refresh() -> None:
+        if not launcher_is_frozen():
+            return
+        thread = threading.Thread(
+            target=refresh_shortcut_icon_links,
+            kwargs={"force": False},
+            daemon=True,
+            name="shortcut-icon-refresh",
+        )
+        thread.start()
+
+    try:
+        window.events.loaded += lambda: _kickoff_icon_refresh()
+    except Exception:
+        pass
     webview.start()
 
 

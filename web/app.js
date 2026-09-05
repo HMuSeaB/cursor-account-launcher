@@ -325,6 +325,27 @@ function tokenDetailSection(a) {
   </div>`;
 }
 
+function machineDetailSection(a) {
+  const ids = a.deviceIds || {};
+  const full = String(ids.serviceMachineId || ids.machineId || ids.telemetryMachineId || "").trim();
+  const short = a.machineIdShort || full.replace(/[-{}]/g, "").slice(0, 12);
+  let status = "尚未绑定。下次切换此号时会写入当时的本机指纹。";
+  if (full) {
+    status = a.machineMatch ? "与本机当前机器码一致" : "与本机当前机器码不一致（切到此号才会写回绑定值）";
+  }
+  return `<div class="detail-section">
+    <div class="progress-head">
+      <strong>机器码</strong>
+      ${full ? `<button type="button" class="copy-link" data-copy="${esc(full)}">复制全文</button>` : ""}
+    </div>
+    <p class="hint" style="margin:6px 0 10px">${full ? `<span class="tag machine">${esc(short)}</span> ` : ""}${esc(status)}</p>
+    <div class="guard-actions">
+      <button type="button" class="btn" id="btnRotateMachine">更换机器码</button>
+    </div>
+    <p class="hint">更换会生成新 Desktop 指纹并绑到此账号。本机正在用这个号时需先关 IDE。</p>
+  </div>`;
+}
+
 function progressBlock(title, used, max, percent, colorClass, legend) {
   const p = pct(percent);
   return `<div class="detail-section"><div class="progress-head"><strong>${esc(title)}</strong><span>${esc(used)}</span></div><div class="progress-bar"><div class="progress-fill ${colorClass}" style="width:${p}%"></div></div>${legend ? `<div class="progress-legend">${legend}</div>` : ""}</div>`;
@@ -412,6 +433,12 @@ function renderAccountCard(a) {
   badges.push(`<span class="tag ${mClass}">${esc(membershipLabel(a.membershipType))}</span>`);
   if (hasWsToken(a)) badges.push('<span class="tag pro">WS</span>');
   else badges.push('<span class="tag custom">JWT</span>');
+  const machineShort = a.machineIdShort || "";
+  if (machineShort) {
+    const localShort = lastCursorStatus?.localMachineShort || "";
+    const mismatch = local && localShort && machineShort.toLowerCase() !== localShort.toLowerCase();
+    badges.push(`<span class="tag machine${mismatch ? " warn" : ""}" title="${mismatch ? "与本机当前机器码不一致" : "已绑定机器码"}">机器码 ${esc(machineShort)}</span>`);
+  }
   (a.tags || []).forEach((t) => badges.push(`<span class="tag custom">${esc(t)}</span>`));
   if (a.hasPassword) badges.push('<span class="tag">密码</span>');
   const expiry = a.proExpiryMs ? `周期至 ${fmtDate(a.proExpiryMs)} · ${daysLeft(a.proExpiryMs)}` : "周期未知";
@@ -1468,20 +1495,42 @@ async function runWbNext() {
   await refreshWbDiag();
 }
 
-async function refreshWbDiag() {
+let wbDiagInflight = null;
+
+async function refreshWbDiag(opts = {}) {
   if (!api()?.workbench_diagnostic) return;
-  const info = $("wbDiagInfo");
-  if (info) info.textContent = "正在扫描…";
-  try {
-    const res = await api().workbench_diagnostic();
-    paintWbDiag(res);
-    paintHealthBanner(res);
-  } catch (e) {
-    paintWbDiag({ ok: false, error: String(e) });
-    paintHealthBanner({ ok: false, error: String(e) });
+  const force = opts.force !== false;
+  const extras = opts.extras === true;
+  if (!force && lastWbDiag?.ok) {
+    paintHealthBanner(lastWbDiag);
+    return;
   }
-  refreshCrashDiag();
-  refreshLauncherUpdate();
+  if (wbDiagInflight) {
+    await wbDiagInflight;
+    if (!force) return;
+  }
+  const run = (async () => {
+    const info = $("wbDiagInfo");
+    if (info && force) info.textContent = "正在扫描…";
+    try {
+      const res = await api().workbench_diagnostic(force);
+      paintWbDiag(res);
+      paintHealthBanner(res);
+    } catch (e) {
+      paintWbDiag({ ok: false, error: String(e) });
+      paintHealthBanner({ ok: false, error: String(e) });
+    }
+    if (extras) {
+      refreshCrashDiag();
+      refreshLauncherUpdate();
+    }
+  })();
+  wbDiagInflight = run;
+  try {
+    await run;
+  } finally {
+    if (wbDiagInflight === run) wbDiagInflight = null;
+  }
 }
 
 function paintHealthBanner(res) {
@@ -1822,6 +1871,7 @@ function renderDetail(a) {
         <div class="k">最近刷新</div><div class="v">${esc(fmtTime(a.lastRefreshed))}</div><span></span>
       </div>
     </div>
+    ${machineDetailSection(a)}
     ${tokenDetailSection(a)}
     ${progressBlock("费用概览（近30天）", `$${Number(a.periodCostUsd || 0).toFixed(2)}`, "", Math.min(100, (a.periodCostUsd || 0) * 4), "pink", `<span>${a.requestCount30d || 0} 次请求</span>`)}
     ${progressBlock("套餐额度", `$${Number(a.costUsd || 0).toFixed(2)} / $${Number(a.costMaxUsd || 0).toFixed(2)}`, "", a.usagePct >= 0 ? a.usagePct : pct((a.costUsd / Math.max(a.costMaxUsd, 0.01)) * 100), "green", `<span>Auto ${pct(a.autoPercentUsed)}%</span><span>API ${pct(a.apiPercentUsed)}%</span>${a.giftUsd ? `<span>赠送 $${a.giftUsd}</span>` : ""}`)}
@@ -1836,6 +1886,18 @@ function renderDetail(a) {
   if (modelUsageCache[a.id]) {
     renderModelUsagePanel(modelUsageCache[a.id]);
   }
+}
+
+async function rotateMachine() {
+  if (!detailAccountId || !api()?.rotate_account_machine) return;
+  if (!confirm("更换后此账号绑定新的 Desktop 机器码，旧设备会话可能还在。确定？")) return;
+  toast("正在更换机器码…");
+  const res = await api().rotate_account_machine(detailAccountId);
+  if (!res.ok) return toast(res.error || "更换失败");
+  toast(res.wroteLocal ? "已写入本机并绑定" : "已绑定，下次切换此号时生效");
+  if (res.account) renderDetail(res.account);
+  await renderAccounts();
+  await refreshCursorStatus();
 }
 
 async function saveDetailMeta() {
@@ -2248,7 +2310,7 @@ function startStatusWatch() {
   clearInterval(startStatusWatch._t);
   startStatusWatch._t = setInterval(() => {
     if (document.hidden || !api()) return;
-    refreshCursorStatus();
+    refreshCursorStatus({ update: false });
   }, 8000);
 }
 
@@ -2478,8 +2540,8 @@ if ($("btnSandStreamApplyStream")) $("btnSandStreamApplyStream").onclick = () =>
 if ($("btnSandStreamRestore")) $("btnSandStreamRestore").onclick = () => runSandStream("restore");
 if ($("btnSandStreamRefresh")) $("btnSandStreamRefresh").onclick = () => refreshSandStream();
 if ($("sandIncludeSubagent")) $("sandIncludeSubagent").onchange = () => refreshSandStream();
-if ($("btnWbDiagRefresh")) $("btnWbDiagRefresh").onclick = () => refreshWbDiag();
-if ($("btnHealthRefresh")) $("btnHealthRefresh").onclick = () => refreshWbDiag();
+if ($("btnWbDiagRefresh")) $("btnWbDiagRefresh").onclick = () => refreshWbDiag({ extras: true });
+if ($("btnHealthRefresh")) $("btnHealthRefresh").onclick = () => refreshWbDiag({ extras: true });
 if ($("btnAutofix")) $("btnAutofix").onclick = () => runAutofix();
 if ($("btnRestoreGateway")) $("btnRestoreGateway").onclick = () => runRestoreGateway();
 if ($("btnWbDiagFix500k")) $("btnWbDiagFix500k").onclick = () => runWbDiagFix500k();
@@ -2533,17 +2595,27 @@ $("shortcutDialog")?.addEventListener("cancel", () => {
   try { api()?.skip_shortcut_prompt(); } catch {}
 });
 document.querySelector(".settings-fold")?.addEventListener("toggle", (ev) => {
-  if (ev.target.open) {
-    refreshWbDiag();
-    refreshCtxwin();
-    refreshShortcutStatus();
-    refreshUpdateStatus();
+  const open = Boolean(ev.target.open);
+  document.documentElement.classList.toggle("settings-open", open);
+  document.body.classList.toggle("settings-open", open);
+  if (open) {
+    refreshWbDiag({ force: false });
   }
+});
+document.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Escape") return;
+  if (document.querySelector("dialog.modal[open]")) return;
+  const fold = document.querySelector(".settings-fold");
+  if (fold?.open) fold.open = false;
 });
 $("detailBody").addEventListener("click", (ev) => {
   if (ev.target.id === "btnLoadModelUsage") {
     ev.preventDefault();
     loadModelUsage(ev.target.textContent === "刷新");
+  }
+  if (ev.target.id === "btnRotateMachine") {
+    ev.preventDefault();
+    rotateMachine();
   }
 });
 $("detailClose").onclick = closeDetailDialog;
@@ -2658,7 +2730,7 @@ async function boot() {
     paintSettingsMeta(lastCursorStatus);
     startStatusWatch();
     await maybePromptShortcuts();
-    refreshWbDiag();
+    refreshWbDiag({ extras: false });
     refreshLauncherUpdate();
   } catch (e) {
     const pill = $("loginPill");

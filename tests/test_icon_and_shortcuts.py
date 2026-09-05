@@ -44,7 +44,38 @@ def test_icon_location_prefers_versioned_file(tmp_path, monkeypatch):
     assert "CursorLauncher.exe,0" not in loc
 
 
-def test_icon_assets_exist():
+def test_refresh_skips_when_version_already_recorded(tmp_path, monkeypatch):
+    from launcher.cursor_process import update_config
+    from launcher.shortcuts import refresh_shortcut_icons
+    from launcher.versioning import LAUNCHER_VERSION
+
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    (tmp_path / "CursorLauncher").mkdir()
+    update_config(iconShortcutVersion=LAUNCHER_VERSION)
+    res = refresh_shortcut_icons(force=False)
+    assert res["ok"] is True
+    assert res.get("skipped") is True
+    assert res.get("updated") == 0
+
+
+def test_notify_shell_skips_rebuild_by_default(monkeypatch):
+    import ctypes
+
+    from launcher.shortcuts import _notify_shell
+
+    calls = []
+
+    class FakeShell:
+        def SHChangeNotify(self, event, flags, item, extra):
+            calls.append(event)
+
+    fake = type("Windll", (), {"shell32": FakeShell()})()
+    monkeypatch.setattr(ctypes, "windll", fake)
+    _notify_shell([Path("C:/tmp/x.lnk")], rebuild=False)
+    assert calls == [0x00002000]
+    calls.clear()
+    _notify_shell([Path("C:/tmp/x.lnk")], rebuild=True)
+    assert calls == [0x00002000, 0x08000000]
     ico = ROOT / "assets" / "icon.ico"
     png = ROOT / "assets" / "icon.png"
     web = ROOT / "web" / "icon.png"

@@ -447,10 +447,16 @@ def classic_launch_status(command_lines: list[str] | None = None) -> dict:
                 "lost": False,
                 "sampled": 0,
             }
+        mains_found = 0
         for proc in list_cursor_processes():
             line = _win_command_line(int(proc.get("pid") or 0))
-            if line:
-                sampled.append(line)
+            if not line:
+                continue
+            sampled.append(line)
+            if _is_main_cursor_cmd(line):
+                mains_found += 1
+                if mains_found >= 2:
+                    break
     else:
         sampled = [line for line in command_lines if line]
         running = True

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 
 from launcher.ctxwin import ctxwin_status
@@ -426,7 +427,30 @@ def _recommendations(
     return recs
 
 
-def run_full_diagnostic() -> dict:
+_DIAG_TTL = 45.0
+_diag_cache: dict = {"at": 0.0, "report": None}
+
+
+def reset_diagnostic_cache() -> None:
+    _diag_cache["at"] = 0.0
+    _diag_cache["report"] = None
+
+
+def run_full_diagnostic(*, force: bool = True) -> dict:
+    """force=False 时 45 秒内复用上次结果，避免展开设置再扫两遍 40MB+ workbench。"""
+    if not force:
+        cached = _diag_cache.get("report")
+        age = time.monotonic() - float(_diag_cache.get("at") or 0)
+        if cached and cached.get("ok") and age < _DIAG_TTL:
+            return cached
+    report = _collect_full_diagnostic()
+    if report.get("ok"):
+        _diag_cache["at"] = time.monotonic()
+        _diag_cache["report"] = report
+    return report
+
+
+def _collect_full_diagnostic() -> dict:
     running = is_cursor_running()
     try:
         layout, app_root, files = resolve_layout()
@@ -454,12 +478,10 @@ def run_full_diagnostic() -> dict:
     proxy_live = read_current_proxy()
     backup = wb_backup.backup_status(files)
 
-    from launcher.bajie_route import detect_patch
     from launcher.cursor_process import classic_launch_status
     from launcher.cursor_update import read_update_status
 
     update_st = read_update_status(layout.install_root)
-    gw_detect = detect_patch(layout.install_root)
     ext_map = find_gateway_extensions()
     wall = explain_model_wall(
         gateway_hits=int(scan.gateway_hits or 0),
@@ -469,7 +491,7 @@ def run_full_diagnostic() -> dict:
         upgraded=bool(upgrade.get("needsRepatch") or upgrade.get("upgraded")),
         previous_version=str(upgrade.get("previousVersion") or ""),
         current_version=str(layout.version or ""),
-        has_bajie_backup=bool(backup.get("hasLegacyBajie") or gw_detect.get("hasBackup")),
+        has_bajie_backup=bool(backup.get("hasLegacyBajie")),
         extensions=ext_map,
         updates_blocked=bool(update_st.get("settingsBlocked") or update_st.get("innoUpdaterDisabled")),
     )

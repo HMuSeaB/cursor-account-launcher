@@ -174,11 +174,11 @@ def find_best_legacy_clean() -> Path | None:
         desktop = entry / "workbench.desktop.main.js"
         if not desktop.is_file():
             continue
-        text = desktop.read_text(encoding="utf-8", errors="ignore")
-        if text.count(MARKER_MEM) > MAX_MEM_INJECT:
+        raw = desktop.read_bytes()
+        if raw.count(MARKER_MEM.encode("ascii")) > MAX_MEM_INJECT:
             continue
-        head = text[:80].lstrip()
-        if head.startswith("/*!") or head.startswith("(function"):
+        head = raw[:80].lstrip()
+        if head.startswith(b"/*!") or head.startswith(b"(function"):
             return entry
     return None
 
@@ -189,7 +189,8 @@ def backup_status(files: list[Path]) -> dict:
     has_official = any((off / p.name).is_file() for p in files)
     has_bajie = any((legacy["bajie"] / p.name).is_file() for p in files)
     snapshots = list_snapshots(limit=5)
-    best_legacy = find_best_legacy_clean()
+    # official 已在时不必整文件扫旧 40MB 备份
+    best_legacy = None if has_official else find_best_legacy_clean()
     return {
         "storeRoot": str(store_root()),
         "hasOfficial": has_official,

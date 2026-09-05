@@ -54,3 +54,17 @@ def test_summarize_prefers_named_extension_over_generic():
     assert summary["ok"] is True
     assert summary["likely"][0]["kind"] == "extension_activate_fail"
     assert "publisher.broken" in summary["headline"]
+
+
+def test_diagnose_caps_log_files(tmp_path):
+    from launcher.crash_diag import diagnose
+
+    logs = tmp_path / "logs" / "2026-09-05T00"
+    logs.mkdir(parents=True)
+    ext = tmp_path / "ext"
+    ext.mkdir()
+    for i in range(20):
+        (logs / f"window{i}.log").write_text("ok\n", encoding="utf-8")
+    res = diagnose(logs_dir=tmp_path / "logs", extensions_dir=ext)
+    assert res["ok"] is True
+    assert len(res["logFiles"]) <= 8

@@ -68,6 +68,19 @@ def machineid_path() -> str:
     return os.path.join(cursor_root(), "machineid")
 
 
+def peek_local_machine_short(n: int = 12) -> str:
+    """只读 machineid 文件，给列表 pill 比对。不扫 sqlite，避免状态轮询卡住。"""
+    try:
+        path = machineid_path()
+        if not os.path.isfile(path):
+            return ""
+        mid = open(path, "r", encoding="utf-8").read().strip()
+        compact = mid.replace("-", "").replace("{", "").replace("}", "")
+        return compact[:n] if compact else ""
+    except Exception:
+        return ""
+
+
 def _decode_jwt_payload(jwt: str) -> dict:
     try:
         segment = jwt.split(".")[1]
