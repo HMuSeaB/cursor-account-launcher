@@ -48,6 +48,8 @@ from launcher.sand_stream import (
     inspect_content_hits,
     remove_patch_from_content,
     resolve_patch_track,
+    SandLayout,
+    _build_install_plan,
 )
 
 
@@ -139,6 +141,8 @@ def test_direct_stream_injects_even_when_runinference_present():
     assert "supportsSelfSummary:!1" in patched
     assert "supportsSelfSummary:!0" not in patched
     assert patched.index(SAND_DIRECT_STREAM_MARKER) < patched.index("e.runInference(t)")
+    assert "isGrok46ProductPrompt" in patched
+    assert 'isGrok45ProductPrompt:i.includes("grok")&&!grok46' in patched
 
 
 def test_direct_stream_anchor_is_not_hardcoded_hre():
@@ -173,6 +177,8 @@ def test_strip_legacy_and_session_stream():
     assert SAND_SESSION_STREAM_MARKER not in patched
     assert 'if(!(e&&typeof e.runInference==="function")){' not in patched
     assert "(n.parameters||[])" in patched
+    assert "isGrok46ProductPrompt" in patched
+    assert patched.count(SAND_DIRECT_STREAM_MARKER) == 1
     restored, _ = remove_patch_from_content(patched)
     assert SAND_DIRECT_STREAM_MARKER not in restored
     assert SAND_SESSION_STREAM_MARKER not in restored
@@ -395,9 +401,41 @@ def test_bytes_may_need_sand_patch_skips_unrelated():
     from launcher.sand_stream import _bytes_may_have_sand_patch, _bytes_may_need_sand_patch
 
     assert _bytes_may_need_sand_patch(b"function hre(e){return 1}") is True
+    assert _bytes_may_need_sand_patch(
+        b"return t=>{return n=this,o=void 0,s=function*(){"
+    ) is True
+    assert _bytes_may_need_sand_patch(b"class J{constructor") is True
     assert _bytes_may_need_sand_patch(b"console.log(1)") is False
     assert _bytes_may_have_sand_patch(b"/*SAND_FOO_V1*/") is True
     assert _bytes_may_have_sand_patch(b"console.log(1)") is False
+
+
+def test_chunk_657_direct_stream_apply(tmp_path):
+    chunk = tmp_path / "657.js"
+    chunk.write_text(DIRECT_STREAM_ANCHOR + "yield 1;};};", encoding="utf-8")
+    layout = SandLayout(
+        install_root=tmp_path,
+        app_root=tmp_path,
+        product_json=tmp_path / "product.json",
+        executable=tmp_path / "Cursor.exe",
+        target_paths=(chunk,),
+        ext_host_path=None,
+        version="3.18.25",
+    )
+    pending, stats, _originals = _build_install_plan(
+        layout, profile="stream", include_subagent=False
+    )
+    assert chunk in pending
+    assert SAND_DIRECT_STREAM_MARKER in pending[chunk].decode("utf-8")
+    assert stats.direct_stream >= 1
+
+
+def test_empty_4884_does_not_block_full_ready():
+    src = _core_bundle() + _l6_bundle()
+    patched, _ = apply_patch_to_content(src, profile="full", include_subagent=True)
+    ready = classify_readiness(inspect_content_hits(patched), profile="full", include_subagent=True)
+    assert ready["fullReady"] is True
+    assert "4884" not in " ".join(ready["missing"])
 
 
 def test_resolve_patch_track_tested_318_builds():

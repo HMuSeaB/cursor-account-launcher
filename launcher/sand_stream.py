@@ -152,6 +152,10 @@ TARGET_SPECS: tuple[tuple[str, str | None], ...] = (
     ("extensions/cursor-always-local/dist/main.js", "cursor-always-local"),
     ("extensions/cursor-local-agent-runtime/dist/main.js", "cursor-local-agent-runtime"),
     ("extensions/cursor-agent-host/dist/main.js", "cursor-agent-host"),
+    ("extensions/cursor-agent-host/dist/657.js", None),
+    ("extensions/cursor-agent-host/dist/61.js", None),
+    ("extensions/cursor-agent-host/dist/675.js", None),
+    ("extensions/cursor-agent-host/dist/4884.js", None),
     ("extensions/cursor-agent-exec/dist/main.js", "cursor-agent-exec"),
 )
 AGENT_HOST_DIST_REL = "extensions/cursor-agent-host/dist"
@@ -164,6 +168,10 @@ _SAND_PATCH_HINTS = (
     b"x-cursor-client-type",
     b"isGlass",
     b"header.set",
+    b"return t=>{return n=this,o=void 0,s=function*(){",
+    b"class J{constructor",
+    b"promptModelInfo",
+    b'["Routed to "',
     b"function hre(",
     b"_agentHostEnabled",
     b"clientIdentity:{clientType",
@@ -774,12 +782,14 @@ def _joe_stream_session_js() -> str:
         'c=String(r.get("context")||"").toLowerCase(),'
         's=new Joe(e,n,void 0,void 0).getSession(),'
         'p={getExecutor:e=>new RK(s.getExecutor(e))},'
+        'grok46=i.includes("grok")&&(i.includes("4.6")||i.includes("grok46")),'
         'a={vendor:i.includes("grok")?"xai":i.includes("gemini")?"gemini":'
         'i.includes("claude")||i.includes("opus")||i.includes("sonnet")||i.includes("fable")?'
         '"anthropic":i.includes("gpt")||i.includes("codex")?"openai":"unknown",'
         'promptVersion:"latest",reasoningEffort:r.get("effort"),'
         'agentTokenLimit:c==="1m"?1e6:c==="300k"?3e5:c==="200k"?2e5:void 0,'
-        'isGrok45ProductPrompt:i.includes("grok"),'
+        'isGrok45ProductPrompt:i.includes("grok")&&!grok46,'
+        'isGrok46ProductPrompt:grok46,'
         'isClaude4x:i.includes("claude")||i.includes("opus")||i.includes("sonnet")||i.includes("fable"),'
         'isFable5:i.includes("fable-5"),'
         'isOpus5:i.includes("opus-5")||i.includes("opus5"),'
