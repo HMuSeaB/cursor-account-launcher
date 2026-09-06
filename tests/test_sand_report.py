@@ -93,7 +93,8 @@ def test_l1_without_agent_host_is_package_absent():
 def test_upgrade_advice_older_than_anchor():
     data = evaluate_compat([], cursor_version="3.12.30")
     assert data["upgrade"]["relation"] == "older"
-    assert ANCHOR_VERSION in data["upgrade"]["advice"]
+    assert data["patchTrack"] == "other"
+    assert "3.18" in data["upgrade"]["advice"]
     assert "网关" in data["upgrade"]["advice"]
 
 
@@ -175,13 +176,25 @@ def test_adjust_compat_stream_marks_l5_l6_optional():
     assert _rule(no_l6, "taskTool")["optional"] is True
 
 
-def test_version_hint_against_anchor():
+def test_version_hint_matches_tested_builds():
+    for ver in ("3.18.9", "3.18.25", "3.19.13"):
+        data = evaluate_compat([], cursor_version=ver)
+        assert data["versionOk"] is True
+        assert data["versionHint"] == ""
+        assert data["upgrade"]["relation"] == "match"
     old = evaluate_compat([], cursor_version="2.0.0")
     assert old["versionOk"] is False
-    assert ANCHOR_VERSION in old["versionHint"]
-    current = evaluate_compat([], cursor_version=ANCHOR_VERSION)
-    assert current["versionOk"] is True
-    assert current["versionHint"] == ""
+    assert old["upgrade"]["relation"] == "older"
+    current_318 = evaluate_compat([], cursor_version=ANCHOR_VERSION)
+    assert current_318["versionOk"] is True
+    assert current_318["versionHint"] == ""
+    untested = evaluate_compat([], cursor_version="3.18.30")
+    assert untested["versionOk"] is False
+    assert untested["upgrade"]["relation"] == "same-track"
+    assert "同族未测" in untested["versionHint"]
+    v319 = evaluate_compat([], cursor_version="3.19.13")
+    assert v319["patchTrack"] == "3.19"
+    assert "3.19.13" in v319["anchorVersion"]
 
 
 def test_agent_ide_pending_then_applied():

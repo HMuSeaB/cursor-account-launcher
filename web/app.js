@@ -1207,7 +1207,11 @@ function paintSandStream(res) {
   if (hintEl) {
     const bits = [
       compat.cursorVersion ? `本机 Cursor v${compat.cursorVersion}` : "",
-      compat.anchorVersion ? `锚点 ${compat.anchorVersion}` : "",
+      compat.patchTrack
+        ? (compat.testedBuild
+          ? `补丁轨 ${compat.patchTrack}（已测 ${compat.anchorVersion || ""}）`
+          : `补丁轨 ${compat.patchTrack}`)
+        : "",
       compat.versionHint || "",
       (compat.headerLayers && compat.headerLayers.hint) || "",
     ].filter(Boolean);

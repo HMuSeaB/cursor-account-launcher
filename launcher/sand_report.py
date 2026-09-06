@@ -16,7 +16,8 @@ from launcher.sand_stream import (
     AGENT_HOST_IDENTITY_ORIGINAL,
     AGENT_HOST_MOVE_EXEC_ORIGINAL,
     AGENT_IDE_INJECT_RE,
-    ANCHOR_VERSION,
+    resolve_patch_track,
+    track_anchor_label,
     DIRECT_STREAM_ANCHOR_RE,
     ELIGIBILITY_PREFIXES,
     HEADER_SET_SIMPLE_RE,
@@ -79,7 +80,7 @@ MISS_LABEL = {
     "feature_absent": "版本没有",
 }
 
-MISSING_FIX = f"当前 Cursor 不是 {ANCHOR_VERSION}，或这个构建里压缩名变了，这条打不上。"
+MISSING_FIX = "当前 Cursor 不在已测补丁轨，或这个构建里压缩名变了，这条打不上。"
 PENDING_FIX = "关 IDE 后重新启用即可补上。"
 RPC_STALE_FIX = (
     "旧 RPC 会把目录请求也改成 sand，关 IDE 后重新启用 Grok Bot 会换成带目录守卫的片段。"
@@ -104,8 +105,14 @@ HEADER_LAYER_HINT = (
     "出站伪装看 HDRFIX/RPC/指纹；回包伪装看完整解锁，不要点 Grok Bot 去补会员 fetch。"
 )
 MISS_FIX = {
-    "package_absent": f"这个安装里没有对应的包（例如 3.12 没有 cursor-agent-host）。装 Cursor {ANCHOR_VERSION} 后再打。",
-    "shape_changed": f"相关代码还在，但和 {ANCHOR_VERSION} 压缩名对不上。不要硬打；升到锚点版本，或等启动器更新锚点。",
+    "package_absent": (
+        "这个安装里没有对应的包（例如 3.12 没有 cursor-agent-host）。"
+        f"装 Cursor {track_anchor_label('3.18')} 后再打。"
+    ),
+    "shape_changed": (
+        "相关代码还在，但和当前补丁轨压缩名对不上。不要硬打；"
+        "升到已测版本，或等启动器更新锚点。"
+    ),
     "feature_absent": "这个构建里没有这项功能，不是漏扫。",
 }
 
@@ -550,32 +557,52 @@ def _ver_tuple(version: str) -> tuple[int, int, int]:
     return nums[0], nums[1], nums[2]
 
 
-def _upgrade_advice(cursor_version: str) -> dict[str, Any]:
+def _upgrade_advice(cursor_version: str, sample: str = "") -> dict[str, Any]:
+    resolved = resolve_patch_track(cursor_version, sample)
     local = (cursor_version or "").strip()
-    lv, av = _ver_tuple(local), _ver_tuple(ANCHOR_VERSION)
-    if not local:
-        relation = "unknown"
-        advice = f"没读到 Cursor 版本。Grok Bot 锚点按 {ANCHOR_VERSION}。"
-    elif lv < av:
-        relation = "older"
-        advice = (
-            f"本机 v{local} 比锚点 {ANCHOR_VERSION} 旧，3.12 也没有 cursor-agent-host，L1 工具链打不上。"
-            f"不要用 IDE 自动更新。正确顺序：禁用自动更新 → 装 Cursor {ANCHOR_VERSION} → 关 IDE → "
-            "网关插件重新接管 workbench（模型列表靠它）→ 仅解锁 MAX → 500k → 最后再打 Grok Bot。"
-            "不要在旧版上硬打 3.18 的 L1–L7，也不要点完整解锁改模型选择器。"
-        )
-    elif lv > av:
-        relation = "newer"
-        advice = (
-            f"本机 v{local} 新于锚点 {ANCHOR_VERSION}。压缩名可能已变；看规则是「代码变了」还是「包不存在」。"
-            "升级会覆盖 workbench：网关模型墙、MAX、Bot 都要重打。自动更新请关掉。"
-        )
-    else:
+    track = resolved["track"]
+    label = resolved["anchorLabel"]
+    if resolved["tested"]:
         relation = "match"
-        advice = f"版本对上 {ANCHOR_VERSION}。仍显示缺失的才是这台构建里真没有的锚点。"
+        advice = (
+            f"版本对上补丁轨 {track}（已测 {label}）。"
+            "仍显示缺失的才是这台构建里真没有的锚点。"
+        )
+    elif track in ("3.18", "3.19"):
+        relation = "same-track"
+        advice = resolved["hint"] or (
+            f"同族未测构建，按 {track} 轨试打，缺项看明细。"
+        )
+    elif track == "other":
+        parsed = None
+        nums = [int(part) for part in re.findall(r"\d+", local)[:3]]
+        if nums:
+            while len(nums) < 3:
+                nums.append(0)
+            parsed = (nums[0], nums[1])
+        if parsed and parsed < (3, 18):
+            relation = "older"
+            advice = (
+                f"本机 v{local} 比 3.18 旧，3.12 也没有 cursor-agent-host，L1 工具链打不上。"
+                f"不要用 IDE 自动更新。正确顺序：禁用自动更新 → 装 Cursor {track_anchor_label('3.18')} → 关 IDE → "
+                "网关插件重新接管 workbench（模型列表靠它）→ 仅解锁 MAX → 500k → 最后再打 Grok Bot。"
+                "不要在旧版上硬打 3.18 的 L1–L7，也不要点完整解锁改模型选择器。"
+            )
+        else:
+            relation = "newer-track"
+            advice = resolved["hint"] or (
+                f"本机 v{local} 尚无专用补丁轨。压缩名可能已变；看规则是「代码变了」还是「包不存在」。"
+                "升级会覆盖 workbench：网关模型墙、MAX、Bot 都要重打。自动更新请关掉。"
+            )
+    else:
+        relation = "unknown"
+        advice = resolved["hint"] or (
+            f"没读到 Cursor 版本。Grok Bot 按 {track_anchor_label('3.18')} 轨试打。"
+        )
     return {
         "local": local,
-        "anchor": ANCHOR_VERSION,
+        "anchor": label,
+        "track": track,
         "relation": relation,
         "advice": advice,
     }
@@ -733,17 +760,18 @@ def evaluate_compat(
     missing = [row for row in counted if row["status"] == "missing"]
     pending = [row for row in counted if row["status"] in ("pending", "partial")]
     version = (cursor_version or "").strip()
-    version_ok = version.startswith(ANCHOR_VERSION)
-    upgrade = _upgrade_advice(version)
+    sample = files[0][1] if files else ""
+    resolved = resolve_patch_track(version, sample)
+    upgrade = _upgrade_advice(version, sample)
     return {
         "cursorVersion": version,
-        "anchorVersion": ANCHOR_VERSION,
-        "versionOk": version_ok,
-        "versionHint": (
-            ""
-            if version_ok
-            else f"锚点按 Cursor {ANCHOR_VERSION}；当前 v{version or '未知'} 可能不全"
-        ),
+        "anchorVersion": resolved["anchorLabel"],
+        "patchTrack": resolved["track"],
+        "trackSource": resolved["source"],
+        "testedBuild": resolved["tested"],
+        "supportedTracks": resolved["supportedTracks"],
+        "versionOk": resolved["versionOk"],
+        "versionHint": resolved["hint"],
         "summary": {
             "applied": len(applied),
             "required": len(counted),

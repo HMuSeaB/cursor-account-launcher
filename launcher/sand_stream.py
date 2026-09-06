@@ -2009,11 +2009,8 @@ def _build_uninstall_plan(layout: SandLayout) -> tuple[dict[Path, bytes], Remove
     return pending, total, originals
 
 
-def _version_hint(version: str) -> str:
-    ver = (version or "").strip()
-    if ver.startswith(ANCHOR_VERSION):
-        return ""
-    return f"锚点按 Cursor {ANCHOR_VERSION}；当前 v{ver or '未知'} 可能不全"
+def _version_hint(version: str, content: str = "") -> str:
+    return str(resolve_patch_track(version, content).get("hint") or "")
 
 
 def _message(ready: dict[str, Any], installed: bool) -> str:
