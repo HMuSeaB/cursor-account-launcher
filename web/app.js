@@ -559,14 +559,17 @@ function syncIdeGate(running) {
   if (title) {
     if (running) title.textContent = "Cursor 还在跑 — 补丁按钮已锁";
     else if (step?.id === "ready" || step?.id === "launch") title.textContent = "日常组合已就绪";
+    else if (step?.inspectOnly) title.textContent = step.label;
     else if (step) title.textContent = `下一步：${step.label}`;
     else title.textContent = "Cursor 已关闭 — 可以改补丁";
   }
   if (hint) {
     if (running) {
-      hint.textContent = step && step.needsClosed
+      hint.textContent = step && step.needsClosed && !step.inspectOnly
         ? `要「${step.label}」：先点右边关 IDE，关掉后会自动继续。`
-        : "现在只能看状态、记代理偏好。改补丁前先关 IDE。";
+        : (step?.inspectOnly
+          ? (step.hint || "现在只能看状态。模型墙请去扩展面板打，启动器不代写。")
+          : "现在只能看状态、记代理偏好。改补丁前先关 IDE。");
     } else if (step?.hint) {
       hint.textContent = step.hint;
     } else {
@@ -575,7 +578,7 @@ function syncIdeGate(running) {
   }
   if (closeBtn) closeBtn.hidden = !running;
   if (nextBtn) {
-    const showNext = !running && step && step.id !== "ready" && typeof step.run === "function";
+    const showNext = !running && step && step.id !== "ready" && typeof step.run === "function" && !step.inspectOnly;
     nextBtn.hidden = !showNext;
     if (showNext) {
       nextBtn.textContent = step.label;
@@ -669,9 +672,10 @@ function computeWbNext(res) {
   if (active === "both") {
     return {
       id: "gateway",
-      label: "两套网关叠打，先拆开",
-      hint: wall.action || "同一时间只留 YC 或 Sub2API 一套。不要重装客户端。",
+      label: "模型墙：两套叠打（启动器只检查）",
+      hint: wall.action || "同一时间只留 YC 或 Sub2API 一套。点刷新重新扫描。不要重装客户端。",
       needsClosed: false,
+      inspectOnly: true,
       primary: false,
       run: null,
     };
@@ -679,11 +683,12 @@ function computeWbNext(res) {
   if (active === "none") {
     return {
       id: "gateway",
-      label: wall.canRestoreGateway ? "恢复 YC workbench" : "选定一套网关再打补丁",
-      hint: wall.action || "YC 原生（多模型/自己的号/Sand）或 Sub2API 窄墙。不要两套一起打，不要重装。",
-      needsClosed: Boolean(wall.canRestoreGateway),
+      label: "模型墙：未接管（启动器只检查）",
+      hint: wall.action || "点刷新重新扫描。补丁请在 YC 或 Sub2API 扩展面板打，启动器不代写。不要重装。",
+      needsClosed: false,
+      inspectOnly: true,
       primary: false,
-      run: wall.canRestoreGateway ? () => runRestoreGateway() : null,
+      run: null,
     };
   }
   if (!mu.maxOnly && !mu.installed) {
@@ -809,8 +814,7 @@ function paintWbChecklist(res) {
   el.innerHTML = items.map((it) => {
     const tone = it.warn ? "critical" : (it.ok ? "ok" : (it.idle ? "idle" : "warn"));
     const mark = it.warn ? "!" : (it.ok ? "✓" : (it.idle ? "–" : "○"));
-    const isNext = step && (
-      (step.id === "gateway" && (it.id === "yc" || it.id === "sub2api")) ||
+    const isNext = step && !step.inspectOnly && (
       (step.id === "max" && it.id === "max") ||
       (step.id === "ctxwin" && it.id === "ctxwin") ||
       ((step.id === "proxy" || step.id === "proxy-write") && it.id === "proxy") ||
@@ -853,7 +857,7 @@ function paintWbIncidents(res) {
       why: wall.why || "",
       action: wall.action || "",
       badge: causeLabel[wall.cause] || activeLabel[active] || "",
-      restore: !!wall.canRestoreGateway && active === "none",
+      restore: false,
     });
   }
   const classic = res.classic || {};
@@ -874,36 +878,10 @@ function paintWbIncidents(res) {
     return;
   }
   box.hidden = false;
-  box.innerHTML = items.map((it) => {
+    box.innerHTML = items.map((it) => {
     const badge = it.badge ? `<span class="wb-incident-badge">${esc(it.badge)}</span>` : "";
-    const restore = it.restore
-      ? `<div class="guard-actions"><button type="button" class="btn" data-act="restore-gateway">恢复 YC workbench</button></div>`
-      : "";
-    return `<article class="wb-incident is-${it.tone}"><div class="wb-incident-head"><strong>${esc(it.title)}</strong>${badge}</div><p>${esc(it.why)}</p><p class="wb-incident-action">${esc(it.action)}</p>${restore}</article>`;
+    return `<article class="wb-incident is-${it.tone}"><div class="wb-incident-head"><strong>${esc(it.title)}</strong>${badge}</div><p>${esc(it.why)}</p><p class="wb-incident-action">${esc(it.action)}</p></article>`;
   }).join("");
-  box.onclick = (ev) => {
-    const btn = ev.target?.closest?.("[data-act=restore-gateway]");
-    if (btn) runRestoreGateway();
-  };
-}
-
-async function runRestoreGateway() {
-  if (!api()?.restore_workbench) return toast("当前版本不能恢复网关 workbench");
-  if (!(await requireIdeClosed("恢复网关 workbench"))) return;
-  const info = $("wbNextHint");
-  if (info) info.textContent = "正在把 YC 的 43111/__bajie 填回 workbench…";
-  try {
-    const res = await api().restore_workbench();
-    if (!res?.ok) {
-      toast(res?.error || "恢复失败。不要关扩展、不要重装客户端。");
-      await refreshWbDiag();
-      return;
-    }
-    toast((res.message || "已恢复 YC workbench") + "。请用启动器再开。若要 Sub2API 窄墙，不要用这份备份。");
-    await refreshWbDiag();
-  } catch (e) {
-    toast(String(e));
-  }
 }
 
 function maybePaintLocalCards() {
@@ -971,9 +949,11 @@ async function refreshCursorStatus(opts = {}) {
     paintWbIncidents(lastWbDiag);
     const hint = $("wbNextHint");
     if (hint && pendingWbNext) {
-      hint.textContent = res.running && pendingWbNext.needsClosed
-        ? `卡在「${pendingWbNext.label}」— 先关 IDE`
-        : (pendingWbNext.hint || pendingWbNext.label);
+      hint.textContent = pendingWbNext.inspectOnly
+        ? (pendingWbNext.hint || "点刷新重新扫描模型墙。补丁请在扩展面板打，启动器不代写。")
+        : (res.running && pendingWbNext.needsClosed
+          ? `卡在「${pendingWbNext.label}」— 先关 IDE`
+          : (pendingWbNext.hint || pendingWbNext.label));
     }
     syncIdeGate(!!res.running);
   }
@@ -998,13 +978,13 @@ function formatProxyStatus(res) {
     lines.push("Cursor 开着：点保存只记偏好，不改 Cursor 文件");
   }
   if (route === "gateway" && !patch.patched && !patch.hasBackup) {
-    lines.push("⚠ 没检测到补丁：请先在网关插件里打补丁，或改选「没打网关补丁」");
+    lines.push("⚠ 没检测到模型墙：请到 YC 或 Sub2API 扩展面板打补丁，启动器不代写");
   } else if (route === "clash" && patch.patched) {
-    lines.push("保存后会改回官方 API（去掉 43111 路由）——易搞坏，慎用");
+    lines.push("只改代理参数，不会剥模型墙。要拆墙请用对应扩展面板回滚");
   } else if (route === "gateway") {
     lines.push("网关原生：不改 workbench；启动时由启动器带代理参数");
   } else {
-    lines.push("保存前会确认；写入前自动备份");
+    lines.push("保存只写 settings/argv，不动模型墙");
   }
   if (st.installed) lines.push("若黑屏：点「一键还原误触」或「删除 DLL」");
   else if (bak.hasBackup) lines.push("误触了就点「一键还原误触」");
@@ -1456,7 +1436,9 @@ function paintWbDiag(res) {
   paintWbIncidents(res);
   if (hint) {
     const step = pendingWbNext;
-    if (res.cursorRunning && step?.needsClosed) {
+    if (step?.inspectOnly) {
+      hint.textContent = step.hint || "点刷新重新扫描模型墙。补丁请在 YC / Sub2API 扩展面板打，启动器不代写。";
+    } else if (res.cursorRunning && step?.needsClosed) {
       hint.textContent = `卡在「${step.label}」— 先关 IDE，关掉后点顶栏「${step.label}」或会自动继续。`;
     } else if (step?.id === "launch") {
       hint.textContent = step.hint || "日常组合齐了。用启动器开 Cursor 即可。";
@@ -1499,7 +1481,7 @@ function paintWbDiag(res) {
   }
   if (restoreBtn) {
     restoreBtn.classList.toggle("is-blocked", !!res.cursorRunning);
-    restoreBtn.title = res.cursorRunning ? "请先关闭 IDE" : "从统一备份还原 workbench";
+    restoreBtn.title = res.cursorRunning ? "请先关闭 IDE" : "从 official 基线还原 workbench（不会用 bajie 备份补墙）";
   }
 
   const bak = res.backup || {};
@@ -1514,14 +1496,9 @@ function paintWbDiag(res) {
 async function runWbNext() {
   const step = pendingWbNext;
   if (!step) return refreshWbDiag();
-  if (step.id === "gateway") {
-    if (typeof step.run === "function") {
-      if (step.needsClosed && !(await requireIdeClosed(step.label))) return;
-      await step.run();
-      await refreshWbDiag();
-      return;
-    }
-    return toast((lastWbDiag && lastWbDiag.wall && lastWbDiag.wall.action) || "关 IDE，保持网关扩展启用，用启动器再开 Cursor。不要重装客户端。");
+  if (step.inspectOnly || (step.id === "gateway" && typeof step.run !== "function")) {
+    toast((lastWbDiag && lastWbDiag.wall && lastWbDiag.wall.why) || "已扫描模型墙。启动器只检查，不代写。");
+    return refreshWbDiag();
   }
   if (typeof step.run !== "function") {
     return toast(step.hint || "没有可执行的下一步");
@@ -1574,6 +1551,7 @@ function paintHealthBanner(res) {
   const title = $("healthTitle");
   const hint = $("healthHint");
   const fixBtn = $("btnAutofix");
+  const wallStatus = $("healthWallStatus");
   if (!banner) return;
   banner.hidden = false;
   if (!res?.ok) {
@@ -1581,12 +1559,11 @@ function paintHealthBanner(res) {
     if (title) title.textContent = "补丁自检失败";
     if (hint) hint.textContent = res?.error || "无法诊断";
     if (fixBtn) fixBtn.hidden = true;
-    const gwFail = $("btnRestoreGateway");
-    if (gwFail) gwFail.hidden = true;
+    if (wallStatus) wallStatus.hidden = true;
     return;
   }
   const af = res.autofix || {};
-  const steps = (af.steps || []).filter((s) => !s.manual);
+  const steps = (af.steps || []).filter((s) => !s.manual && !s.inspectOnly);
   const upgrade = res.cursorUpgrade || {};
   const wall = res.wall || {};
   const classic = res.classic || {};
@@ -1598,6 +1575,19 @@ function paintHealthBanner(res) {
   if (res.modelUnlock?.corrupted) state = "critical";
   else if (conflict || wallDown || styleLost || !af.ready || upgrade.needsRepatch) state = "warn";
   banner.dataset.state = state;
+
+  if (wallStatus) {
+    const labels = {
+      yc: "模型墙：YC 原生",
+      sub2api: "模型墙：Sub2API",
+      both: "模型墙：两套叠打",
+      none: "模型墙：未接管",
+    };
+    wallStatus.hidden = false;
+    wallStatus.textContent = labels[active] || "模型墙：—";
+    wallStatus.dataset.state = (conflict || wallDown) ? "warn" : "ok";
+    wallStatus.title = wall.why || wall.action || "启动器只检查模型墙，不代写。点刷新重新扫描。";
+  }
 
   if (title) {
     if (res.modelUnlock?.corrupted) {
@@ -1618,8 +1608,10 @@ function paintHealthBanner(res) {
     }
   }
   if (hint) {
+    const noWallWrite = "一键补齐只打 MAX / 500k / 代理，不打模型墙。";
     if (conflict || wallDown) {
-      hint.textContent = wall.why || "YC 原生和 Sub2API 窄墙同一时间只应打一套。不要重装客户端。";
+      const why = wall.why || "YC 原生和 Sub2API 窄墙同一时间只应打一套。不要重装客户端。";
+      hint.textContent = steps.length > 0 ? `${why} ${noWallWrite}` : why;
     } else if (styleLost) {
       hint.textContent = classic.why || "官方图标 / 更新器重启不会带 --classic。";
     } else if (af.ready && !upgrade.needsRepatch) {
@@ -1635,19 +1627,14 @@ function paintHealthBanner(res) {
     fixBtn.textContent = res.cursorRunning ? "关 IDE 并一键补齐" : "一键补齐";
     fixBtn.disabled = false;
   }
-  const gwBtn = $("btnRestoreGateway");
-  if (gwBtn) {
-    gwBtn.hidden = !(wallDown && wall.canRestoreGateway);
-    gwBtn.textContent = "恢复 YC workbench";
-  }
 }
 
 async function runAutofix() {
   if (!api()?.patch_autofix) return toast("当前版本不支持一键补齐");
   const running = !!lastCursorStatus?.running;
   const tip = running
-    ? "将关闭 Cursor，然后自动：仅 MAX → 500k → 网关原生代理写入。\n确定？"
-    : "将自动补齐：仅 MAX → 500k → 网关原生代理写入。\n确定？";
+    ? "将关闭 Cursor，然后自动：仅 MAX → 500k → 代理参数。\n模型墙请用 YC / Sub2API 扩展面板自己打，启动器不代写。\n确定？"
+    : "将自动补齐：仅 MAX → 500k → 代理参数。\n模型墙请用 YC / Sub2API 扩展面板自己打，启动器不代写。\n确定？";
   if (!confirm(tip)) return;
   toast(running ? "正在关 IDE 并补齐…" : "正在一键补齐…");
   const res = await api().patch_autofix(running);
@@ -1686,7 +1673,7 @@ async function runWbDiagFix500k() {
 async function runWbDiagRestore() {
   if (!api()?.restore_workbench_unified) return;
   if (!(await requireIdeClosed("还原 workbench"))) return;
-  if (!confirm("将从统一备份还原 workbench（优先 official 基线）。确定？")) return;
+  if (!confirm("将从 official 基线还原 workbench（不会用 bajie 备份补墙）。确定？")) return;
   const info = $("wbDiagInfo");
   if (info) info.textContent = "正在还原 workbench…";
   try {
@@ -2533,7 +2520,9 @@ if ($("btnDllInstall")) $("btnDllInstall").onclick = async () => {
 };
 if ($("btnDllRemove")) $("btnDllRemove").onclick = () => runDll("uninstall_process_proxy", "正在删除 DLL（会备份）…", "已删除");
 if ($("btnDllRestore")) $("btnDllRestore").onclick = () => runDll("restore_process_proxy_files", "正在还原 DLL…", "已还原");
-if ($("btnWorkbenchRestore")) $("btnWorkbenchRestore").onclick = () => runDll("restore_workbench", "正在还原 workbench 备份…", "已还原补丁");
+if ($("btnWorkbenchRestore")) $("btnWorkbenchRestore").onclick = () => {
+  toast("模型墙请用 YC / Sub2API 扩展面板打。启动器已停用「还原网关补丁」，不会代写。");
+};
 if ($("btnRecoverCursor")) $("btnRecoverCursor").onclick = () => runDll("uninstall_process_proxy", "正在删除 DLL…", "已删除");
 $("btnSavePath").onclick = async () => {
   const res = await api().set_cursor_path($("cursorPath").value);
@@ -2579,7 +2568,6 @@ if ($("sandIncludeSubagent")) $("sandIncludeSubagent").onchange = () => refreshS
 if ($("btnWbDiagRefresh")) $("btnWbDiagRefresh").onclick = () => refreshWbDiag({ extras: true });
 if ($("btnHealthRefresh")) $("btnHealthRefresh").onclick = () => refreshWbDiag({ extras: true });
 if ($("btnAutofix")) $("btnAutofix").onclick = () => runAutofix();
-if ($("btnRestoreGateway")) $("btnRestoreGateway").onclick = () => runRestoreGateway();
 if ($("btnWbDiagFix500k")) $("btnWbDiagFix500k").onclick = () => runWbDiagFix500k();
 if ($("btnWbDiagRestore")) $("btnWbDiagRestore").onclick = () => runWbDiagRestore();
 if ($("btnIdeGateClose")) {
@@ -2587,7 +2575,7 @@ if ($("btnIdeGateClose")) {
     const step = pendingWbNext;
     await closeIde();
     await refreshWbDiag();
-    if (!lastCursorStatus?.running && step?.needsClosed && typeof step.run === "function") {
+    if (!lastCursorStatus?.running && step?.needsClosed && !step.inspectOnly && typeof step.run === "function") {
       if (confirm(`IDE 已关。现在执行「${step.label}」？`)) {
         await step.run();
         await refreshWbDiag();

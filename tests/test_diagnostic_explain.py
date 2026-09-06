@@ -72,10 +72,12 @@ def test_wall_stripped_with_backup():
     assert wall["present"] is False
     assert wall["active"] == "none"
     assert wall["cause"] == "stripped"
-    assert wall["canRestoreGateway"] is True
+    assert wall["canRestoreGateway"] is False
     assert "改回官方" in wall["why"]
     assert "不要重装" in wall["action"] or "不要重装" in wall["why"]
     assert "YC 扩展还在" in wall["why"]
+    assert "扩展" in wall["action"] and "面板" in wall["action"]
+    assert "恢复 YC" not in wall["action"]
 
 
 def test_wall_upgraded_without_backup():
@@ -107,9 +109,10 @@ def test_wall_overwritten_has_backup():
         extension_ids=["publisher.cursor-gateway-2"],
     )
     assert wall["cause"] == "overwritten"
-    assert wall["canRestoreGateway"] is True
+    assert wall["canRestoreGateway"] is False
     assert "备份" in wall["why"]
-    assert "恢复 YC" in wall["action"] or "bajie" in wall["action"].casefold()
+    assert "扩展" in wall["action"] and "面板" in wall["action"]
+    assert "恢复 YC" not in wall["action"]
 
 
 def test_wall_missing():
@@ -119,6 +122,7 @@ def test_wall_missing():
     assert wall["canRestoreGateway"] is False
     assert "官方目录" in wall["why"]
     assert "不要重装" in wall["action"]
+    assert "扩展" in wall["action"] and "面板" in wall["action"]
 
 
 def test_wall_stripped_beats_upgraded_when_neither_patch():

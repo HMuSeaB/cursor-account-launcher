@@ -104,3 +104,13 @@ def test_backup_status_skips_legacy_scan_when_official_exists(tmp_path, monkeypa
     st = wb_backup.backup_status(files)
     assert st["hasOfficial"] is True
     assert st["hasLegacyModelUnlockClean"] is False
+
+
+def test_restore_refuses_legacy_bajie():
+    from launcher.bajie_route import WALL_USE_EXTENSION
+    from launcher.workbench.diagnostic import restore_workbench_layer
+
+    out = restore_workbench_layer(target="legacy-bajie")
+    assert out["ok"] is False
+    assert out.get("refused") is True
+    assert out["error"] == WALL_USE_EXTENSION

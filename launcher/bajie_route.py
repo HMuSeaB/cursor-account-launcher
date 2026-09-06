@@ -1,19 +1,12 @@
-"""把网关插件改过的 API 地址改回官方，让 Agent 走 Chromium / Clash。
-
-插件把 ``https://api2.cursor.sh`` 改成 ``https://127.0.0.1:43111/__bajie/api2.cursor.sh``。
-本机回环会绕过 HTTP 代理，所以 Clash 再怎么注入也吃不到模型请求。
-去掉 ``/__bajie/`` 前缀后，请求重新打官方主机，启动器加的 ``--proxy-server`` 才会生效。
-"""
+"""模型墙由 YC / Sub2API 扩展自己打。启动器只检测，不代写 workbench。"""
 
 from __future__ import annotations
 
 import os
-import shutil
 from pathlib import Path
 
 from launcher.cursor_install import workbench_files
 from launcher.workbench.layers import BAJIE_PREFIX, strip_gateway_urls
-from launcher.workbench.manager import WorkbenchWriteError, commit_changes
 
 
 def _legacy_backup_dir() -> Path:
@@ -21,6 +14,19 @@ def _legacy_backup_dir() -> Path:
     path = Path(base) / "CursorLauncher" / "bajie-backups"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+WALL_USE_EXTENSION = (
+    "模型墙必须由 YC 或 Sub2API 扩展自己在面板里打补丁。"
+    "启动器不代写、不剥 __bajie、不拿旧 bajie 备份盖 workbench（版本一变就会打坏）。"
+)
+WALL_REFUSED = {
+    "ok": False,
+    "refused": True,
+    "changed": 0,
+    "restored": 0,
+    "error": WALL_USE_EXTENSION,
+}
 
 
 def detect_patch(install_root: Path) -> dict:
@@ -43,90 +49,9 @@ def detect_patch(install_root: Path) -> dict:
 
 
 def apply_bajie_route(install_root: Path, *, bypass: bool) -> dict:
-    """bypass=True：改回官方 URL；False：从备份恢复插件改过的文件。"""
-    from launcher.cursor_install import app_root as resolve_app_root
-
-    files = workbench_files(install_root)
-    if not files:
-        return {"ok": False, "error": "找不到 workbench 文件，无法改路由", "changed": 0}
-    app_root_path = resolve_app_root(install_root)
-    backups = _legacy_backup_dir()
-    changed = 0
-    hits = 0
-    restored = 0
-    try:
-        if bypass:
-            pending: dict[Path, str] = {}
-            for path in files:
-                raw = path.read_text(encoding="utf-8")
-                bak = backups / path.name
-                if BAJIE_PREFIX in raw and not bak.is_file():
-                    shutil.copy2(path, bak)
-                new, n = strip_gateway_urls(raw)
-                hits += n
-                if n and new != raw:
-                    pending[path] = new
-            snapshot = None
-            if pending:
-                wb_result = commit_changes(
-                    app_root_path,
-                    files,
-                    pending,
-                    layer="gateway-bypass",
-                    reason="strip-bajie-for-clash",
-                    skip_preflight=True,
-                )
-                changed = len([n for n in wb_result.get("changed", []) if n.endswith(".js")])
-                snapshot = wb_result.get("snapshot")
-            return {
-                "ok": True,
-                "bypass": True,
-                "changed": changed,
-                "hits": hits,
-                "restored": 0,
-                "snapshot": snapshot,
-                "files": [str(p) for p in files],
-            }
-
-        for path in files:
-            bak = backups / path.name
-            if bak.is_file():
-                shutil.copy2(bak, path)
-                restored += 1
-        if restored == 0:
-            from launcher.workbench.diagnostic import restore_workbench_layer
-
-            unified = restore_workbench_layer(target="legacy-bajie")
-            if unified.get("ok") and unified.get("restored"):
-                return {
-                    "ok": True,
-                    "bypass": False,
-                    "changed": 0,
-                    "hits": 0,
-                    "restored": len(unified["restored"]),
-                    "message": unified.get("message"),
-                    "source": unified.get("source"),
-                }
-            return {"ok": False, "error": "没有 workbench 备份，无法还原", "restored": 0}
-        return {
-            "ok": True,
-            "bypass": False,
-            "changed": 0,
-            "hits": 0,
-            "restored": restored,
-            "message": f"已还原 {restored} 个 workbench 文件",
-            "files": [str(p) for p in files],
-        }
-    except WorkbenchWriteError as exc:
-        return {"ok": False, "error": str(exc), "changed": changed}
-    except PermissionError:
-        return {
-            "ok": False,
-            "error": "workbench 文件被占用，请先关闭 Cursor 再注入",
-            "changed": changed,
-        }
-    except OSError as exc:
-        return {"ok": False, "error": str(exc), "changed": changed}
+    """启动器不再代写模型墙。剥 __bajie / 恢复 bajie 备份都容易把当前版本 workbench 打坏。"""
+    del install_root, bypass
+    return dict(WALL_REFUSED)
 
 
 # 兼容旧 import

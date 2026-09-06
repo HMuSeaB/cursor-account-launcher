@@ -7,6 +7,7 @@ import os
 import time
 from pathlib import Path
 
+from launcher.bajie_route import WALL_USE_EXTENSION
 from launcher.ctxwin import ctxwin_status
 from launcher.cursor_install import resolve_layout
 from launcher.cursor_process import is_cursor_running
@@ -178,12 +179,12 @@ def explain_model_wall(
         }
 
     switch_to_sub2 = (
-        "要换成 Sub2API 窄墙：先在 YC 面板回滚 Cursor 文件（或不要恢复 bajie 备份），"
-        "再在 Sub2API 面板切到网关并打补丁。不要两套一起打，不要重装客户端。"
+        "要换成 Sub2API 窄墙：在 YC 扩展面板回滚 Cursor 文件，再在 Sub2API 扩展面板切网关并打补丁。"
+        "不要让启动器代写，不要两套一起打，不要重装客户端。"
     )
     switch_to_yc = (
-        "要换成 YC 原生（更多模型、自己的号、Sand）：先在 Sub2API 面板恢复 Cursor 文件 / 切直连，"
-        "再关 IDE，YC 面板打补丁写入 43111/__bajie。不要重装客户端。"
+        "要换成 YC 原生（更多模型、自己的号、Sand）：在 Sub2API 扩展面板恢复 Cursor 文件 / 切直连，"
+        "再关 IDE，用 YC 扩展面板打补丁写入 43111/__bajie。不要让启动器代写，不要重装客户端。"
     )
 
     if yc_hits > 0 and sub2_hits > 0:
@@ -211,7 +212,7 @@ def explain_model_wall(
             "列表若突然变少，多半是切到了 Sub2API，或 Agent/Edit/Ask 里的 Edit。"
         )
         if stripped:
-            why += " 代理还勾着「改回官方」，保存时会剥掉这套 URL。"
+            why += " 以前若用启动器「改回官方」剥过 __bajie，请用 YC 扩展面板重新打，不要用旧备份盖。"
         why += " " + note
         return pack(
             active="yc",
@@ -231,7 +232,7 @@ def explain_model_wall(
             "Sub2API 是窄模型墙，列表少是这套的预期，不是 YC 丢了。"
         )
         if stripped:
-            why += " 代理「改回官方」只剥 YC 的 __bajie，剥不掉这套凭据。"
+            why += " 启动器不再剥 Sub2API 凭据；拆墙请用 Sub2API 扩展面板回滚。"
         why += " " + note
         return pack(
             active="sub2api",
@@ -246,12 +247,13 @@ def explain_model_wall(
     if stripped:
         cause = "stripped"
         why = (
-            "代理选了「没打网关补丁 / 改回官方」。启动器会从 workbench 剥掉 43111/__bajie，"
-            "YC 原生立刻没了。Sub2API 凭据若本来就没打上，模型就走官方目录，往往只剩几个。"
+            "代理曾选过「没打网关补丁 / 改回官方」。旧版启动器会从 workbench 剥掉 43111/__bajie，"
+            "YC 原生立刻没了。现在启动器不再剥墙，请用扩展面板把墙打回去。"
         )
         action = (
-            "关 IDE → 代理改回「打了补丁，走网关原生」并保存。"
-            "然后选定一套：YC 打补丁，或 Sub2API 面板切网关。不要关扩展，更不要重装 Cursor。"
+            WALL_USE_EXTENSION
+            + "关 IDE → 代理改回「打了补丁，走网关原生」并保存（只写 argv，不动墙）。"
+            "然后只开一套扩展面板：YC 或 Sub2API。不要关扩展，更不要重装 Cursor。"
         )
     elif upgraded:
         prev = previous_version or "上一版"
@@ -259,22 +261,24 @@ def explain_model_wall(
         cause = "upgraded"
         why = (
             f"Cursor 从 v{prev} 升到 v{cur} 时会整文件替换 workbench，"
-            "YC 的 43111/__bajie 和 Sub2API 的凭据补丁都会没。关扩展再重装客户端，只会再覆盖一次。"
+            "YC 的 43111/__bajie 和 Sub2API 的凭据补丁都会没。"
+            "不要用启动器里的旧 bajie 备份盖新版本，那会把 workbench 打坏。"
+            "关扩展再重装客户端，只会再覆盖一次。"
         )
         action = (
-            "保持两个网关扩展都启用（你要哪套就开哪套面板）。关 IDE → "
-            + ("有 bajie 备份可先「恢复 YC workbench」，" if has_bajie_backup else "")
-            + "再按你要的那套重新打补丁。同时禁用自动更新。"
+            WALL_USE_EXTENSION
+            + "保持你要用的那套网关扩展启用，关 IDE，到该扩展面板重新打补丁。同时禁用自动更新。"
         )
     elif has_bajie_backup:
         cause = "overwritten"
         why = (
-            "以前打过 YC（还有 bajie 备份），但当前 workbench 里既没有 43111/__bajie，也没有 Sub2API 凭据。"
-            "常见原因：急救还原、官方安装覆盖、或 IDE 开着时插件没写进去。"
+            "以前打过 YC（启动器里还有 bajie 备份），但当前 workbench 里既没有 43111/__bajie，也没有 Sub2API 凭据。"
+            "这份备份多半对不上现在的 Cursor 版本，用它盖回去很容易坏。"
         )
         action = (
-            "若要 YC 原生：关 IDE → 「恢复 YC workbench」，再用启动器开。"
-            "若要 Sub2API 窄墙：不要恢复这份 bajie 备份，用 Sub2API 面板打补丁。"
+            WALL_USE_EXTENSION
+            + "若要 YC 原生：关 IDE，用 YC 扩展面板打补丁。"
+            "若要 Sub2API 窄墙：用 Sub2API 扩展面板打补丁。"
             "不要关扩展、不要重装。"
         )
     else:
@@ -283,9 +287,9 @@ def explain_model_wall(
             "当前 workbench 两套网关补丁都没有。模型列表走官方目录，所以会突然变少。"
         )
         action = (
-            "不要重装客户端。关 IDE，选定一套再打补丁："
-            "YC 原生（多模型 / 自己的号 / Sand）用 YC 面板；"
-            "窄墙用 Sub2API 面板。同一时间只打一套。"
+            WALL_USE_EXTENSION
+            + "不要重装客户端。关 IDE，选定一套再打："
+            "YC 原生用 YC 扩展面板；窄墙用 Sub2API 扩展面板。同一时间只打一套。"
         )
 
     why += " " + note
@@ -296,7 +300,7 @@ def explain_model_wall(
         title="两套网关都没接管 workbench",
         why=why,
         action=action,
-        can_restore=bool(has_bajie_backup),
+        can_restore=False,
     )
 
 
@@ -364,7 +368,7 @@ def _recommendations(
             {
                 "severity": "critical",
                 "title": "网关补丁 + 改回官方 API 冲突",
-                "action": "代理改选「网关原生」。改回官方会剥 YC 的 __bajie；Sub2API 凭据还在，两套意图拧着",
+                "action": "代理改选「网关原生」。启动器现在不会剥墙；拆墙请用对应扩展面板回滚",
                 "detail": "两种模式会互相覆盖 workbench",
             }
         )
@@ -404,7 +408,7 @@ def _recommendations(
             {
                 "severity": "ok",
                 "title": "当前是 YC 原生 + 仅 MAX",
-                "action": "这是多模型 / 自己的号 / Sand 那套。不要再打 Sub2API，也不要点完整解锁或改回官方",
+                "action": "这是多模型 / 自己的号 / Sand 那套。不要再打 Sub2API，也不要点完整解锁。模型墙只由 YC 扩展维护",
                 "detail": f"YC×{scan.gateway_hits} showMax×{scan.show_max}",
             }
         )
@@ -616,7 +620,17 @@ def _collect_full_diagnostic() -> dict:
 
 
 def restore_workbench_layer(*, target: str = "auto") -> dict:
-    """统一还原 workbench。target: official | latest | legacy-bajie | legacy-model | auto"""
+    """统一还原 workbench。target: official | latest | legacy-model | auto。
+
+    不接受 legacy-bajie：那是旧模型墙备份，一点就会把过期 workbench 盖回去。
+    """
+    if target == "legacy-bajie":
+        return {
+            "ok": False,
+            "refused": True,
+            "error": WALL_USE_EXTENSION,
+        }
+
     from launcher.cursor_process import is_cursor_running
 
     if is_cursor_running():
@@ -639,10 +653,6 @@ def restore_workbench_layer(*, target: str = "auto") -> dict:
     if snaps:
         candidates.append(("latest-snapshot", Path(snaps[0]["path"])))
 
-    legacy_bajie = wb_backup.legacy_dirs()["bajie"]
-    if any((legacy_bajie / p.name).is_file() for p in files):
-        candidates.append(("legacy-bajie", legacy_bajie))
-
     legacy_clean = wb_backup.find_best_legacy_clean()
     if legacy_clean:
         candidates.append(("legacy-model-unlock", legacy_clean))
@@ -656,7 +666,6 @@ def restore_workbench_layer(*, target: str = "auto") -> dict:
         key_map = {
             "official": "official",
             "latest": "latest-snapshot",
-            "legacy-bajie": "legacy-bajie",
             "legacy-model": "legacy-model-unlock",
         }
         mapped = key_map.get(target, target)

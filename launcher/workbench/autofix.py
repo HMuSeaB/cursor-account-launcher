@@ -1,4 +1,4 @@
-"""推荐组合一键补齐：仅 MAX + 500k + 网关原生代理写入。"""
+"""推荐组合一键补齐：仅 MAX + 500k + 代理参数。模型墙由扩展面板自己打。"""
 
 from __future__ import annotations
 
@@ -62,18 +62,21 @@ def plan_autofix(diag: dict | None = None) -> dict:
         steps.append(
             {
                 "id": "gateway",
-                "label": "用 YC 或 Sub2API 打补丁（只打一套）",
+                "label": "模型墙未接管（扩展面板打，启动器只检查）",
                 "needsClosed": False,
                 "manual": True,
+                "inspectOnly": True,
             }
         )
 
     return {
         "ok": True,
         "running": running,
-        "ready": len([s for s in steps if not s.get("manual")]) == 0,
+        "ready": len([s for s in steps if not s.get("manual") and not s.get("inspectOnly")]) == 0,
         "steps": steps,
-        "needsClosed": any(s.get("needsClosed") for s in steps if not s.get("manual")),
+        "needsClosed": any(
+            s.get("needsClosed") for s in steps if not s.get("manual") and not s.get("inspectOnly")
+        ),
         # 禁止把完整 diagnostic 嵌回来：run_full_diagnostic 会把本结果挂到 report["autofix"]，
         # 再嵌 diagnostic=report 会形成环，pywebview/json 序列化报 Circular reference。
     }
@@ -110,8 +113,8 @@ def run_autofix(*, close_ide: bool = False) -> dict:
 
     for step in plan.get("steps") or []:
         sid = step["id"]
-        if step.get("manual"):
-            results[sid] = {"ok": False, "skipped": True, "manual": True}
+        if step.get("manual") or step.get("inspectOnly"):
+            results[sid] = {"ok": False, "skipped": True, "manual": True, "inspectOnly": True}
             continue
         try:
             if sid == "repair":

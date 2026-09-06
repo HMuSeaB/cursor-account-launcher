@@ -852,21 +852,14 @@ class Api(PatchesApiMixin):
                 }
 
             routed: dict = {"ok": True, "skipped": True}
-            if cfg.enabled and cfg.bypass_gateway:
-                # 仅「改回官方」才动 workbench；网关原生保持补丁不动
-                routed = apply_bajie_route(layout.install_root, bypass=True)
-                if not routed.get("ok"):
-                    return {
-                        "ok": False,
-                        "error": routed.get("error") or "改路由失败",
-                        "config": cfg.to_dict(),
-                        "applied": applied,
-                    }
-            elif not cfg.bypass_gateway:
+            if cfg.enabled:
                 routed = {
                     "ok": True,
                     "skipped": True,
-                    "message": "网关原生：不动 workbench 补丁，启动时只带进程代理参数",
+                    "message": (
+                        "代理只写 settings/argv。模型墙请用 YC 或 Sub2API 扩展面板打补丁，"
+                        "启动器不剥 __bajie、不恢复 bajie 备份。"
+                    ),
                 }
 
             return {
@@ -909,12 +902,7 @@ class Api(PatchesApiMixin):
             elif files.get("error") and "没有代理写入备份" not in str(files.get("error")):
                 return {"ok": False, "error": files.get("error"), "steps": steps}
 
-            wb = apply_bajie_route(layout.install_root, bypass=False)
-            if wb.get("ok") and wb.get("restored"):
-                steps.append(f"workbench×{wb['restored']}")
-            elif not wb.get("ok") and wb.get("error") != "没有 workbench 备份，无法还原":
-                # workbench 还原失败不阻断其它项
-                steps.append(f"workbench跳过：{wb.get('error')}")
+            wb = {"ok": True, "skipped": True, "refused": True, "message": "模型墙不由启动器还原"}
 
             dll = remove_process_proxy(layout.install_root, force=True)
             if dll.get("removed"):
@@ -986,7 +974,7 @@ class Api(PatchesApiMixin):
             return {"ok": False, "error": str(exc)}
 
     def restore_workbench(self) -> dict:
-        """用备份把网关补丁 workbench 还原回去。"""
+        """用备份把网关补丁 workbench 还原回去。已拒绝：模型墙必须由扩展面板打。"""
         try:
             return self._with_cursor_closed(
                 lambda layout: apply_bajie_route(layout.install_root, bypass=False)

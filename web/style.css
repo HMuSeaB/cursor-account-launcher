@@ -1230,6 +1230,24 @@ html[data-theme="dark"] .sand-layer.is-partial {
   display: inline-flex;
   align-items: center;
 }
+.health-wall-status {
+  font-size: 12px;
+  line-height: 1.3;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  color: var(--text, #222);
+  align-self: center;
+  white-space: nowrap;
+}
+.health-wall-status[data-state="ok"] {
+  border-color: color-mix(in srgb, #22a06b 40%, var(--border));
+  background: color-mix(in srgb, #22a06b 10%, var(--card));
+}
+.health-wall-status[data-state="warn"] {
+  border-color: color-mix(in srgb, #d97706 45%, var(--border));
+  background: color-mix(in srgb, #d97706 10%, var(--card));
+}
 .health-banner [hidden],
 .health-banner a.btn[hidden] {
   display: none !important;

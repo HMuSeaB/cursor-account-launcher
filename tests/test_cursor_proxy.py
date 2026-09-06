@@ -229,3 +229,17 @@ def test_detect_patch_clean_workbench(tmp_path):
     st = detect_patch(root)
     assert st["patched"] is False
     assert st["hits"] == 0
+
+
+def test_apply_bajie_route_refuses_launcher_wall_write(tmp_path):
+    from launcher.bajie_route import apply_bajie_route
+
+    root = tmp_path / "cursor"
+    (root / "resources" / "app" / "out" / "vs" / "workbench").mkdir(parents=True)
+    out = apply_bajie_route(root, bypass=True)
+    assert out["ok"] is False
+    assert out.get("refused") is True
+    assert "扩展" in out["error"]
+    out2 = apply_bajie_route(root, bypass=False)
+    assert out2["ok"] is False
+    assert out2.get("refused") is True

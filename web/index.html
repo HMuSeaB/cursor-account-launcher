@@ -85,8 +85,8 @@
         <p id="healthHint">推荐：网关原生 + 仅 MAX + 500k + 代理</p>
       </div>
       <div class="health-banner-actions">
+        <span class="health-wall-status" id="healthWallStatus" hidden></span>
         <button type="button" class="btn primary" id="btnAutofix" hidden>一键补齐</button>
-        <button type="button" class="btn" id="btnRestoreGateway" hidden>恢复 YC workbench</button>
         <button type="button" class="btn ghost" id="btnHealthRefresh">刷新</button>
         <a class="btn ghost" id="btnLauncherUpdate" hidden target="_blank" rel="noreferrer">启动器有更新</a>
       </div>
@@ -137,10 +137,10 @@
       <div class="settings-grid" id="settingsGrid">
         <section class="settings-panel settings-span" id="wbDiagPanel">
           <h3 class="settings-title">日常状态（看这个就够）</h3>
-          <p class="hint settings-hint">YC 原生：自己的号、模型多、可开 Sand。Sub2API：窄模型墙。同一时间只应打一套。</p>
+          <p class="hint settings-hint">YC 原生：自己的号、模型多、可开 Sand。Sub2API：窄模型墙。同一时间只应打一套，且必须在对应扩展面板里打，启动器不代写。</p>
           <ol class="wb-checklist" id="wbChecklist" aria-live="polite"></ol>
           <div class="wb-incidents" id="wbIncidents" hidden></div>
-          <p class="wb-next-hint" id="wbNextHint">点刷新可重新扫描补丁状态</p>
+          <p class="wb-next-hint" id="wbNextHint">点刷新可重新扫描模型墙和补丁状态</p>
           <div class="guard-actions">
             <button type="button" class="btn ghost" id="btnWbDiagRefresh">刷新</button>
             <button type="button" class="btn ghost" id="btnWbDiagFix500k" data-needs-closed hidden>启用 500k</button>
@@ -196,10 +196,10 @@
           <label class="check-row"><input type="checkbox" id="proxyEnabled" /> 开代理（settings / 环境变量）</label>
           <label class="field-label" for="proxyRoute">你的 Cursor 是哪种？</label>
           <select id="proxyRoute" aria-label="路由模式">
-            <option value="gateway" selected>打了补丁，走网关原生（推荐，不改补丁）</option>
-            <option value="clash">没打网关补丁（会改 workbench，易搞坏）</option>
+            <option value="gateway" selected>打了补丁，走网关原生（推荐，不改模型墙）</option>
+            <option value="clash">只改代理参数（不剥网关；拆墙请用扩展面板回滚）</option>
           </select>
-          <p class="hint settings-hint">IDE 开着点「保存」只记偏好、不改 Cursor 文件。要真正写入：先关 IDE 再保存。</p>
+          <p class="hint settings-hint">IDE 开着点「保存」只记偏好、不改 Cursor 文件。真正写入只动 settings/argv，不动模型墙。</p>
           <label class="field-label" for="proxyType">FlClash 端口</label>
           <div class="proxy-fields">
             <select id="proxyType" aria-label="代理类型"><option value="http">HTTP</option><option value="socks5" selected>SOCKS5</option></select>
@@ -214,12 +214,12 @@
           </div>
           <details class="adv-fold">
             <summary>高级危险区（DLL / 改 workbench 路由）— 日常别开</summary>
-            <p class="hint settings-hint">进程 DLL 易闪退；「还原补丁」会动网关 workbench。非急救不要点。</p>
+            <p class="hint settings-hint">进程 DLL 易闪退。「还原网关补丁」已停用，不会代写模型墙。</p>
             <div class="guard-actions">
               <button type="button" class="btn ghost" id="btnDllInstall" data-needs-closed>写入 DLL</button>
               <button type="button" class="btn ghost" id="btnDllRemove" data-needs-closed>删除 DLL</button>
               <button type="button" class="btn ghost" id="btnDllRestore" data-needs-closed>还原 DLL</button>
-              <button type="button" class="btn ghost" id="btnWorkbenchRestore" data-needs-closed>还原网关补丁</button>
+              <button type="button" class="btn ghost" id="btnWorkbenchRestore" data-needs-closed>还原网关补丁（已停用）</button>
             </div>
           </details>
           <pre class="mini" id="proxyDetectInfo">检测中…</pre>

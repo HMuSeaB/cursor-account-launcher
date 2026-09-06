@@ -81,3 +81,24 @@ def test_plan_autofix_sub2api_counts_as_gateway():
     plan = plan_autofix(report)
     assert plan["ready"] is True
     assert not any(s["id"] == "gateway" for s in plan["steps"])
+
+
+def test_plan_autofix_missing_wall_is_manual_extension_only():
+    report = {
+        "ok": True,
+        "cursorRunning": False,
+        "layers": {"gateway": 0, "sub2api": 0},
+        "modelUnlock": {"installed": True, "maxOnly": True, "corrupted": False},
+        "ctxwin": {"patched": True},
+        "proxy": {
+            "preference": {"enabled": True, "bypass_gateway": False},
+            "live": {"argvProxyServer": "socks5://127.0.0.1:7891"},
+        },
+    }
+    plan = plan_autofix(report)
+    gw = [s for s in plan["steps"] if s["id"] == "gateway"]
+    assert len(gw) == 1
+    assert gw[0].get("manual") is True
+    assert gw[0].get("inspectOnly") is True
+    assert "检查" in gw[0]["label"]
+    assert plan["ready"] is True
