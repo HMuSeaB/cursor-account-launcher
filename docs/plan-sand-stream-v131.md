@@ -10,6 +10,7 @@
 | **主** | `Bot/installers/sand_stream_installer_tools_grokbot_direct_v131.py` | 无条件 Joe Direct Stream、剥 `SAND_SESSION_INFERENCE_STREAM_V1`、Task V3、Action V2、maxTokens/1M、Rules/MCP/User Rules |
 | **保留** | `launcher/sand_stream.py`（当前 ≈1.1.9 + L6 V2） | 备份/预检/原子写、HDRFIX_V2、RPC 改写、transport→api2、双档 `stream`/`full`、尽力打 + `missing[]` |
 | **对照** | `Bot/archives/SandClaimer-源码分享-1.2.1/sand_patch.py` | 只作 401/准入说明；**不迁** `LOCAL_ACTIONS` / `SUBAGENT_LOCAL`（与 Action V2 抢同一锚点） |
+| **对照（更新）** | `Bot/archives/SandClaimer-源码分享-1.3.1` | 仍剥 Joe、改走 STREAM_RPC；默认 `longRunningJobs`。优劣与「不必搬」见 [notes-sandclaimer-131.md](notes-sandclaimer-131.md)，**不改本计划已拍的核** |
 | **辅** | [kuk-888/cursor-account-manager](https://github.com/kuk-888/cursor-account-manager) v2.3.11 | Rules Preseed、`push_req_context` 50ms、`supportsSelfSummary` 必须 `false`、锚点正则化（3.18.25）、备份对不上就地反补丁。**不跟**它的 Task V2 / Action V1 / 半装拒绝 |
 
 > v131 文件头写明：官方 `RunInference` 现在拒绝 sand 身份；Grok Bot/Box 的 Direct Stream 仍可用。  
