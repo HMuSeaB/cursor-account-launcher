@@ -1,7 +1,7 @@
 # 对照笔记：SandClaimer 1.3.1
 
 **对象**：`za/1/8.24/Bot/archives/SandClaimer-源码分享-1.3.1`（`TOOL_VERSION = 1.3.1`）  
-**对照**：本仓库 `launcher/sand_stream.py`（模块 `1.3.0`）+ 发版启动器 1.3.11  
+**对照**：本仓库 `launcher/sand_stream.py`（模块 `1.3.0`）+ 发版启动器 1.3.12  
 **用途**：以后看 Sand 线时先读这份，不要把 Claimer 整包当升级源。实施计划仍以 [plan-sand-stream-v131.md](plan-sand-stream-v131.md) / [plan-sand-version-tracks.md](plan-sand-version-tracks.md) 为准。  
 **审计**：这份是白名单源码分享包，**没有远程后门**（token 只打 Cursor 官方 + 公开 DoH；账号落 `%LOCALAPPDATA%\SandClaimer`，DPAPI）。群里另发的 Nuitka exe 若不是这个包编的，另审。
 
