@@ -87,6 +87,9 @@ LEGACY_SAND_MANAGED_ACTION_ROUTE_MARKER = "/*SAND_MANAGED_ACTION_ROUTE_V1*/"
 SAND_SUBAGENT_RESUME_MODE_MARKER = "/*SAND_SUBAGENT_RESUME_AGENT_MODE_V1*/"
 SAND_SUBAGENT_COMPLETION_WAKE_MARKER = "/*SAND_SUBAGENT_COMPLETION_WAKE_V1*/"
 LAUNCHER_SAND_MARKER = "/*CURSOR_LAUNCHER_SAND_STREAM_V1*/"
+ROUTE_LABEL_MARKER = "/*ROUTE_LABEL_V1*/"
+ROUTE_LABEL_ORIGINAL = '["Routed to "'
+ROUTE_LABEL_PATCHED = ROUTE_LABEL_MARKER + '["本次使用 "'
 OLD_RPC_PATH = "agent.v1.AgentService/Run"
 NEW_RPC_PATH = "aiserver.v1.InferenceService/Stream"
 
@@ -417,12 +420,12 @@ SUBAGENT_RESUME_MODE_ORIGINAL = (
 )
 SUBAGENT_RESUME_MODE_RE = re.compile(
     r"e\.resumeAgentId&&e\.mode===([A-Za-z_$][\w$]*)\.FL\.UNSPECIFIED&&!e\.readonly\?"
-    r"oe\.xyI\.UNSPECIFIED:"
+    r"([A-Za-z_$][\w$]*)\.(xyI|xy)\.UNSPECIFIED:"
 )
 SUBAGENT_RESUME_MODE_PATCH_RE = re.compile(
     r"e\.resumeAgentId&&e\.mode===([A-Za-z_$][\w$]*)\.FL\.UNSPECIFIED&&!e\.readonly\?"
     + re.escape(SAND_SUBAGENT_RESUME_MODE_MARKER)
-    + r"oe\.xyI\.AGENT:"
+    + r"([A-Za-z_$][\w$]*)\.(xyI|xy)\.AGENT:"
 )
 SUBAGENT_RESUME_MODE_PATCHED = (
     "e.resumeAgentId&&e.mode===Mn.FL.UNSPECIFIED&&!e.readonly?"
@@ -465,6 +468,42 @@ MANAGED_SUBAGENT_SESSION_PATCHED = (
 )
 MANAGED_TASK_TOOL_ORIGINAL = (
     "isGenerateImageModelRestricted:!1,taskToolProps:void 0},resolvers:"
+)
+MANAGED_ACTION_ROUTE_319_ORIGINAL = (
+    '"userMessageAction"!==e.actionCase?"action-not-supported":'
+    "function(e){return e.requestedMode===o.xy.AGENT||"
+    "e.isHostedSubagentChild&&e.requestedMode===o.xy.UNSPECIFIED}(e)?"
+    'e.simulatedUserMessage?"simulated-message-not-supported":y(e,r):"mode-not-supported"'
+)
+MANAGED_ACTION_ROUTE_319_PATCHED = (
+    SAND_MANAGED_ACTION_ROUTE_MARKER
+    + '!["userMessageAction","summarizeAction","resumeAction",'
+    '"backgroundTaskCompletionAction","executePlanAction"].includes(e.actionCase)?'
+    '"action-not-supported":'
+    '"userMessageAction"===e.actionCase&&'
+    'e.simulatedUserMessage?"simulated-message-not-supported":y(e,r)'
+)
+MANAGED_SUBAGENT_ROUTE_319_ORIGINAL = (
+    "isHostedSubagentChild:Boolean(e.runOptions.subagentTypeName||e.runOptions.parentAgentToolCallId)"
+)
+MANAGED_SUBAGENT_ROUTE_319_PATCHED = (
+    "isHostedSubagentChild:Boolean("
+    + SAND_MANAGED_SUBAGENT_ROUTE_MARKER
+    + "e.runOptions.subagentTypeName||e.runOptions.parentAgentToolCallId)"
+)
+MANAGED_SUBAGENT_SESSION_319_ORIGINAL = "outputNotificationLimit:1e3,useClientSideSubagent:!0}"
+MANAGED_SUBAGENT_SESSION_319_PATCHED = (
+    "outputNotificationLimit:1e3,useClientSideSubagent:!0"
+    + SAND_MANAGED_SUBAGENT_SESSION_MARKER
+    + "}"
+)
+MANAGED_TASK_TOOL_319_ORIGINAL = (
+    "isGenerateImageModelRestricted:!1,taskToolProps:"
+    "Ne({parentModelId:null!=p?p:n.modelName,modelInfo:n})},resolvers:"
+)
+MANAGED_TASK_TOOL_319_RE = re.compile(
+    r"isGenerateImageModelRestricted:!1,taskToolProps:"
+    r"([A-Za-z_$][\w$]*)\(\{parentModelId:null!=p\?p:n\.modelName,modelInfo:n\}\)\},resolvers:"
 )
 
 RULES_SKILLS_EXEC_ORIGINAL = (
@@ -581,6 +620,7 @@ HIT_LABELS = {
     "actionRoute": "L6 action 白名单",
     "resumeMode": "L6 resume mode",
     "completionWake": "L6 完成唤醒",
+    "routeLabel": "路由文案 本次使用",
     "maxTokens": "L7 maxTokens / 1M",
     "rulesSkills": "L7 Rules/Skills exec",
     "mcpFilesystem": "L7 MCP filesystem",
@@ -655,6 +695,7 @@ class PatchStats:
     user_rules: int = 0
     rules_preseed: int = 0
     push_context_timeout: int = 0
+    route_label: int = 0
 
     @property
     def total(self) -> int:
@@ -684,6 +725,7 @@ class RemoveStats:
     user_rules: int = 0
     rules_preseed: int = 0
     push_context_timeout: int = 0
+    route_label: int = 0
 
     @property
     def total(self) -> int:
@@ -1024,6 +1066,17 @@ def _managed_task_tool_patched() -> str:
     )
 
 
+def _managed_task_tool_patched_319(factory: str = "Ne") -> str:
+    return (
+        "isGenerateImageModelRestricted:!1,taskToolProps:"
+        "void 0!==e.runOptions.subagentTypeName?void 0:"
+        f"Object.assign({factory}({{parentModelId:null!=p?p:n.modelName,modelInfo:n}}),"
+        + _managed_task_tool_props()
+        + ")"
+        + "},resolvers:"
+    )
+
+
 def _managed_task_tool_patched_v126() -> str:
     return (
         "isGenerateImageModelRestricted:!1,taskToolProps:"
@@ -1074,10 +1127,20 @@ def _replace_count(content: str, old: str, new: str) -> tuple[str, int]:
 
 def _strip_l6(content: str, stats: RemoveStats | None = None) -> str:
     next_content, n = _replace_count(
-        content, MANAGED_SUBAGENT_ROUTE_PATCHED, MANAGED_SUBAGENT_ROUTE_ORIGINAL
+        content, MANAGED_SUBAGENT_ROUTE_319_PATCHED, MANAGED_SUBAGENT_ROUTE_319_ORIGINAL
     )
     if stats:
         stats.managed_subagent_route += n
+    next_content, n = _replace_count(
+        next_content, MANAGED_SUBAGENT_ROUTE_PATCHED, MANAGED_SUBAGENT_ROUTE_ORIGINAL
+    )
+    if stats:
+        stats.managed_subagent_route += n
+    next_content, n = _replace_count(
+        next_content, MANAGED_ACTION_ROUTE_319_PATCHED, MANAGED_ACTION_ROUTE_319_ORIGINAL
+    )
+    if stats:
+        stats.managed_action_route += n
     next_content, n = _replace_count(
         next_content, MANAGED_ACTION_ROUTE_PATCHED, MANAGED_ACTION_ROUTE_ORIGINAL
     )
@@ -1093,7 +1156,11 @@ def _strip_l6(content: str, stats: RemoveStats | None = None) -> str:
         return (
             "e.resumeAgentId&&e.mode==="
             + match.group(1)
-            + ".FL.UNSPECIFIED&&!e.readonly?oe.xyI.UNSPECIFIED:"
+            + ".FL.UNSPECIFIED&&!e.readonly?"
+            + match.group(2)
+            + "."
+            + match.group(3)
+            + ".UNSPECIFIED:"
         )
 
     next_content, n = SUBAGENT_RESUME_MODE_PATCH_RE.subn(restore_resume, next_content)
@@ -1126,6 +1193,28 @@ def _strip_l6(content: str, stats: RemoveStats | None = None) -> str:
     next_content, n = MANAGED_SUBAGENT_SESSION_PATCH_RE.subn(restore_session, next_content)
     if stats:
         stats.managed_subagent_session += n
+    next_content, n = _replace_count(
+        next_content, MANAGED_SUBAGENT_SESSION_319_PATCHED, MANAGED_SUBAGENT_SESSION_319_ORIGINAL
+    )
+    if stats:
+        stats.managed_subagent_session += n
+
+    def restore_task_319(match: re.Match[str]) -> str:
+        return (
+            "isGenerateImageModelRestricted:!1,taskToolProps:"
+            + match.group(1)
+            + "({parentModelId:null!=p?p:n.modelName,modelInfo:n})},resolvers:"
+        )
+
+    next_content, n = re.compile(
+        r"isGenerateImageModelRestricted:!1,taskToolProps:"
+        r"void 0!==e\.runOptions\.subagentTypeName\?void 0:"
+        r"Object\.assign\(([A-Za-z_$][\w$]*)\(\{parentModelId:null!=p\?p:n\.modelName,modelInfo:n\}\),"
+        + re.escape(_managed_task_tool_props())
+        + r"\)\},resolvers:"
+    ).subn(restore_task_319, next_content)
+    if stats:
+        stats.managed_task_tool += n
     for patched in (
         _managed_task_tool_patched(),
         _managed_task_tool_patched_v126(),
@@ -1161,11 +1250,19 @@ def _apply_l6(content: str, stats: PatchStats) -> str:
     )
     stats.managed_subagent_route += n
     next_content, n = _replace_count(
+        next_content, MANAGED_SUBAGENT_ROUTE_319_ORIGINAL, MANAGED_SUBAGENT_ROUTE_319_PATCHED
+    )
+    stats.managed_subagent_route += n
+    next_content, n = _replace_count(
         next_content, MANAGED_ACTION_ROUTE_PATCHED_V1, MANAGED_ACTION_ROUTE_PATCHED
     )
     stats.migrated_action_route += n
     next_content, n = _replace_count(
         next_content, MANAGED_ACTION_ROUTE_ORIGINAL, MANAGED_ACTION_ROUTE_PATCHED
+    )
+    stats.managed_action_route += n
+    next_content, n = _replace_count(
+        next_content, MANAGED_ACTION_ROUTE_319_ORIGINAL, MANAGED_ACTION_ROUTE_319_PATCHED
     )
     stats.managed_action_route += n
     if SAND_SUBAGENT_RESUME_MODE_MARKER not in next_content:
@@ -1176,7 +1273,10 @@ def _apply_l6(content: str, stats: PatchStats) -> str:
                 + match.group(1)
                 + ".FL.UNSPECIFIED&&!e.readonly?"
                 + SAND_SUBAGENT_RESUME_MODE_MARKER
-                + "oe.xyI.AGENT:"
+                + match.group(2)
+                + "."
+                + match.group(3)
+                + ".AGENT:"
             )
 
         next_content, n = SUBAGENT_RESUME_MODE_RE.subn(enable_resume, next_content)
@@ -1211,6 +1311,10 @@ def _apply_l6(content: str, stats: PatchStats) -> str:
 
         next_content, n = MANAGED_SUBAGENT_SESSION_RE.subn(enable_session, next_content)
         stats.managed_subagent_session += n
+    next_content, n = _replace_count(
+        next_content, MANAGED_SUBAGENT_SESSION_319_ORIGINAL, MANAGED_SUBAGENT_SESSION_319_PATCHED
+    )
+    stats.managed_subagent_session += n
     for previous in (
         _managed_task_tool_patched_v126(),
         _managed_task_tool_patched_v125(),
@@ -1221,6 +1325,12 @@ def _apply_l6(content: str, stats: PatchStats) -> str:
     next_content, n = _replace_count(
         next_content, MANAGED_TASK_TOOL_ORIGINAL, _managed_task_tool_patched()
     )
+    stats.managed_task_tool += n
+
+    def patch_task_319(match: re.Match[str]) -> str:
+        return _managed_task_tool_patched_319(match.group(1))
+
+    next_content, n = MANAGED_TASK_TOOL_319_RE.subn(patch_task_319, next_content)
     stats.managed_task_tool += n
     return next_content
 
@@ -1302,6 +1412,21 @@ def _strip_l78(content: str, stats: RemoveStats | None = None) -> str:
     next_content, n = PUSH_CONTEXT_TIMEOUT_PATCHED_RE.subn(restore_push_timeout, next_content)
     if stats:
         stats.push_context_timeout += n
+    return next_content
+
+
+def _apply_route_label(content: str, stats: PatchStats) -> str:
+    if ROUTE_LABEL_MARKER in content:
+        return content
+    next_content, n = _replace_count(content, ROUTE_LABEL_ORIGINAL, ROUTE_LABEL_PATCHED)
+    stats.route_label += n
+    return next_content
+
+
+def _strip_route_label(content: str, stats: RemoveStats | None = None) -> str:
+    next_content, n = _replace_count(content, ROUTE_LABEL_PATCHED, ROUTE_LABEL_ORIGINAL)
+    if stats:
+        stats.route_label += n
     return next_content
 
 
@@ -1568,6 +1693,7 @@ def apply_patch_to_content(
             next_content = snippet + next_content
             stats.rpc_rewrite += 1
 
+    next_content = _apply_route_label(next_content, stats)
     return next_content, stats
 
 
@@ -1675,6 +1801,7 @@ def remove_patch_from_content(content: str) -> tuple[str, RemoveStats]:
         next_content = next_content.replace(AGENTEXEC_SKIP_PATCHED, AGENTEXEC_SKIP_ORIGINAL)
     next_content = _strip_l6(next_content, stats)
     next_content = _strip_l78(next_content, stats)
+    next_content = _strip_route_label(next_content, stats)
 
     residual_marker_re = re.compile(
         r'(["\'])(?:ide|sand|glass)\1((?:/\*SAND[A-Z0-9_]*_V1\*/)+)'
@@ -1727,6 +1854,7 @@ def inspect_content_hits(content: str) -> dict[str, int]:
         "userRules": content.count(SAND_USER_RULES_MARKER),
         "rulesPreseed": content.count(SAND_RULES_PRESEED_MARKER),
         "pushContextTimeout": content.count(SAND_PUSH_CONTEXT_TIMEOUT_MARKER),
+        "routeLabel": content.count(ROUTE_LABEL_MARKER),
         "agentIde": content.count(SAND_AGENT_IDE_MARKER),
         "launcherMarker": content.count(LAUNCHER_SAND_MARKER),
     }
@@ -2081,7 +2209,7 @@ def _bytes_may_need_sand_patch(data: bytes) -> bool:
 
 
 def _bytes_may_have_sand_patch(data: bytes) -> bool:
-    return b"SAND_" in data or b"KC_SAND" in data
+    return b"SAND_" in data or b"KC_SAND" in data or b"ROUTE_LABEL" in data
 
 
 def _build_install_plan(

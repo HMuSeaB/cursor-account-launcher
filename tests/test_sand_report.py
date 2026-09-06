@@ -197,6 +197,25 @@ def test_version_hint_matches_tested_builds():
     assert "3.19.13" in v319["anchorVersion"]
 
 
+def test_319_l6_leftovers_are_pending_not_feature_absent():
+    src = (
+        'isHostedSubagentChild:Boolean(e.runOptions.subagentTypeName||e.runOptions.parentAgentToolCallId)'
+        '"userMessageAction"!==e.actionCase?"action-not-supported":'
+        "function(e){return e.requestedMode===o.xy.AGENT||"
+        "e.isHostedSubagentChild&&e.requestedMode===o.xy.UNSPECIFIED}(e)?"
+        'e.simulatedUserMessage?"simulated-message-not-supported":y(e,r):"mode-not-supported"'
+        "outputNotificationLimit:1e3,useClientSideSubagent:!0}"
+        "isGenerateImageModelRestricted:!1,taskToolProps:Ne({parentModelId:null!=p?p:n.modelName,modelInfo:n})},resolvers:"
+        "e.resumeAgentId&&e.mode===Mn.FL.UNSPECIFIED&&!e.readonly?o.xy.UNSPECIFIED:"
+    )
+    data = evaluate_compat([("extensions/cursor-agent-host/dist/main.js", src)])
+    assert _rule(data, "subagentRoute")["status"] == "pending"
+    assert _rule(data, "actionRoute")["status"] == "pending"
+    assert _rule(data, "subagentSession")["status"] == "pending"
+    assert _rule(data, "taskTool")["status"] == "pending"
+    assert _rule(data, "resumeMode")["status"] == "pending"
+
+
 def test_agent_ide_pending_then_applied():
     src = "return{headers:e,credentialFingerprint:t}"
     row = _rule(evaluate_compat([("workbench.desktop.main.js", src)]), "agentIde")

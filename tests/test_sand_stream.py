@@ -27,6 +27,8 @@ from launcher.sand_stream import (
     SAND_HDRFIX_V2_MARKER,
     SAND_MANAGED_ACTION_ROUTE_MARKER,
     SAND_MANAGED_LOCAL_ROUTE_MARKER,
+    SAND_MANAGED_SUBAGENT_ROUTE_MARKER,
+    SAND_MANAGED_SUBAGENT_SESSION_MARKER,
     SAND_MANAGED_TASK_TOOL_MARKER,
     SAND_MAX_TOKENS_MARKER,
     SAND_MCP_FILESYSTEM_MARKER,
@@ -38,6 +40,7 @@ from launcher.sand_stream import (
     SAND_SESSION_STREAM_MARKER,
     SAND_STREAM_WRAP_MARKER,
     SAND_SUBAGENT_COMPLETION_WAKE_MARKER,
+    SAND_SUBAGENT_RESUME_MODE_MARKER,
     SAND_TRANSPORT_HOST_MARKER,
     SAND_USER_RULES_MARKER,
     SUBAGENT_RESUME_MODE_ORIGINAL,
@@ -51,6 +54,7 @@ from launcher.sand_stream import (
     resolve_patch_track,
     SandLayout,
     _build_install_plan,
+    _bytes_may_have_sand_patch,
 )
 
 
@@ -541,3 +545,116 @@ def test_318_direct_migrates_to_319_when_kernel_markers_appear():
     assert "promptModelInfo" in second
     assert "resolvedModelMetadata:nre(" not in second
     assert second.count(SAND_DIRECT_STREAM_MARKER) == 1
+
+
+_ACTION_319_ORIGINAL = (
+    '"userMessageAction"!==e.actionCase?"action-not-supported":'
+    "function(e){return e.requestedMode===o.xy.AGENT||"
+    "e.isHostedSubagentChild&&e.requestedMode===o.xy.UNSPECIFIED}(e)?"
+    'e.simulatedUserMessage?"simulated-message-not-supported":y(e,r):"mode-not-supported"'
+)
+_SUBAGENT_ROUTE_319_ORIGINAL = (
+    "isHostedSubagentChild:Boolean(e.runOptions.subagentTypeName||e.runOptions.parentAgentToolCallId)"
+)
+_SUBAGENT_SESSION_319_ORIGINAL = "outputNotificationLimit:1e3,useClientSideSubagent:!0}"
+_TASK_319_ORIGINAL = (
+    "isGenerateImageModelRestricted:!1,taskToolProps:Ne({parentModelId:null!=p?p:n.modelName,modelInfo:n})},resolvers:"
+)
+_RESUME_319_ORIGINAL = (
+    "e.resumeAgentId&&e.mode===Mn.FL.UNSPECIFIED&&!e.readonly?o.xy.UNSPECIFIED:"
+)
+
+
+def _l6_bundle_319() -> str:
+    return (
+        _SUBAGENT_ROUTE_319_ORIGINAL
+        + _ACTION_319_ORIGINAL
+        + _RESUME_319_ORIGINAL
+        + _SUBAGENT_SESSION_319_ORIGINAL
+        + _TASK_319_ORIGINAL
+        + 'x.source==="interactive-child"||x.payload.notificationContext==="user_driven_interactive_child"'
+    )
+
+
+def test_319_l6_action_v2_has_whitelist_without_mode_not_supported():
+    src = _core_bundle_319() + _ACTION_319_ORIGINAL
+    patched, _ = apply_patch_to_content(src, profile="full", include_subagent=True)
+    assert SAND_MANAGED_ACTION_ROUTE_MARKER in patched
+    assert "summarizeAction" in patched
+    assert "resumeAction" in patched
+    assert "executePlanAction" in patched
+    action_idx = patched.index(SAND_MANAGED_ACTION_ROUTE_MARKER)
+    action_chunk = patched[action_idx : action_idx + 900]
+    assert "mode-not-supported" not in action_chunk
+    restored, _ = remove_patch_from_content(patched)
+    assert _ACTION_319_ORIGINAL in restored
+    assert SAND_MANAGED_ACTION_ROUTE_MARKER not in restored
+
+
+def test_319_l6_encodes_v3_task_and_319_route_session():
+    src = _core_bundle_319() + _l6_bundle_319()
+    patched, stats = apply_patch_to_content(src, profile="full", include_subagent=True)
+    assert SAND_MANAGED_SUBAGENT_ROUTE_MARKER in patched
+    assert SAND_MANAGED_SUBAGENT_SESSION_MARKER in patched
+    assert SAND_MANAGED_TASK_TOOL_MARKER in patched
+    assert SAND_SUBAGENT_RESUME_MODE_MARKER in patched
+    assert "o.xy.AGENT" in patched
+    assert "void 0!==e.runOptions.subagentTypeName?void 0:" in patched
+    assert "parentRequestedModelName:e.requestedModel.modelId" in patched
+    assert "Object.assign(Ne({parentModelId:null!=p?p:n.modelName,modelInfo:n})," in patched
+    assert stats.managed_task_tool == 1
+    restored, _ = remove_patch_from_content(patched)
+    assert _SUBAGENT_ROUTE_319_ORIGINAL in restored
+    assert _SUBAGENT_SESSION_319_ORIGINAL in restored
+    assert _TASK_319_ORIGINAL in restored
+    assert _RESUME_319_ORIGINAL in restored
+    assert SAND_MANAGED_TASK_TOOL_MARKER not in restored
+
+
+def test_319_l6_without_task_anchor_does_not_fake_full_ready():
+    src = (
+        _core_bundle_319()
+        + _SUBAGENT_ROUTE_319_ORIGINAL
+        + _ACTION_319_ORIGINAL
+        + _RESUME_319_ORIGINAL
+        + _SUBAGENT_SESSION_319_ORIGINAL
+        + 'x.source==="interactive-child"||x.payload.notificationContext==="user_driven_interactive_child"'
+    )
+    patched, _ = apply_patch_to_content(src, profile="full", include_subagent=True)
+    ready = classify_readiness(inspect_content_hits(patched), profile="full", include_subagent=True)
+    assert SAND_MANAGED_ACTION_ROUTE_MARKER in patched
+    assert "taskTool" in ready["missing"]
+    assert ready["fullReady"] is False
+
+
+def test_stream_profile_skips_319_l6():
+    src = _core_bundle_319() + _l6_bundle_319()
+    patched, _ = apply_patch_to_content(src, profile="stream", include_subagent=True)
+    assert SAND_MANAGED_ACTION_ROUTE_MARKER not in patched
+    assert SAND_MANAGED_TASK_TOOL_MARKER not in patched
+    assert SAND_MANAGED_SUBAGENT_ROUTE_MARKER not in patched
+    assert SAND_MANAGED_SUBAGENT_SESSION_MARKER not in patched
+
+
+def test_route_label_only_when_present_and_not_bound_to_stream_ready():
+    none, _ = apply_patch_to_content("hello workbench", profile="stream")
+    assert "本次使用" not in none
+    assert "> grok-bot route to" not in none
+
+    src = _core_bundle() + '["Routed to "'
+    patched, stats = apply_patch_to_content(src, profile="stream")
+    assert stats.route_label == 1
+    assert '/*ROUTE_LABEL_V1*/["本次使用 "' in patched
+    assert '["Routed to "' not in patched
+    assert "> grok-bot route to" not in patched
+    hits = inspect_content_hits(patched)
+    assert hits["routeLabel"] == 1
+    ready = classify_readiness(hits, profile="stream")
+    assert ready["streamReady"] is True
+    assert "routeLabel" not in ready["missing"]
+    restored, rst = remove_patch_from_content(patched)
+    assert rst.route_label == 1
+    assert '["Routed to "' in restored
+    assert "本次使用" not in restored
+    assert _bytes_may_have_sand_patch(patched.encode("utf-8")) is True
+    assert _bytes_may_have_sand_patch('/*ROUTE_LABEL_V1*/["本次使用 "'.encode("utf-8")) is True
