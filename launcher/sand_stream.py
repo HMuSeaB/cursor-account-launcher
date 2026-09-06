@@ -16,7 +16,7 @@ import shutil
 from dataclasses import dataclass, field, fields
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from launcher.cursor_install import app_root as install_app_root
 from launcher.cursor_process import is_cursor_running, resolve_install
@@ -2161,10 +2161,17 @@ def _commit_plan(
     *,
     operation: str,
     originals: dict[Path, bytes],
+    on_progress: Callable[[dict[str, Any]], None] | None = None,
+    log: _ProgressLog | None = None,
 ) -> dict[str, Any]:
+    log = _progress_log(on_progress, log)
     if not pending:
         return {"ok": True, "skipped": True, "changed": []}
+    log.begin("backup", "备份当前文件")
+    log.emit(72, "备份当前文件…")
     backup_dir = _snapshot_backup(layout, originals, operation=operation)
+    log.finish("backup", "备份当前文件")
+    log.emit(74, "备份已写好")
     for path, data in pending.items():
         if path.name not in WORKBENCH_NAMES:
             continue
@@ -2175,28 +2182,229 @@ def _commit_plan(
         except PreflightError as exc:
             _restore_backup(backup_dir, layout)
             raise SandStreamError("预检未通过：" + "; ".join(exc.issues)) from exc
+    log.begin("checksum", "更新扩展校验")
+    log.emit(78, "更新扩展校验…")
     _update_extension_hashes(layout, pending)
     product_next = sync_product_checksums(layout.app_root, pending)
     if product_next is not None:
         pending[layout.product_json] = product_next
+    log.finish("checksum", "更新扩展校验")
     changed: list[str] = []
+    items = list(pending.items())
+    count = max(len(items), 1)
+    log.begin("write", "写到磁盘")
     try:
-        for path, data in pending.items():
+        for index, (path, data) in enumerate(items):
+            log.emit(
+                80 + int(12 * index / count),
+                f"写入 {path.name}（{index + 1}/{len(items)}）…",
+            )
             if path.is_file() and path.read_bytes() == data:
                 continue
             write_atomic(path, data)
             changed.append(path.name)
     except Exception as exc:
+        log.finish("write", "写到磁盘", status="fail")
         _restore_backup(backup_dir, layout)
         if isinstance(exc, PermissionError):
             raise SandStreamError("没有写入权限或文件被占用，请先关闭 Cursor") from exc
         raise SandStreamError(str(exc)) from exc
+    log.finish("write", "写到磁盘", detail=f"{len(changed)} 个文件")
+    log.emit(93, f"已写入 {len(changed)} 个文件")
     return {
         "ok": True,
         "changed": changed,
         "backup": str(backup_dir),
         "operation": operation,
     }
+
+
+_PATCH_STEP_LABELS: tuple[tuple[str, str], ...] = (
+    ("direct_stream", "Direct"),
+    ("managed_local_route", "managed-local"),
+    ("local_runtime_load", "runtime"),
+    ("rpc_rewrite", "RPC"),
+    ("set_header", "HDRFIX"),
+    ("object_header", "HDRFIX"),
+    ("is_glass", "isGlass"),
+    ("eligibility", "eligibility"),
+    ("client_type", "HDRFIX"),
+    ("managed_task_tool", "Task"),
+    ("managed_action_route", "Action"),
+    ("managed_subagent_route", "子代理"),
+    ("managed_subagent_session", "子会话"),
+    ("agent_host_enablement", "agent-host"),
+    ("agent_host_identity", "host 身份"),
+    ("move_exec", "move"),
+    ("max_tokens", "maxTokens"),
+    ("route_label", "路由文案"),
+    ("subagent_resume_mode", "resume"),
+    ("subagent_completion_wake", "wake"),
+    ("rules_skills", "skills"),
+    ("mcp_filesystem", "mcp"),
+    ("user_rules", "rules"),
+    ("rules_preseed", "preseed"),
+    ("push_context_timeout", "超时"),
+    ("migrated_direct_stream", "Direct 迁移"),
+    ("migrated_task_tool", "Task 迁移"),
+    ("migrated_action_route", "Action 迁移"),
+    ("migrated_session_stream", "会话迁移"),
+)
+
+
+class _ProgressLog:
+    """Per-item step list that rides along with pct/message ticks."""
+
+    def __init__(self, on_progress: Callable[[dict[str, Any]], None] | None) -> None:
+        self._cb = on_progress
+        self.steps: list[dict[str, str]] = []
+        self._ids: dict[str, int] = {}
+
+    def begin(self, step_id: str, label: str, *, detail: str = "") -> None:
+        self._put(step_id, label, "run", detail)
+
+    def finish(
+        self,
+        step_id: str,
+        label: str | None = None,
+        *,
+        detail: str = "",
+        status: str = "done",
+    ) -> None:
+        prev = self._get(step_id)
+        self._put(
+            step_id,
+            label or (prev["label"] if prev else step_id),
+            status,
+            detail if detail else (prev.get("detail") if prev else ""),
+        )
+
+    def drop(self, step_id: str) -> None:
+        idx = self._ids.pop(step_id, None)
+        if idx is None:
+            return
+        self.steps.pop(idx)
+        self._ids = {str(item["id"]): i for i, item in enumerate(self.steps)}
+
+    def emit(self, pct: int, message: str, phase: str = "run") -> None:
+        if not self._cb:
+            return
+        self._cb(
+            {
+                "pct": max(0, min(100, int(pct))),
+                "phase": phase,
+                "message": message,
+                "busy": True,
+                "steps": [dict(item) for item in self.steps],
+            }
+        )
+
+    def _get(self, step_id: str) -> dict[str, str] | None:
+        idx = self._ids.get(step_id)
+        if idx is None:
+            return None
+        return self.steps[idx]
+
+    def _put(self, step_id: str, label: str, status: str, detail: str) -> None:
+        item = {
+            "id": step_id,
+            "label": label,
+            "status": status,
+            "detail": detail or "",
+        }
+        idx = self._ids.get(step_id)
+        if idx is None:
+            self._ids[step_id] = len(self.steps)
+            self.steps.append(item)
+        else:
+            self.steps[idx] = item
+
+
+def _stats_step_detail(stats: PatchStats | RemoveStats) -> str:
+    labels: list[str] = []
+    seen: set[str] = set()
+    for field, label in _PATCH_STEP_LABELS:
+        if not getattr(stats, field, 0) or label in seen:
+            continue
+        seen.add(label)
+        labels.append(label)
+        if len(labels) >= 4:
+            break
+    return " · ".join(labels) if labels else "已改"
+
+
+def _progress_log(
+    on_progress: Callable[[dict[str, Any]], None] | None,
+    log: _ProgressLog | None = None,
+) -> _ProgressLog:
+    return log or _ProgressLog(on_progress)
+
+
+def _sibling_layer_flags(layout: SandLayout) -> dict[str, bool]:
+    from launcher.ctxwin import file_has_patch, host_js_path
+    from launcher.workbench.markers import MARKER_SHOW_MAX
+
+    host = host_js_path(layout.app_root)
+    has_ctx = bool(host.is_file() and file_has_patch(host))
+    has_max = False
+    marker = MARKER_SHOW_MAX.encode("ascii")
+    for name in WORKBENCH_NAMES:
+        path = layout.app_root / "out/vs/workbench" / name
+        if path.is_file() and marker in path.read_bytes():
+            has_max = True
+            break
+    return {"ctxwin": has_ctx, "max": has_max}
+
+
+def _reapply_sibling_layers(
+    layout: SandLayout,
+    wanted: dict[str, bool],
+    on_progress: Callable[[dict[str, Any]], None] | None = None,
+    log: _ProgressLog | None = None,
+) -> dict[str, list[str]]:
+    log = _progress_log(on_progress, log)
+    kept: list[str] = []
+    reapplied: list[str] = []
+    failed: list[str] = []
+    current = _sibling_layer_flags(layout)
+    if wanted.get("max"):
+        if current["max"]:
+            kept.append("MAX")
+            log.finish("layer:max", "MAX 开关", detail="未动")
+            log.emit(88, "MAX 开关未动")
+        else:
+            log.begin("layer:max", "MAX 开关")
+            log.emit(88, "正在补回 MAX 开关…")
+            from launcher.model_unlock import apply as unlock_apply
+
+            result = unlock_apply(max_only=True)
+            if result.get("ok") and not result.get("error"):
+                reapplied.append("MAX")
+                log.finish("layer:max", "MAX 开关", detail="已补回")
+            else:
+                failed.append("MAX")
+                log.finish("layer:max", "MAX 开关", detail="补回失败", status="fail")
+            log.emit(90, "MAX 开关已处理")
+    if wanted.get("ctxwin"):
+        current = _sibling_layer_flags(layout)
+        if current["ctxwin"]:
+            kept.append("500k")
+            log.finish("layer:ctxwin", "500k 回包", detail="未动")
+            log.emit(92, "500k 回包未动")
+        else:
+            log.begin("layer:ctxwin", "500k 回包")
+            log.emit(92, "正在补回 500k 回包…")
+            from launcher.ctxwin import ctxwin_apply
+
+            result = ctxwin_apply()
+            if result.get("ok") and not result.get("error"):
+                reapplied.append("500k")
+                log.finish("layer:ctxwin", "500k 回包", detail="已补回")
+            else:
+                failed.append("500k")
+                log.finish("layer:ctxwin", "500k 回包", detail="补回失败", status="fail")
+            log.emit(94, "500k 回包已处理")
+    return {"kept": kept, "reapplied": reapplied, "failed": failed}
 
 
 def _add_stats(total: PatchStats | RemoveStats, stats: PatchStats | RemoveStats) -> None:
@@ -2217,15 +2425,24 @@ def _build_install_plan(
     *,
     profile: str,
     include_subagent: bool,
+    on_progress: Callable[[dict[str, Any]], None] | None = None,
+    log: _ProgressLog | None = None,
 ) -> tuple[dict[Path, bytes], PatchStats, dict[Path, bytes]]:
+    log = _progress_log(on_progress, log)
     pending: dict[Path, bytes] = {}
     originals: dict[Path, bytes] = {}
     total = PatchStats()
     default_track = str(resolve_patch_track(layout.version).get("track") or "3.18")
-    for target in layout.target_paths:
+    targets = list(layout.target_paths)
+    count = max(len(targets), 1)
+    for index, target in enumerate(targets):
+        pct = 18 + int(50 * index / count)
         original = target.read_bytes()
         if not _bytes_may_need_sand_patch(original):
             continue
+        step_id = f"file:{target.name}"
+        log.begin(step_id, target.name)
+        log.emit(pct, f"正在打 {target.name}（{index + 1}/{len(targets)}）…")
         originals[target] = original
         content = original.decode("utf-8")
         next_content, stats = apply_patch_to_content(
@@ -2239,23 +2456,44 @@ def _build_install_plan(
             next_content = LAUNCHER_SAND_MARKER + next_content
         if next_content != content:
             pending[target] = next_content.encode("utf-8")
+            detail = _stats_step_detail(stats)
+            log.finish(step_id, target.name, detail=detail)
+            log.emit(pct, f"{target.name} 完成 · {detail}")
+        else:
+            log.drop(step_id)
         _add_stats(total, stats)
     return pending, total, originals
 
 
-def _build_uninstall_plan(layout: SandLayout) -> tuple[dict[Path, bytes], RemoveStats, dict[Path, bytes]]:
+def _build_uninstall_plan(
+    layout: SandLayout,
+    on_progress: Callable[[dict[str, Any]], None] | None = None,
+    log: _ProgressLog | None = None,
+) -> tuple[dict[Path, bytes], RemoveStats, dict[Path, bytes]]:
+    log = _progress_log(on_progress, log)
     pending: dict[Path, bytes] = {}
     originals: dict[Path, bytes] = {}
     total = RemoveStats()
-    for target in layout.target_paths:
+    targets = list(layout.target_paths)
+    count = max(len(targets), 1)
+    for index, target in enumerate(targets):
+        pct = 18 + int(50 * index / count)
         original = target.read_bytes()
         if not _bytes_may_have_sand_patch(original):
             continue
+        step_id = f"file:{target.name}"
+        log.begin(step_id, target.name)
+        log.emit(pct, f"正在拆 {target.name}（{index + 1}/{len(targets)}）…")
         originals[target] = original
         content = original.decode("utf-8")
         next_content, stats = remove_patch_from_content(content)
         if next_content != content:
             pending[target] = next_content.encode("utf-8")
+            detail = _stats_step_detail(stats)
+            log.finish(step_id, target.name, detail=detail)
+            log.emit(pct, f"{target.name} 已拆 · {detail}")
+        else:
+            log.drop(step_id)
         _add_stats(total, stats)
     return pending, total, originals
 
@@ -2363,17 +2601,30 @@ def status(profile: str = "full", include_subagent: bool = True) -> dict[str, An
     )
 
 
-def apply(profile: str = "full", include_subagent: bool = True) -> dict[str, Any]:
+def apply(
+    profile: str = "full",
+    include_subagent: bool = True,
+    on_progress: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
     profile = _normalize_profile(profile)
     include_subagent = bool(include_subagent) if profile == "full" else False
     if is_cursor_running():
         return {"ok": False, "error": "请先关闭 IDE，再启用 Sand Stream", "running": True}
+    log = _ProgressLog(on_progress)
+    log.begin("layout", "读取安装目录")
+    log.emit(6, "读取 Cursor 安装目录…")
     try:
         layout = build_layout()
     except Exception as exc:
+        log.finish("layout", "读取安装目录", status="fail")
+        log.emit(6, str(exc), phase="error")
         return {"ok": False, "error": str(exc)}
+    log.finish("layout", "读取安装目录")
 
+    log.begin("inspect", "检查已有补丁")
+    log.emit(12, "检查已有补丁…")
     before = inspect_status(layout, include_compat=False)
+    log.finish("inspect", "检查已有补丁")
     if before.external_marker_count and not before.launcher_markers:
         return {
             "ok": False,
@@ -2381,7 +2632,10 @@ def apply(profile: str = "full", include_subagent: bool = True) -> dict[str, Any
         }
 
     pending, stats, originals = _build_install_plan(
-        layout, profile=profile, include_subagent=include_subagent
+        layout,
+        profile=profile,
+        include_subagent=include_subagent,
+        log=log,
     )
     if not pending:
         st = _status_payload(
@@ -2396,10 +2650,12 @@ def apply(profile: str = "full", include_subagent: bool = True) -> dict[str, Any
                 orig = desktop.read_bytes()
                 originals[desktop] = orig
                 pending[desktop] = (LAUNCHER_SAND_MARKER + orig.decode("utf-8")).encode("utf-8")
+                log.finish("file:workbench.desktop.main.js", "workbench.desktop.main.js", detail="标记")
             else:
                 st["ok"] = True
                 st["skipped"] = True
                 st["message"] = "Sand Stream 已按当前档位安装，无需重复操作"
+                log.emit(100, st["message"], phase="done")
                 return st
         else:
             return {
@@ -2412,13 +2668,18 @@ def apply(profile: str = "full", include_subagent: bool = True) -> dict[str, Any
             }
 
     try:
-        result = _commit_plan(layout, pending, operation="apply", originals=originals)
+        result = _commit_plan(
+            layout, pending, operation="apply", originals=originals, log=log
+        )
     except SandStreamError as exc:
         return {"ok": False, "error": str(exc)}
     except WorkbenchWriteError as exc:
         return {"ok": False, "error": str(exc)}
 
+    log.begin("verify", "核对写入结果")
+    log.emit(96, "核对写入结果…")
     after = inspect_status(layout)
+    log.finish("verify", "核对写入结果")
     st = _status_payload(
         layout, after, running=False, profile=profile, include_subagent=include_subagent
     )
@@ -2431,47 +2692,78 @@ def apply(profile: str = "full", include_subagent: bool = True) -> dict[str, Any
             HIT_LABELS.get(key, key) for key in ready["coreMissing"]
         )
         st["partial"] = True
+        log.emit(96, st["error"], phase="error")
         return st
     st["ok"] = True
     st["complete"] = ready["complete"]
     if not ready["complete"]:
         st["message"] = "已写入能打到的补丁，以下未命中：" + "、".join(ready["missingLabels"])
+    log.emit(100, "写入完成", phase="done")
     return st
 
 
-def restore() -> dict[str, Any]:
+def restore(on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     if is_cursor_running():
         return {"ok": False, "error": "请先关闭 IDE，再还原 Sand Stream", "running": True}
+    log = _ProgressLog(on_progress)
+    log.begin("layout", "读取安装目录")
+    log.emit(6, "读取 Cursor 安装目录…")
     try:
         layout = build_layout()
     except Exception as exc:
+        log.finish("layout", "读取安装目录", status="fail")
+        log.emit(6, str(exc), phase="error")
         return {"ok": False, "error": str(exc)}
+    log.finish("layout", "读取安装目录")
 
+    log.begin("inspect", "检查已有补丁")
+    log.emit(12, "检查已有补丁…")
     before = inspect_status(layout, include_compat=False)
+    log.finish("inspect", "检查已有补丁")
     if not before.installed:
         st = _status_payload(layout, before, running=False)
         st["ok"] = True
         st["skipped"] = True
         st["message"] = "当前未安装 Sand Stream，无需还原"
+        log.emit(100, st["message"], phase="done")
         return st
 
-    pending, _stats, originals = _build_uninstall_plan(layout)
+    wanted = _sibling_layer_flags(layout)
+    pending, _stats, originals = _build_uninstall_plan(layout, log=log)
     if not pending:
         st = _status_payload(layout, before, running=False)
         st["ok"] = True
         st["skipped"] = True
         st["message"] = "未发现可还原的 Sand Stream 改动"
+        log.emit(100, st["message"], phase="done")
         return st
 
     try:
-        result = _commit_plan(layout, pending, operation="restore", originals=originals)
+        result = _commit_plan(
+            layout, pending, operation="restore", originals=originals, log=log
+        )
     except SandStreamError as exc:
         return {"ok": False, "error": str(exc)}
     except WorkbenchWriteError as exc:
         return {"ok": False, "error": str(exc)}
 
+    layers = _reapply_sibling_layers(layout, wanted, log=log)
+    log.begin("verify", "核对还原结果")
+    log.emit(96, "核对还原结果…")
     after = inspect_status(layout)
+    log.finish("verify", "核对还原结果")
     st = _status_payload(layout, after, running=False)
     st.update(result)
-    st["message"] = "已还原 Sand Stream 补丁（含 RPC 片段，不留半档）"
+    st["keptLayers"] = layers["kept"]
+    st["reappliedLayers"] = layers["reapplied"]
+    st["failedLayers"] = layers["failed"]
+    message = "已还原 Grok Bot 补丁（含 RPC 片段，不留半档）"
+    if layers["reapplied"]:
+        message += "；已补回 " + " / ".join(layers["reapplied"])
+    elif layers["kept"]:
+        message += "；" + " / ".join(layers["kept"]) + " 未动"
+    if layers["failed"]:
+        message += "；未能补回 " + " / ".join(layers["failed"]) + "，请在急救补丁里重打"
+    st["message"] = message
+    log.emit(100, "还原完成", phase="done")
     return st

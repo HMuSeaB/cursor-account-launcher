@@ -130,6 +130,15 @@ class Api(PatchesApiMixin):
         self._guard.start()
         self._compact_lock = threading.Lock()
         self._compact_progress = {"busy": False, "pct": 0, "phase": "", "message": ""}
+        self._job_lock = threading.Lock()
+        self._job_progress = {
+            "busy": False,
+            "pct": 0,
+            "phase": "",
+            "message": "",
+            "job": "",
+            "result": None,
+        }
 
     def _on_guard_event(self, payload: dict) -> None:
         if self._window is not None:
@@ -567,17 +576,157 @@ class Api(PatchesApiMixin):
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
+    def sand_stream_restore(self) -> dict:
+        try:
+            return run_sand_stream_restore()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def patch_job_progress(self) -> dict:
+        with self._job_lock:
+            return dict(self._job_progress)
+
+    def sand_stream_apply_start(self, profile: str = "full", include_subagent: bool = True) -> dict:
+        return self._start_patch_job(
+            "sand-apply",
+            lambda cb: run_sand_stream_apply(
+                profile=profile, include_subagent=include_subagent, on_progress=cb
+            ),
+            "正在写入 Grok Bot…",
+        )
+
+    def sand_stream_restore_start(self) -> dict:
+        return self._start_patch_job(
+            "sand-restore",
+            lambda cb: run_sand_stream_restore(on_progress=cb),
+            "正在还原 Grok Bot…",
+        )
+
+    def ctxwin_apply_start(self) -> dict:
+        def job(cb):
+            steps = [{"id": "host", "label": "extensionHostProcess.js", "status": "run", "detail": ""}]
+            cb({"pct": 28, "message": "正在改写 500k 回包…", "steps": steps, "phase": "run"})
+            result = run_ctxwin_apply()
+            ok = bool(result.get("ok"))
+            steps[0]["status"] = "done" if ok else "fail"
+            steps[0]["detail"] = "500k 回包" if ok else (result.get("error") or "失败")
+            cb({"pct": 92, "message": result.get("message") or "500k 回包已处理", "steps": steps})
+            return result
+
+        return self._start_patch_job("ctxwin-apply", job, "正在启用 500k…")
+
+    def ctxwin_restore_start(self) -> dict:
+        def job(cb):
+            steps = [{"id": "host", "label": "extensionHostProcess.js", "status": "run", "detail": ""}]
+            cb({"pct": 28, "message": "正在还原官方回包…", "steps": steps, "phase": "run"})
+            result = run_ctxwin_restore()
+            ok = bool(result.get("ok"))
+            steps[0]["status"] = "done" if ok else "fail"
+            steps[0]["detail"] = "已还原" if ok else (result.get("error") or "失败")
+            cb({"pct": 92, "message": result.get("message") or "500k 已还原", "steps": steps})
+            return result
+
+        return self._start_patch_job("ctxwin-restore", job, "正在还原 500k…")
+
+    def model_unlock_apply_start(self, membership_level: str | None = None, max_only: bool = False) -> dict:
+        label = "正在解锁 MAX…" if max_only else "正在完整解锁…"
+        detail = "MAX 开关" if max_only else "完整解锁"
+
+        def job(cb):
+            steps = [{"id": "wb", "label": "workbench.desktop.main.js", "status": "run", "detail": ""}]
+            cb({"pct": 28, "message": label, "steps": steps, "phase": "run"})
+            result = run_model_unlock_apply(membership_level, max_only=max_only)
+            ok = bool(result.get("ok")) and not result.get("error")
+            steps[0]["status"] = "done" if ok else "fail"
+            steps[0]["detail"] = detail if ok else (result.get("error") or "失败")
+            cb({"pct": 92, "message": result.get("message") or label, "steps": steps})
+            return result
+
+        return self._start_patch_job("max-apply", job, label)
+
+    def model_unlock_restore_start(self) -> dict:
+        def job(cb):
+            steps = [{"id": "wb", "label": "workbench.desktop.main.js", "status": "run", "detail": ""}]
+            cb({"pct": 28, "message": "正在还原 MAX…", "steps": steps, "phase": "run"})
+            result = run_model_unlock_restore()
+            ok = bool(result.get("ok"))
+            steps[0]["status"] = "done" if ok else "fail"
+            steps[0]["detail"] = "已还原" if ok else (result.get("error") or "失败")
+            cb({"pct": 92, "message": result.get("message") or "MAX 已还原", "steps": steps})
+            return result
+
+        return self._start_patch_job("max-restore", job, "正在还原 MAX…")
+
+    def _start_patch_job(self, job: str, fn, message: str) -> dict:
+        with self._job_lock:
+            if self._job_progress.get("busy"):
+                return {"ok": False, "error": "已有写入/还原在进行，请稍候"}
+            self._job_progress = {
+                "busy": True,
+                "pct": 2,
+                "phase": "start",
+                "message": message,
+                "job": job,
+                "result": None,
+                "steps": [],
+            }
+        threading.Thread(target=self._run_patch_job, args=(job, fn, message), daemon=True).start()
+        self._emit_patch_job(self._job_progress)
+        return {"ok": True, "started": True, "job": job}
+
+    def _run_patch_job(self, job: str, fn, message: str) -> None:
+        def on_progress(payload: dict) -> None:
+            with self._job_lock:
+                current = dict(self._job_progress)
+                current.update(payload)
+                current["busy"] = True
+                current["job"] = job
+                self._job_progress = current
+            self._emit_patch_job(self._job_progress)
+
+        try:
+            result = fn(on_progress)
+        except Exception as exc:
+            result = {"ok": False, "error": str(exc)}
+        with self._job_lock:
+            last_steps = list(self._job_progress.get("steps") or [])
+        ok = bool(result.get("ok")) and not result.get("error")
+        steps = []
+        for item in last_steps:
+            row = dict(item)
+            if row.get("status") == "run":
+                row["status"] = "done" if ok else "fail"
+            steps.append(row)
+        done = {
+            "busy": False,
+            "pct": 100 if ok else int(self._job_progress.get("pct") or 0),
+            "phase": "done" if ok else "error",
+            "message": result.get("message") or result.get("error") or ("完成" if ok else "失败"),
+            "job": job,
+            "result": result,
+            "steps": steps,
+        }
+        with self._job_lock:
+            self._job_progress = done
+        self._emit_patch_job(done)
+
+    def _emit_patch_job(self, payload: dict) -> None:
+        if self._window is None:
+            return
+        try:
+            self._window.evaluate_js(
+                "window.dispatchEvent(new CustomEvent('patch-job-progress', {detail: "
+                + json.dumps(payload, ensure_ascii=False)
+                + "}))"
+            )
+        except Exception:
+            pass
+
     def crash_diagnose(self) -> dict:
         from launcher.crash_diag import diagnose
 
         try:
             return diagnose()
-        except Exception as exc:
-            return {"ok": False, "error": str(exc)}
-
-    def sand_stream_restore(self) -> dict:
-        try:
-            return run_sand_stream_restore()
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 

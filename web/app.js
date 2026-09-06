@@ -1174,7 +1174,7 @@ function paintSandStream(res) {
 
   let title = "未启用";
   let tone = "off";
-  let copy = "还没打补丁。日常用「启用完整」；只要对话通路就用「仅对话」。";
+  let copy = "还没打补丁。日常用「启用完整」；只要对话通路就用「仅对话」。500k / MAX 请看顶栏日常状态。";
   if (res.fullReady) {
     title = "完整档";
     tone = "ok";
@@ -1186,7 +1186,7 @@ function paintSandStream(res) {
   } else if (res.streamReady) {
     title = "仅对话";
     tone = "ok";
-    copy = "Bot 已走 Direct Stream，还没装工具和子代理。";
+    copy = "Bot 已走 Direct Stream，还没装工具和子代理。聊天里的 256k 窗口归 500k 回包，不归这一栏。";
   } else if (res.installed) {
     title = "不完整";
     tone = "warn";
@@ -1322,6 +1322,65 @@ async function refreshSandStream() {
   }
 }
 
+function waitPatchJob() {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (p) => {
+      if (settled) return;
+      settled = true;
+      clearInterval(waitPatchJob._t);
+      window.removeEventListener("patch-job-progress", onEvent);
+      showCompactBanner(p);
+      hideCompactBannerLater();
+      const res = p.result || { ok: p.phase !== "error", error: p.message, message: p.message };
+      resolve(res);
+    };
+    const onEvent = (ev) => {
+      const p = ev.detail || {};
+      showCompactBanner(p);
+      if (!p.busy) finish(p);
+    };
+    window.addEventListener("patch-job-progress", onEvent);
+    waitPatchJob._t = setInterval(async () => {
+      try {
+        const p = await api().patch_job_progress();
+        showCompactBanner(p);
+        if (!p.busy) finish(p);
+      } catch {
+        finish({ busy: false, phase: "error", message: "进度读取失败", result: { ok: false, error: "进度读取失败" } });
+      }
+    }, 300);
+  });
+}
+
+async function runPatchJob(startName, args, fallbackFn, startMessage) {
+  showCompactBanner({ pct: 3, phase: "start", message: startMessage || "开始处理…", busy: true });
+  const bridge = api();
+  if (bridge?.[startName]) {
+    const started = await bridge[startName](...args);
+    if (!started?.ok) {
+      showCompactBanner({ pct: 0, phase: "error", message: started?.error || "无法开始" });
+      hideCompactBannerLater();
+      return started || { ok: false, error: "无法开始" };
+    }
+    return waitPatchJob();
+  }
+  try {
+    const res = await fallbackFn();
+    showCompactBanner({
+      pct: 100,
+      phase: res?.ok ? "done" : "error",
+      message: res?.message || res?.error || (res?.ok ? "完成" : "失败"),
+    });
+    hideCompactBannerLater();
+    return res;
+  } catch (e) {
+    showCompactBanner({ pct: 0, phase: "error", message: String(e) });
+    hideCompactBannerLater();
+    return { ok: false, error: String(e) };
+  }
+}
+
 function _paintSandBusy(text) {
   const copy = $("sandStreamCopy");
   const stateEl = $("sandStreamState");
@@ -1330,6 +1389,7 @@ function _paintSandBusy(text) {
     stateEl.dataset.state = "busy";
   }
   if (copy) copy.textContent = text;
+  showCompactBanner({ pct: 4, phase: "start", message: text, busy: true });
 }
 
 async function runSandStream(kind, profile) {
@@ -1341,23 +1401,34 @@ async function runSandStream(kind, profile) {
     refreshSandStream();
     return;
   }
-  if (kind !== "restore") {
+  if (kind === "restore") {
+    const ok = window.confirm("只去掉 Grok Bot。MAX 和 500k 会尽量保留；若被拆掉会自动补回。确定？");
+    if (!ok) {
+      refreshSandStream();
+      return;
+    }
+  } else {
     const extra = profile === "stream"
-      ? "只改 Bot 对话通路，不装工具和子代理。"
-      : (_sandIncludeSubagent() ? "打上对话通路、工具和子代理。" : "打上对话通路和工具，不含子代理。");
-    const ok = window.confirm(`${extra}\n改的是 Cursor 安装目录里的文件，大约半分钟。确定？`);
+      ? "只改 Bot 对话通路，不装工具和子代理。不管 500k / MAX。"
+      : (_sandIncludeSubagent() ? "打上对话通路、工具和子代理。不管 500k / MAX。" : "打上对话通路和工具，不含子代理。不管 500k / MAX。");
+    const ok = window.confirm(`${extra}\n改的是 Cursor 安装目录里的文件，每打完一个会列出来。确定？`);
     if (!ok) {
       refreshSandStream();
       return;
     }
   }
-  _paintSandBusy(kind === "restore" ? "正在还原…" : "正在写入补丁，大约半分钟…");
-  toast(kind === "restore" ? "正在还原 Grok Bot…" : "正在写入 Grok Bot 补丁…");
-  await new Promise((r) => setTimeout(r, 50));
+  const startMessage = kind === "restore" ? "正在还原 Grok Bot…" : "正在写入 Grok Bot…";
+  _paintSandBusy(startMessage);
+  toast(startMessage);
   const includeSubagent = _sandIncludeSubagent();
   const res = kind === "restore"
-    ? await api().sand_stream_restore()
-    : await api().sand_stream_apply(profile === "stream" ? "stream" : "full", includeSubagent);
+    ? await runPatchJob("sand_stream_restore_start", [], () => api().sand_stream_restore(), startMessage)
+    : await runPatchJob(
+      "sand_stream_apply_start",
+      [profile === "stream" ? "stream" : "full", includeSubagent],
+      () => api().sand_stream_apply(profile === "stream" ? "stream" : "full", includeSubagent),
+      startMessage,
+    );
   paintSandStream(res);
   if (!res.ok) return toast(res.error || "失败");
   if (res.skipped) {
@@ -1368,7 +1439,7 @@ async function runSandStream(kind, profile) {
     else if (res.streamReady && !res.fullReady) toast("对话通路已写入，请再启动 IDE");
     else toast("已写入能打到的层，请再启动 IDE");
   } else {
-    toast(kind === "restore" ? "已还原，请再启动 IDE" : "已启用，请再启动 IDE");
+    toast(res.message || (kind === "restore" ? "已还原，请再启动 IDE" : "已启用，请再启动 IDE"));
   }
   refreshWbDiag();
 }
@@ -1710,9 +1781,11 @@ async function runCtxwin(kind) {
     return toast(status.patched ? (status.running ? "请先关闭 IDE" : "无法还原") : "当前没有补丁");
   }
   const fn = kind === "restore" ? "ctxwin_restore" : "ctxwin_apply";
+  const startName = kind === "restore" ? "ctxwin_restore_start" : "ctxwin_apply_start";
+  const startMessage = kind === "restore" ? "正在还原 500k…" : "正在启用 500k…";
   const info = $("ctxwinInfo");
-  if (info) info.textContent = kind === "restore" ? "正在还原…" : "正在启用回包改写…";
-  const res = await api()[fn]();
+  if (info) info.textContent = startMessage;
+  const res = await runPatchJob(startName, [], () => api()[fn](), startMessage);
   paintCtxwin(res);
   if (!res.ok) return toast(res.error || "失败");
   if (res.skipped) return toast(res.message || "无需还原");
@@ -1881,13 +1954,16 @@ async function runModelUnlock(kind) {
   }
   const fn = kind === "restore" ? "model_unlock_restore" : "model_unlock_apply";
   const info = $("modelUnlockInfo");
-  if (info) {
-    info.textContent = kind === "restore" ? "正在还原…" : (kind === "applyMax" ? "正在解锁 MAX…" : "正在完整解锁…");
-  }
-  const res =
-    kind === "applyMax"
-      ? await api().model_unlock_apply(null, true)
-      : await api()[fn](kind === "apply" ? select?.value : undefined);
+  const startMessage = kind === "restore" ? "正在还原 MAX…" : (kind === "applyMax" ? "正在解锁 MAX…" : "正在完整解锁…");
+  if (info) info.textContent = startMessage;
+  const res = kind === "applyMax"
+    ? await runPatchJob("model_unlock_apply_start", [null, true], () => api().model_unlock_apply(null, true), startMessage)
+    : await runPatchJob(
+      kind === "restore" ? "model_unlock_restore_start" : "model_unlock_apply_start",
+      kind === "restore" ? [] : [select?.value, false],
+      () => api()[fn](kind === "apply" ? select?.value : undefined),
+      startMessage,
+    );
   paintModelUnlock(res);
   if (!res.ok) return toast(res.error || "失败");
   if (res.skipped) return toast(res.message || "无需还原");
@@ -2038,16 +2114,64 @@ async function compactState() {
   watchCompactProgress();
 }
 
+function paintJobSteps(steps) {
+  const list = $("compactSteps");
+  if (!list) return;
+  if (!Array.isArray(steps) || !steps.length) {
+    list.innerHTML = "";
+    list.hidden = true;
+    return;
+  }
+  list.hidden = false;
+  const seen = new Set();
+  for (const step of steps) {
+    const id = String(step?.id || "");
+    if (!id) continue;
+    seen.add(id);
+    let li = null;
+    for (const child of list.children) {
+      if (child.dataset.stepId === id) {
+        li = child;
+        break;
+      }
+    }
+    if (!li) {
+      li = document.createElement("li");
+      li.dataset.stepId = id;
+      li.className = "job-step job-step-enter";
+      li.innerHTML = '<span class="job-step-mark" aria-hidden="true"></span><span class="job-step-label"></span><span class="job-step-detail"></span>';
+      list.appendChild(li);
+    }
+    const status = step.status || "run";
+    li.classList.remove("is-run", "is-done", "is-fail", "is-skip");
+    li.classList.add(`is-${status}`);
+    const labelEl = li.querySelector(".job-step-label");
+    const detailEl = li.querySelector(".job-step-detail");
+    if (labelEl) labelEl.textContent = step.label || id;
+    if (detailEl) {
+      detailEl.textContent = step.detail || "";
+      detailEl.hidden = !step.detail;
+    }
+  }
+  for (const child of [...list.children]) {
+    if (!seen.has(child.dataset.stepId)) child.remove();
+  }
+  list.scrollTop = list.scrollHeight;
+}
+
 function showCompactBanner(p) {
   const bar = $("compactBanner");
   if (!bar) return;
   bar.hidden = false;
   const pct = Math.max(0, Math.min(100, Number(p.pct) || 0));
   if ($("compactFill")) $("compactFill").style.width = `${pct}%`;
-  if ($("compactText")) $("compactText").textContent = p.message || "正在压缩…";
+  if ($("compactText")) $("compactText").textContent = p.message || "正在处理…";
   if ($("compactPct")) $("compactPct").textContent = p.phase === "blocked" || p.phase === "error" ? "" : `${pct}%`;
   bar.classList.toggle("is-done", p.phase === "done");
   bar.classList.toggle("is-error", p.phase === "error" || p.phase === "blocked");
+  const hasSteps = Array.isArray(p.steps) && p.steps.length > 0;
+  bar.classList.toggle("is-busy", Boolean(p.busy) && pct < 15 && !hasSteps && p.phase !== "done" && p.phase !== "error");
+  paintJobSteps(p.steps);
 }
 
 function hideCompactBannerLater() {
@@ -2055,6 +2179,7 @@ function hideCompactBannerLater() {
   hideCompactBannerLater._t = setTimeout(() => {
     const bar = $("compactBanner");
     if (bar) bar.hidden = true;
+    paintJobSteps([]);
   }, 8000);
 }
 

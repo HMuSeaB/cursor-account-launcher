@@ -56,7 +56,9 @@ from launcher.sand_stream import (
     SandLayout,
     PatchStatus,
     _build_install_plan,
+    _build_uninstall_plan,
     _bytes_may_have_sand_patch,
+    _sibling_layer_flags,
     _status_payload,
     inspect_status,
 )
@@ -720,3 +722,134 @@ def test_319_direct_markers_are_not_external(tmp_path):
     status = inspect_status(layout, include_compat=False)
     assert status.hits["directStream"] >= 1
     assert status.external_marker_count == 0
+
+
+def test_sand_strip_keeps_max_and_ctxwin_markers():
+    src = (
+        "/* __CTXWIN_PATCH_START__ */hook();/* __CTXWIN_PATCH_END__ */"
+        + _core_bundle()
+        + "hideMaxToggle:!1/*MODEL_SHOW_MAX_V1*//*ORIG:C()||E()*/"
+    )
+    patched, _ = apply_patch_to_content(src, profile="full", include_subagent=True, inject_rpc=True)
+    assert "/*MODEL_SHOW_MAX_V1*/" in patched
+    assert "/* __CTXWIN_PATCH_START__ */" in patched
+    restored, _ = remove_patch_from_content(patched)
+    assert "/*MODEL_SHOW_MAX_V1*/" in restored
+    assert "/* __CTXWIN_PATCH_START__ */" in restored
+    assert SAND_DIRECT_STREAM_MARKER not in restored
+    assert SAND_RPC_REWRITE_MARKER not in restored
+
+
+def test_sibling_layer_flags_read_workbench_and_host(tmp_path):
+    wb = tmp_path / "out" / "vs" / "workbench"
+    wb.mkdir(parents=True)
+    (wb / "workbench.desktop.main.js").write_text(
+        "hideMaxToggle:!1/*MODEL_SHOW_MAX_V1*/x", encoding="utf-8"
+    )
+    host = tmp_path / "out" / "vs" / "workbench" / "api" / "node"
+    host.mkdir(parents=True)
+    (host / "extensionHostProcess.js").write_text(
+        "/* __CTXWIN_PATCH_START__ */\nrest", encoding="utf-8"
+    )
+    layout = SandLayout(
+        install_root=tmp_path,
+        app_root=tmp_path,
+        product_json=tmp_path / "product.json",
+        executable=tmp_path / "Cursor.exe",
+        target_paths=(),
+        ext_host_path=None,
+        version="3.18.9",
+    )
+    flags = _sibling_layer_flags(layout)
+    assert flags["max"] is True
+    assert flags["ctxwin"] is True
+
+
+def test_install_plan_emits_progress(tmp_path):
+    chunk = tmp_path / "657.js"
+    chunk.write_text(DIRECT_STREAM_ANCHOR + "yield 1;};};", encoding="utf-8")
+    layout = SandLayout(
+        install_root=tmp_path,
+        app_root=tmp_path,
+        product_json=tmp_path / "product.json",
+        executable=tmp_path / "Cursor.exe",
+        target_paths=(chunk,),
+        ext_host_path=None,
+        version="3.18.25",
+    )
+    seen: list[str] = []
+    _build_install_plan(
+        layout,
+        profile="stream",
+        include_subagent=False,
+        on_progress=lambda p: seen.append(str(p.get("message") or "")),
+    )
+    assert seen
+    assert any("657.js" in msg for msg in seen)
+
+
+def test_install_plan_emits_done_step_per_patched_file(tmp_path):
+    chunk = tmp_path / "657.js"
+    chunk.write_text(DIRECT_STREAM_ANCHOR + "yield 1;};};", encoding="utf-8")
+    noise = tmp_path / "noise.js"
+    noise.write_text("console.log('no sand hints')", encoding="utf-8")
+    layout = SandLayout(
+        install_root=tmp_path,
+        app_root=tmp_path,
+        product_json=tmp_path / "product.json",
+        executable=tmp_path / "Cursor.exe",
+        target_paths=(chunk, noise),
+        ext_host_path=None,
+        version="3.18.25",
+    )
+    payloads: list[dict] = []
+    _build_install_plan(
+        layout,
+        profile="stream",
+        include_subagent=False,
+        on_progress=payloads.append,
+    )
+    with_steps = [p.get("steps") for p in payloads if p.get("steps")]
+    assert with_steps, "progress should carry a live step list"
+    last = with_steps[-1]
+    by_id = {str(s.get("id")): s for s in last}
+    assert "file:657.js" in by_id
+    assert "file:noise.js" not in by_id
+    done = by_id["file:657.js"]
+    assert done.get("status") == "done"
+    assert done.get("label") == "657.js"
+    assert "Direct" in str(done.get("detail") or "")
+    statuses = [
+        s.get("status")
+        for p in payloads
+        for s in (p.get("steps") or [])
+        if s.get("id") == "file:657.js"
+    ]
+    assert "run" in statuses
+    assert statuses[-1] == "done"
+
+
+def test_uninstall_plan_emits_done_step_per_stripped_file(tmp_path):
+    patched, _ = apply_patch_to_content(
+        DIRECT_STREAM_ANCHOR + "yield 1;};};", profile="stream"
+    )
+    chunk = tmp_path / "657.js"
+    chunk.write_text(patched, encoding="utf-8")
+    noise = tmp_path / "noise.js"
+    noise.write_text("console.log('no sand')", encoding="utf-8")
+    layout = SandLayout(
+        install_root=tmp_path,
+        app_root=tmp_path,
+        product_json=tmp_path / "product.json",
+        executable=tmp_path / "Cursor.exe",
+        target_paths=(chunk, noise),
+        ext_host_path=None,
+        version="3.18.25",
+    )
+    payloads: list[dict] = []
+    _build_uninstall_plan(layout, on_progress=payloads.append)
+    last_steps = next((p.get("steps") for p in reversed(payloads) if p.get("steps")), [])
+    by_id = {str(s.get("id")): s for s in last_steps}
+    assert "file:657.js" in by_id
+    assert "file:noise.js" not in by_id
+    assert by_id["file:657.js"].get("status") == "done"
