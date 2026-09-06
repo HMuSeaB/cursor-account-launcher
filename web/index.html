@@ -137,7 +137,7 @@
       <div class="settings-grid" id="settingsGrid">
         <section class="settings-panel settings-span" id="wbDiagPanel">
           <h3 class="settings-title">日常状态（看这个就够）</h3>
-          <p class="hint settings-hint">YC 原生：自己的号、模型多、可开 Sand。Sub2API：窄模型墙。同一时间只应打一套，且必须在对应扩展面板里打，启动器不代写。</p>
+            <p class="hint settings-hint">YC 原生：自己的号、模型多、可开 Sand。Sub2API：窄模型墙。同一时间只应打一套，且必须在对应扩展面板里打，启动器不代写。</p>
           <ol class="wb-checklist" id="wbChecklist" aria-live="polite"></ol>
           <div class="wb-incidents" id="wbIncidents" hidden></div>
           <p class="wb-next-hint" id="wbNextHint">点刷新可重新扫描模型墙和补丁状态</p>
@@ -252,7 +252,22 @@
         <section class="settings-panel settings-span">
           <details class="adv-fold">
             <summary>急救补丁（MAX / 500k / 侧边栏）</summary>
-            <p class="hint settings-hint">日常用顶栏「一键补齐」。Grok Bot 在上面单独一栏。</p>
+            <p class="hint settings-hint">日常用顶栏「一键补齐」。侧边栏 Pro 用下面「写入侧边栏」，不要为了显示去点完整解锁。</p>
+            <h3 class="settings-title">侧边栏套餐显示</h3>
+            <p class="hint settings-hint">只写本地缓存，不改 Cursor 程序文件，不会因此黑屏。账单页仍是真套餐。</p>
+            <div class="form-row settings-inline">
+              <label class="field-label" for="modelUnlockMembership">显示为</label>
+              <select id="modelUnlockMembership" class="input compact">
+                <option value="pro">Pro Plan</option>
+                <option value="ultra">Ultra Plan</option>
+                <option value="enterprise">Team Plan</option>
+                <option value="pro_plus">Pro+ Plan</option>
+                <option value="free">Free Plan</option>
+              </select>
+            </div>
+            <div class="guard-actions">
+              <button type="button" class="btn" id="btnModelUnlockSyncStorage" data-needs-closed>写入侧边栏</button>
+            </div>
             <h3 class="settings-title">仅解锁 MAX</h3>
             <div class="guard-actions">
               <button type="button" class="btn" id="btnModelUnlockApplyMax" data-needs-closed>仅解锁 MAX</button>
@@ -268,21 +283,11 @@
             </div>
             <pre class="mini" id="ctxwinInfo">—</pre>
             <details class="adv-fold">
-              <summary>完整解锁 / 侧边栏（极易黑屏，默认别开）</summary>
-              <div class="form-row settings-inline">
-                <label class="field-label" for="modelUnlockMembership">侧边栏显示套餐</label>
-                <select id="modelUnlockMembership" class="input compact">
-                  <option value="pro">Pro Plan</option>
-                  <option value="ultra">Ultra Plan</option>
-                  <option value="enterprise">Team Plan</option>
-                  <option value="pro_plus">Pro+ Plan</option>
-                  <option value="free">Free Plan</option>
-                </select>
-              </div>
+              <summary>完整解锁（改 workbench，极易黑屏，默认别开）</summary>
+              <p class="hint settings-hint">会改程序文件并挂钩 fetch。侧边栏显示请用上面的「写入侧边栏」，不要靠这一条。</p>
               <div class="guard-actions">
                 <button type="button" class="btn ghost" id="btnModelUnlockApply" data-needs-closed>完整解锁</button>
                 <button type="button" class="btn ghost" id="btnModelUnlockRestore" data-needs-closed>还原解锁</button>
-                <button type="button" class="btn ghost" id="btnModelUnlockSyncStorage" data-needs-closed>修正侧边栏显示</button>
               </div>
             </details>
           </details>

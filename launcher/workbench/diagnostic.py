@@ -413,6 +413,19 @@ def _recommendations(
             }
         )
 
+    if not scan.fetch_spoof:
+        recs.append(
+            {
+                "severity": "info",
+                "title": "侧边栏套餐 ≠ 账单页",
+                "action": (
+                    "要 Pro 显示：关 IDE，点「写入侧边栏」。只改 state.vscdb，不改程序文件，不会因此黑屏。"
+                    "完整解锁才会动 workbench，容易黑屏。账单页仍是真套餐。"
+                ),
+                "detail": "stripe 缓存故意不改，避免和真实账单拧在一起。",
+            }
+        )
+
     if running:
         recs.append(
             {
@@ -561,11 +574,17 @@ def _collect_full_diagnostic() -> dict:
             },
         )
     if upgrade.get("needsRepatch") or upgrade.get("upgraded"):
+        ver = str(layout.version or "").strip()
+        ver_ok = bool(ver) and ver not in {"?", "unknown"}
         recs.insert(
             0,
             {
                 "severity": "warn",
-                "title": f"Cursor 已升级到 v{layout.version}",
+                "title": (
+                    f"Cursor 已升级到 v{ver}"
+                    if ver_ok
+                    else "读不到 Cursor 版本（安装可能不完整）"
+                ),
                 "action": "关 IDE → 一键补齐（重打 MAX / 500k）",
                 "detail": f"上次记录：{upgrade.get('previousVersion') or '—'}",
             },

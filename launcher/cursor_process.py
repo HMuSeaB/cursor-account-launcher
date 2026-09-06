@@ -99,17 +99,52 @@ def launch_args(*, light: bool = False) -> list[str]:
     return [*LIGHT_START_ARGS, str(light_workspace_dir())]
 
 
-def _read_version(install_root: Path) -> str:
-    product = install_root / "resources" / "app" / "product.json"
-    if not product.is_file():
-        app_dir = install_root / "resources" / "app"
-        if app_dir.is_dir():
-            product = app_dir / "product.json"
+def _json_version(path: Path) -> str:
     try:
-        data = json.loads(product.read_text(encoding="utf-8"))
-        return str(data.get("version") or "?")
+        if not path.is_file():
+            return ""
+        data = json.loads(path.read_text(encoding="utf-8"))
+        ver = str((data or {}).get("version") or "").strip()
+        if ver in {"", "?", "unknown"}:
+            return ""
+        return ver
     except Exception:
-        return "?"
+        return ""
+
+
+def _win_file_version(exe: Path) -> str:
+    if sys.platform != "win32" or not exe.is_file():
+        return ""
+    try:
+        version = ctypes.windll.version
+        size = version.GetFileVersionInfoSizeW(str(exe), None)
+        if not size:
+            return ""
+        buf = ctypes.create_string_buffer(size)
+        if not version.GetFileVersionInfoW(str(exe), 0, size, buf):
+            return ""
+        ptr = ctypes.c_void_p()
+        length = wintypes.UINT()
+        if not version.VerQueryValueW(buf, "\\", ctypes.byref(ptr), ctypes.byref(length)):
+            return ""
+        info = ctypes.cast(ptr, ctypes.POINTER(wintypes.DWORD * 6)).contents
+        ms, ls = int(info[2]), int(info[3])
+        major, minor, patch, build = ms >> 16, ms & 0xFFFF, ls >> 16, ls & 0xFFFF
+        if build:
+            return f"{major}.{minor}.{patch}.{build}"
+        return f"{major}.{minor}.{patch}"
+    except Exception:
+        return ""
+
+
+def _read_version(install_root: Path, executable: Path | None = None) -> str:
+    app = install_root / "resources" / "app"
+    for name in ("product.json", "package.json"):
+        ver = _json_version(app / name)
+        if ver:
+            return ver
+    exe = executable if executable is not None else install_root / ("Cursor.exe" if sys.platform == "win32" else "Cursor")
+    return _win_file_version(exe)
 
 
 def _layout_from_executable(exe: Path) -> CursorInstall:
@@ -129,7 +164,7 @@ def _layout_from_executable(exe: Path) -> CursorInstall:
     return CursorInstall(
         install_root=install_root,
         executable=exe,
-        version=_read_version(install_root),
+        version=_read_version(install_root, exe),
     )
 
 

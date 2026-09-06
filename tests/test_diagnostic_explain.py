@@ -232,3 +232,25 @@ def test_run_full_diagnostic_reuses_cache(monkeypatch):
     forced = diag.run_full_diagnostic(force=True)
     assert calls["n"] == 2
     assert forced["n"] == 2
+
+
+def test_recommendations_spell_out_plan_usage_gap():
+    from launcher.workbench.diagnostic import _recommendations
+    from launcher.workbench.layers import scan_content
+
+    scan = scan_content("hideMaxToggle:!1/*MODEL_SHOW_MAX_V1*/")
+    recs = _recommendations(
+        running=False,
+        scan=scan,
+        ctxwin={"patched": True},
+        proxy_pref={},
+        proxy_live={},
+        backup={"hasOfficial": True, "hasLegacyModelUnlockClean": True},
+    )
+    titles = [r["title"] for r in recs]
+    assert any("侧边栏套餐" in t for t in titles)
+    plan = next(r for r in recs if "侧边栏套餐" in r["title"])
+    assert "写入侧边栏" in plan["action"]
+    assert "完整解锁" in plan["action"]
+    assert "黑屏" in plan["action"]
+

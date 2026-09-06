@@ -538,7 +538,7 @@ function paintSettingsMeta(status) {
     const port = $("proxyPort")?.value;
     if (host && port) bits.push(`${host}:${port}`);
   }
-  if (status?.version) bits.push(`v${status.version}`);
+  if (status?.version && status.version !== "?") bits.push(`v${status.version}`);
   el.textContent = bits.join(" · ");
   syncIdeGate(Boolean(status?.running));
 }
@@ -1602,7 +1602,10 @@ function paintHealthBanner(res) {
       const kind = active === "sub2api" ? "Sub2API 窄墙" : "YC 原生";
       title.textContent = `${kind} · Cursor v${res.version || "?"} · 启动器 v${res.launcherVersion || "?"}`;
     } else if (upgrade.needsRepatch) {
-      title.textContent = `Cursor 已升级到 v${res.version} — 建议重打补丁`;
+      const ver = (res.version && res.version !== "?") ? res.version : "";
+      title.textContent = ver
+        ? `Cursor 已升级到 v${ver} — 建议重打补丁`
+        : "读不到 Cursor 版本 — 安装可能不完整";
     } else {
       title.textContent = `待补齐 ${steps.length} 项`;
     }
@@ -1737,8 +1740,16 @@ function paintModelUnlock(res) {
   const hits = res.hits || {};
   const maxReady = (hits.showMax || 0) > 0;
   const storage = res.storageMembership || {};
+  const preview = res.sidebarPreview || {};
   const storageLine = storage.ok
-    ? `本地缓存：stripe=${storage.stripeMembershipType || "—"} · 侧边栏=${storage.applicationUserMembershipType || "—"}`
+    ? `侧边栏=${storage.applicationUserMembershipType || "—"} · stripe未改=${storage.stripeMembershipType || "—"}`
+    : "";
+  const sidebarLine = preview.ok
+    ? (
+      preview.needsWrite
+        ? `侧边栏将写成 ${preview.targetLabel}（现在 ${preview.current || "空"}）。只改缓存，不改程序文件。`
+        : `侧边栏已是 ${preview.targetLabel}，不用再写。`
+    )
     : "";
   const lines = [
     maxReady
@@ -1746,6 +1757,7 @@ function paintModelUnlock(res) {
       : (res.installed ? "状态：部分解锁，请点「仅解锁 MAX」" : "状态：无 MAX 开关（token 计价会被 hideMaxToggle 藏掉）"),
     `命中：FREE×${hits.modelLock || 0} · 显示MAX×${hits.showMax || 0} · 命名视图×${hits.namedView || 0} · 目录×${hits.catalog || 0} · 绑卡×${hits.maxMode || 0} · 会员×${hits.memPro || 0} · fetch×${hits.fetchSpoof || 0}`,
     storageLine,
+    sidebarLine,
     res.version ? `Cursor v${res.version}` : "",
     res.running ? "IDE 正在运行，改文件前请先关闭" : "IDE 未运行，可以改文件",
   ].filter(Boolean);
@@ -1765,7 +1777,12 @@ function paintModelUnlock(res) {
   }
   if (syncBtn) {
     syncBtn.classList.toggle("is-blocked", !res.canSyncStorage);
-    syncBtn.title = res.running ? "请先关闭 IDE" : "只改 state.vscdb 里的套餐显示，不重打补丁";
+    const preview = res.sidebarPreview || {};
+    syncBtn.title = res.running
+      ? "请先关闭 IDE"
+      : (preview.needsWrite
+        ? `只写侧边栏缓存 → ${preview.targetLabel || "Pro"}，不改 workbench`
+        : "侧边栏已是目标套餐");
   }
   if (repairBtn) {
     repairBtn.classList.toggle("is-blocked", !res.canRepair);
@@ -1790,18 +1807,28 @@ async function syncModelUnlockStorage() {
   const select = $("modelUnlockMembership");
   const level = select?.value || "pro";
   if (!api()?.model_unlock_sync_storage) return;
-  if (!(await requireIdeClosed("修正侧边栏显示"))) return;
+  if (!(await requireIdeClosed("写入侧边栏"))) return;
   const status = await api().model_unlock_status();
   if (!status.canSyncStorage) {
     paintModelUnlock(status);
-    return toast(status.running ? "请先关闭 IDE" : (status.error || "当前不能修正"));
+    return toast(status.running ? "请先关闭 IDE" : (status.error || "当前不能写入侧边栏"));
   }
+  const preview = status.sidebarPreview || {};
+  if (preview.ok && !preview.needsWrite) {
+    paintModelUnlock(status);
+    return toast(`侧边栏已经是 ${preview.targetLabel || level}，未改任何文件`);
+  }
+  const from = preview.current || "空";
+  const to = preview.targetLabel || level;
+  if (!confirm(
+    `只改侧边栏缓存（state.vscdb），不改 Cursor 程序文件，不会因此黑屏。\n\n${from} → ${to}\n账单页仍显示真套餐。\n\n确定写入？`
+  )) return;
   const info = $("modelUnlockInfo");
   if (info) info.textContent = "正在写入侧边栏套餐…";
   const res = await api().model_unlock_sync_storage(level);
   paintModelUnlock(await api().model_unlock_status());
   if (!res.ok) return toast(res.error || "失败");
-  toast(res.message || "已修正侧边栏显示");
+  toast(res.message || "已写入侧边栏");
 }
 
 async function repairModelUnlock() {

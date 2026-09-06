@@ -75,8 +75,14 @@ def _parse_included_pcts(merged: dict) -> tuple[float, float]:
         val = merged.get(key)
         if isinstance(val, str) and val.strip():
             texts.append(val.strip())
-    re_total = re.compile(r"You['\u2019]ve used\s+(\d+(?:\.\d+)?)%\s+of your included total usage", re.I)
-    re_api = re.compile(r"You['\u2019]ve used\s+(\d+(?:\.\d+)?)%\s+of your included API usage", re.I)
+    re_total = re.compile(
+        r"You['\u2019]ve used\s+(\d+(?:\.\d+)?)%\s+of your included (?:total usage|Cursor Models)\b",
+        re.I,
+    )
+    re_api = re.compile(
+        r"You['\u2019]ve used\s+(\d+(?:\.\d+)?)%\s+of your included (?:API usage|Other Models)\b",
+        re.I,
+    )
     for text in texts:
         m = re_total.search(text)
         if m:
@@ -121,7 +127,11 @@ def summarize_usage(merged: dict, extras: dict | None = None) -> dict:
 
     included_total, included_api = _parse_included_pcts(merged)
     api_pct = plan.get("apiPercentUsed")
+    if not isinstance(api_pct, (int, float)):
+        api_pct = plan.get("otherModelsPercentUsed")
     auto_pct = plan.get("autoPercentUsed")
+    if not isinstance(auto_pct, (int, float)):
+        auto_pct = plan.get("cursorModelsPercentUsed")
     usage_pct = plan.get("totalPercentUsed")
     pro_expiry = _to_ms(merged.get("billingCycleEnd"))
 

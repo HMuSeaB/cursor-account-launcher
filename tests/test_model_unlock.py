@@ -143,3 +143,66 @@ def test_repairs_broken_semicolon_show_max():
     assert "hideMaxToggle:!1" + MARKER_SHOW_MAX in patched
     restored, _ = remove_from_content(patched)
     assert "hideMaxToggle:C()||E()" in restored
+
+
+def _mu_state_db(tmp_path, rows: dict[str, str]):
+    import sqlite3
+
+    db = tmp_path / "state.vscdb"
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute("CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value TEXT)")
+        conn.executemany("INSERT INTO ItemTable (key, value) VALUES (?, ?)", list(rows.items()))
+        conn.commit()
+    finally:
+        conn.close()
+    return db
+
+
+def test_sync_storage_writes_sidebar_not_stripe_or_workbench(tmp_path, monkeypatch):
+    import json
+
+    from launcher.model_unlock import APPLICATION_USER_DB_KEY, STRIPE_MEMBERSHIP_DB_KEY, read_storage_membership, sync_storage_membership
+
+    db = _mu_state_db(
+        tmp_path,
+        {
+            STRIPE_MEMBERSHIP_DB_KEY: json.dumps("free"),
+            APPLICATION_USER_DB_KEY: json.dumps({"membershipType": "free", "email": "a@b.c"}),
+        },
+    )
+    monkeypatch.setattr("launcher.model_unlock.state_db_path", lambda: str(db))
+    monkeypatch.setattr("launcher.model_unlock.is_cursor_running", lambda: False)
+    monkeypatch.setattr("launcher.model_unlock.wait_state_db_ready", lambda: None)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+
+    out = sync_storage_membership("pro")
+    assert out["ok"] is True
+    assert out.get("workbenchUntouched") is True
+    assert out.get("skipped") is not True
+    after = read_storage_membership()
+    assert after["applicationUserMembershipType"] == "pro"
+    assert after["stripeMembershipType"] == "free"
+
+
+def test_sync_storage_skips_when_already_target(tmp_path, monkeypatch):
+    import json
+
+    from launcher.model_unlock import APPLICATION_USER_DB_KEY, STRIPE_MEMBERSHIP_DB_KEY, sync_storage_membership
+
+    db = _mu_state_db(
+        tmp_path,
+        {
+            STRIPE_MEMBERSHIP_DB_KEY: json.dumps("free"),
+            APPLICATION_USER_DB_KEY: json.dumps({"membershipType": "pro"}),
+        },
+    )
+    monkeypatch.setattr("launcher.model_unlock.state_db_path", lambda: str(db))
+    monkeypatch.setattr("launcher.model_unlock.is_cursor_running", lambda: False)
+    monkeypatch.setattr("launcher.model_unlock.wait_state_db_ready", lambda: None)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+
+    out = sync_storage_membership("pro")
+    assert out["ok"] is True
+    assert out.get("skipped") is True
+    assert "未改" in out["message"]

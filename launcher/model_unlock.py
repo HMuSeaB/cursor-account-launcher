@@ -456,60 +456,111 @@ def read_storage_membership() -> dict[str, Any]:
         conn.close()
 
 
+def _read_application_user(conn) -> dict:
+    row = conn.execute(
+        "SELECT value FROM ItemTable WHERE key=?", (APPLICATION_USER_DB_KEY,)
+    ).fetchone()
+    if not row or not row[0]:
+        return {}
+    raw = row[0]
+    if isinstance(raw, (bytes, bytearray)):
+        raw = raw.decode("utf-8", "replace")
+    data = json.loads(str(raw))
+    return data if isinstance(data, dict) else {}
+
+
+def preview_storage_membership(level: str | None = None) -> dict[str, Any]:
+    meta = membership_meta(level)
+    storage = read_storage_membership()
+    current = str(storage.get("applicationUserMembershipType") or "")
+    return {
+        "ok": bool(storage.get("ok")),
+        "error": storage.get("error") or "",
+        "current": current,
+        "target": meta["value"],
+        "targetLabel": meta["label"],
+        "needsWrite": bool(storage.get("ok")) and current != meta["value"],
+        "stripeMembershipType": str(storage.get("stripeMembershipType") or ""),
+        "workbenchUntouched": True,
+    }
+
+
 def sync_storage_membership(level: str | None = None) -> dict[str, Any]:
+    """只改侧边栏缓存（applicationUser.membershipType），不改 workbench、不写 stripe。"""
     if is_cursor_running():
-        return {"ok": False, "error": "请先关闭 IDE，再修正侧边栏显示", "running": True}
+        return {"ok": False, "error": "请先关闭 IDE，再写入侧边栏显示", "running": True}
     meta = membership_meta(level)
     val = meta["value"]
-    if not os.path.isfile(state_db_path()):
+    db_path = state_db_path()
+    if not os.path.isfile(db_path):
         return {"ok": False, "error": "未找到 state.vscdb"}
+    preview = preview_storage_membership(val)
+    if preview.get("ok") and not preview.get("needsWrite"):
+        return {
+            "ok": True,
+            "skipped": True,
+            "workbenchUntouched": True,
+            "membership": meta,
+            "before": read_storage_membership(),
+            "after": read_storage_membership(),
+            "preview": preview,
+            "message": f"侧边栏已经是 {meta['label']}，未改任何文件。",
+        }
     try:
         wait_state_db_ready()
         import sqlite3
 
-        conn = sqlite3.connect(state_db_path(), timeout=15)
+        conn = sqlite3.connect(db_path, timeout=15)
         conn.execute("PRAGMA busy_timeout=15000")
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
     try:
         before = read_storage_membership()
         cur = conn.cursor()
-        cur.execute(
-            "INSERT OR REPLACE INTO ItemTable (key, value) VALUES (?, ?)",
-            (STRIPE_MEMBERSHIP_DB_KEY, json.dumps(val)),
-        )
-        row = cur.execute(
-            "SELECT value FROM ItemTable WHERE key=?", (APPLICATION_USER_DB_KEY,)
-        ).fetchone()
-        if row and row[0]:
-            raw = row[0]
-            if isinstance(raw, (bytes, bytearray)):
-                raw = raw.decode("utf-8", "replace")
-            data = json.loads(str(raw))
-            if not isinstance(data, dict):
-                data = {}
-        else:
-            data = {}
+        data = _read_application_user(cur)
+        backup = {
+            "savedAt": datetime.now(timezone.utc).isoformat(),
+            "stripeMembershipType": before.get("stripeMembershipType") or "",
+            "applicationUser": dict(data),
+        }
+        bak_path = _state_dir() / "sidebar-membership.bak.json"
+        bak_path.write_text(json.dumps(backup, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
         data["membershipType"] = val
         if val != "free":
             data["subscriptionStatus"] = "active"
+        payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+        json.loads(payload)
         cur.execute(
             "INSERT OR REPLACE INTO ItemTable (key, value) VALUES (?, ?)",
-            (
-                APPLICATION_USER_DB_KEY,
-                json.dumps(data, ensure_ascii=False, separators=(",", ":")),
-            ),
+            (APPLICATION_USER_DB_KEY, payload),
         )
         conn.commit()
+        after = read_storage_membership()
+        if after.get("applicationUserMembershipType") != val:
+            return {
+                "ok": False,
+                "error": "写入后读回不一致，未改 workbench。可再试一次或从备份恢复侧边栏。",
+                "before": before,
+                "after": after,
+                "workbenchUntouched": True,
+            }
         return {
             "ok": True,
+            "skipped": False,
+            "workbenchUntouched": True,
             "membership": meta,
             "before": before,
-            "after": read_storage_membership(),
-            "message": f"已将侧边栏套餐写入为 {meta['label']}（{val}）。请用启动器重启 IDE。",
+            "after": after,
+            "preview": preview_storage_membership(val),
+            "backup": str(bak_path),
+            "message": (
+                f"已将侧边栏套餐写成 {meta['label']}（只改 state.vscdb，未改 Cursor 程序文件）。"
+                "请用启动器重启 IDE。账单页仍显示真套餐。"
+            ),
         }
     except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+        return {"ok": False, "error": str(exc), "workbenchUntouched": True}
     finally:
         conn.close()
 
@@ -527,6 +578,7 @@ def _membership_status_fields() -> dict[str, Any]:
         "membershipValue": setting["value"],
         "membershipLevels": levels,
         "storageMembership": storage,
+        "sidebarPreview": preview_storage_membership(setting["key"]),
     }
 
 

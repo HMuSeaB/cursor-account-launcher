@@ -102,3 +102,62 @@ def test_plan_autofix_missing_wall_is_manual_extension_only():
     assert gw[0].get("inspectOnly") is True
     assert "检查" in gw[0]["label"]
     assert plan["ready"] is True
+
+
+def test_note_cursor_version_ignores_unreadable(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    from launcher.versioning import cursor_upgrade_status, note_cursor_version
+
+    first = note_cursor_version("3.18.9")
+    assert first["upgraded"] is False
+    assert first["needsRepatch"] is False
+
+    unread = note_cursor_version("?")
+    assert unread["upgraded"] is False
+    assert unread.get("unreadable") is True
+    st = cursor_upgrade_status()
+    assert st["lastVersion"] == "3.18.9"
+    assert st["needsRepatch"] is False
+
+
+def test_note_cursor_version_does_not_treat_question_mark_as_previous(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    from launcher.versioning import note_cursor_version
+
+    store = tmp_path / "CursorLauncher"
+    store.mkdir(parents=True)
+    (store / "cursor-version.json").write_text(
+        '{"lastVersion":"?","previousVersion":"?","needsRepatch":true}\n',
+        encoding="utf-8",
+    )
+    out = note_cursor_version("3.18.9")
+    assert out["upgraded"] is False
+    assert out["needsRepatch"] is False
+    assert out["version"] == "3.18.9"
+    assert out["previousVersion"] == ""
+
+
+def test_note_cursor_version_real_upgrade_still_flags(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    from launcher.versioning import note_cursor_version
+
+    note_cursor_version("3.12.30")
+    out = note_cursor_version("3.18.9")
+    assert out["upgraded"] is True
+    assert out["needsRepatch"] is True
+    assert out["previousVersion"] == "3.12.30"
+
+
+def test_read_version_empty_when_product_missing(tmp_path):
+    from launcher.cursor_process import _read_version
+
+    assert _read_version(tmp_path) == ""
+
+
+def test_read_version_falls_back_to_package_json(tmp_path):
+    from launcher.cursor_process import _read_version
+
+    app = tmp_path / "resources" / "app"
+    app.mkdir(parents=True)
+    (app / "package.json").write_text('{"version":"3.18.9"}', encoding="utf-8")
+    assert _read_version(tmp_path) == "3.18.9"
