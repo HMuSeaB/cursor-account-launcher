@@ -23,8 +23,16 @@ from launcher.cursor_process import is_cursor_running, resolve_install
 from launcher.workbench.manager import WorkbenchWriteError, sync_product_checksums, write_atomic
 from launcher.workbench.preflight import PreflightError, assert_safe
 
-MODULE_VERSION = "1.2.0"
+MODULE_VERSION = "1.3.0"
 ANCHOR_VERSION = "3.18.9"
+SUPPORTED_TRACKS: dict[str, tuple[str, ...]] = {
+    "3.18": ("3.18.9", "3.18.25"),
+    "3.19": ("3.19.13",),
+}
+_UNREADABLE_CURSOR_VERSIONS = frozenset({"", "?", "unknown", "未知"})
+_DIRECT_SNIFF_319_CLASS = "class J{constructor(e,t,n,o)"
+_DIRECT_SNIFF_319_EXEC = ".Ycw("
+_DIRECT_SNIFF_318_JOE = "new Joe("
 
 SAND_CLIENT_MARKER = "/*SAND_CLIENT_MODE_V1*/"
 SAND_CLIENT_EXISTING_MARKER = "/*SAND_CLIENT_EXISTING_V1*/"
@@ -215,6 +223,81 @@ DIRECT_STREAM_ANCHOR = (
 DIRECT_STREAM_ANCHOR_RE = re.compile(
     r"function ([A-Za-z_$][\w$]*)\(e\)\{return t=>\{return n=this,o=void 0,s=function\*\(\)\{"
 )
+
+
+def _parse_cursor_semver(version: str) -> tuple[int, int, int] | None:
+    ver = (version or "").strip()
+    if not ver or ver.casefold() in _UNREADABLE_CURSOR_VERSIONS:
+        return None
+    nums = [int(part) for part in re.findall(r"\d+", ver)[:3]]
+    if not nums:
+        return None
+    while len(nums) < 3:
+        nums.append(0)
+    return nums[0], nums[1], nums[2]
+
+
+def sniff_patch_track(content: str) -> str | None:
+    text = content or ""
+    if _DIRECT_SNIFF_319_CLASS in text and _DIRECT_SNIFF_319_EXEC in text:
+        return "3.19"
+    if _DIRECT_SNIFF_318_JOE in text or DIRECT_STREAM_ANCHOR_RE.search(text):
+        return "3.18"
+    return None
+
+
+def track_anchor_label(track: str) -> str:
+    builds = SUPPORTED_TRACKS.get(track) or ()
+    return " / ".join(builds) if builds else track
+
+
+def resolve_patch_track(version: str = "", content: str = "") -> dict[str, Any]:
+    parsed = _parse_cursor_semver(version)
+    exact = (version or "").strip()
+    source = "version"
+    hint = ""
+    if parsed is not None:
+        major, minor, _patch = parsed
+        if (major, minor) == (3, 19):
+            track = "3.19"
+        elif (major, minor) == (3, 18):
+            track = "3.18"
+        else:
+            track = "other"
+            if (major, minor) < (3, 18):
+                hint = (
+                    f"本机 v{exact} 低于 3.18，L1–L7 可能打不上；"
+                    "HDRFIX / RPC 能打的仍试打。"
+                )
+            else:
+                hint = f"本机 v{exact} 尚无专用补丁轨，只打通用层。"
+    else:
+        sniffed = sniff_patch_track(content)
+        if sniffed:
+            track = sniffed
+            source = "content"
+            hint = "版本未知，按文件内容识别补丁轨"
+        else:
+            track = "3.18"
+            source = "default"
+            hint = "版本未知，按 3.18 轨试打"
+
+    tested = exact in SUPPORTED_TRACKS.get(track, ())
+    if track in SUPPORTED_TRACKS and parsed is not None and not tested:
+        hint = f"同族未测构建 v{exact}，按 {track} 轨试打，缺项看明细"
+    if tested:
+        hint = ""
+    return {
+        "track": track,
+        "source": source,
+        "tested": tested,
+        "versionOk": tested,
+        "hint": hint,
+        "anchorLabel": track_anchor_label(track),
+        "supportedTracks": {key: list(val) for key, val in SUPPORTED_TRACKS.items()},
+    }
+
+
 AGENT_HOST_ENABLEMENT_RE = re.compile(
     r"(this\._agentHostEnabled=)([A-Za-z_$][A-Za-z0-9_$]*)(,)"
 )

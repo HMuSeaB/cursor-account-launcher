@@ -47,6 +47,7 @@ from launcher.sand_stream import (
     classify_readiness,
     inspect_content_hits,
     remove_patch_from_content,
+    resolve_patch_track,
 )
 
 
@@ -397,3 +398,56 @@ def test_bytes_may_need_sand_patch_skips_unrelated():
     assert _bytes_may_need_sand_patch(b"console.log(1)") is False
     assert _bytes_may_have_sand_patch(b"/*SAND_FOO_V1*/") is True
     assert _bytes_may_have_sand_patch(b"console.log(1)") is False
+
+
+def test_resolve_patch_track_tested_318_builds():
+    for ver in ("3.18.9", "3.18.25"):
+        out = resolve_patch_track(ver)
+        assert out["track"] == "3.18"
+        assert out["source"] == "version"
+        assert out["tested"] is True
+        assert out["versionOk"] is True
+        assert out["hint"] == ""
+
+
+def test_resolve_patch_track_tested_319():
+    out = resolve_patch_track("3.19.13")
+    assert out["track"] == "3.19"
+    assert out["source"] == "version"
+    assert out["tested"] is True
+    assert out["versionOk"] is True
+
+
+def test_resolve_patch_track_same_family_untested():
+    out = resolve_patch_track("3.18.30")
+    assert out["track"] == "3.18"
+    assert out["tested"] is False
+    assert out["versionOk"] is False
+    assert "同族未测" in out["hint"]
+
+
+def test_resolve_patch_track_older_is_other():
+    out = resolve_patch_track("3.12.30")
+    assert out["track"] == "other"
+    assert out["tested"] is False
+    assert out["versionOk"] is False
+
+
+def test_resolve_patch_track_sniff_319_when_version_missing():
+    content = "class J{constructor(e,t,n,o){this.a=e} foo.Ycw(x)"
+    out = resolve_patch_track("", content)
+    assert out["track"] == "3.19"
+    assert out["source"] == "content"
+
+
+def test_resolve_patch_track_sniff_318_joe_when_version_missing():
+    out = resolve_patch_track("", "s=new Joe(e,n,void 0,void 0).getSession()")
+    assert out["track"] == "3.18"
+    assert out["source"] == "content"
+
+
+def test_resolve_patch_track_default_318_when_unknown():
+    out = resolve_patch_track("", "console.log(1)")
+    assert out["track"] == "3.18"
+    assert out["source"] == "default"
+    assert "版本未知" in out["hint"]
