@@ -1138,13 +1138,181 @@ function _sandPkgKind(pkg) {
   return ["", "无锚点", []];
 }
 
+function _sandSetMeta(id, text) {
+  const el = $(id);
+  if (el) el.textContent = text || "";
+}
+
+function _sandFillCatSummaries(res) {
+  const compat = res?.compat || {};
+  const summary = compat.summary || {};
+  const headers = (compat.headerLayers && compat.headerLayers.rows) || [];
+  const headerOk = headers.filter((row) => row.status === "applied").length;
+  const packages = compat.packages || [];
+  const live = packages.filter((pkg) => (pkg.canPatch || []).length || (pkg.patched || []).length);
+  const rules = compat.rules || [];
+  const required = rules.filter((row) => !row.optional);
+  const applied = required.filter((row) => row.status === "applied").length;
+  const pending = required.filter((row) => row.status === "pending" || row.status === "partial").length;
+  const bits = [
+    compat.cursorVersion ? `v${compat.cursorVersion}` : (res?.version ? `v${res.version}` : ""),
+    compat.patchTrack || "",
+    summary.required ? `${summary.applied || applied}/${summary.required}` : "",
+  ].filter(Boolean);
+  _sandSetMeta("sandDetailMeta", bits.join(" · "));
+  _sandSetMeta("sandCatHeaderMeta", headers.length ? `${headerOk}/${headers.length}` : "");
+  _sandSetMeta("sandCatPkgsMeta", live.length ? `${live.length} 个` : "无");
+  let ruleMeta = required.length ? `${applied}/${required.length}` : "";
+  if (pending) ruleMeta += ` · ${pending} 未齐`;
+  _sandSetMeta("sandCatRulesMeta", ruleMeta);
+}
+
+const _sandLazy = { res: null, header: false, pkgs: false, rules: false, layer: Object.create(null) };
+
+function _sandResetLazy(res) {
+  _sandLazy.res = res;
+  _sandLazy.header = false;
+  _sandLazy.pkgs = false;
+  _sandLazy.rules = false;
+  _sandLazy.layer = Object.create(null);
+}
+
+function _sandRuleItemHtml(row) {
+  const [cls, label] = _sandRulePill(row);
+  const files = (row.files || []).join("  ");
+  const fix = row.fix && !(row.optional && row.status === "missing") ? row.fix : "";
+  return `<li class="sand-rule"><span class="pill ${esc(cls)}">${esc(label)}</span><div><div class="sand-rule-title">${esc(row.title || "")}${row.optional ? " · 当前档不强制" : ""}</div><div class="hint">${esc(row.why || "")}</div>${files ? `<div class="sand-rule-files" title="${esc(files)}">${esc(files)}</div>` : ""}${fix ? `<div class="sand-rule-fix">${esc(fix)}</div>` : ""}</div></li>`;
+}
+
+function _sandPaintHeaderCat() {
+  if (_sandLazy.header || !$("sandCatHeader")?.open) return;
+  const res = _sandLazy.res;
+  const headerEl = $("sandHeaderLayers");
+  if (!headerEl) return;
+  _sandLazy.header = true;
+  if (!res || !res.ok) {
+    headerEl.innerHTML = "";
+    return;
+  }
+  const compat = res.compat || {};
+  const rows = (compat.headerLayers && compat.headerLayers.rows) || [];
+  headerEl.innerHTML = rows.map((row) => {
+    const fake = {
+      optional: row.key === "membershipFetch",
+      status: row.status,
+      statusLabel: row.statusLabel,
+      missKind: "",
+    };
+    const [cls, label] = _sandRulePill(fake);
+    const extra = compat.headerLayers && compat.headerLayers.relation === "older" ? row.onOlder : "";
+    return `<li class="sand-rule"><span class="pill ${esc(cls)}">${esc(label)}</span><div><div class="sand-rule-title">${esc(row.title || "")}</div>${extra ? `<div class="hint">${esc(extra)}</div>` : ""}</div></li>`;
+  }).join("");
+}
+
+function _sandPaintPkgsCat() {
+  if (_sandLazy.pkgs || !$("sandCatPkgs")?.open) return;
+  const res = _sandLazy.res;
+  const pkgsEl = $("sandStreamPackages");
+  if (!pkgsEl) return;
+  _sandLazy.pkgs = true;
+  if (!res || !res.ok) {
+    pkgsEl.innerHTML = "";
+    return;
+  }
+  const packages = (res.compat || {}).packages || [];
+  const live = packages.filter((pkg) => (pkg.canPatch || []).length || (pkg.patched || []).length);
+  const idle = packages.length - live.length;
+  pkgsEl.innerHTML = live.map((pkg) => {
+    const [cls, label, keys] = _sandPkgKind(pkg);
+    const keyText = [...new Set(keys)].map(_sandKeyLabel).join("、");
+    return `<li class="sand-pkg" title="${esc(pkg.name)}"><span class="pill ${esc(cls)}">${esc(label)}</span><div><span class="sand-pkg-name">${esc(pkg.name)}</span>${keyText ? `<span class="sand-pkg-keys">${esc(keyText)}</span>` : ""}</div></li>`;
+  }).join("");
+  if (!live.length) {
+    pkgsEl.innerHTML = `<li class="hint">当前扫到的包里没有可改锚点。</li>`;
+  } else if (idle > 0) {
+    pkgsEl.insertAdjacentHTML("beforeend", `<li class="hint">另有 ${idle} 个包没有对应锚点。</li>`);
+  }
+}
+
+function _sandPaintLayerRules(layerId) {
+  if (!layerId || _sandLazy.layer[layerId]) return;
+  let fold = null;
+  for (const el of document.querySelectorAll(".sand-cat-layer")) {
+    if (el.dataset.layer === layerId) {
+      fold = el;
+      break;
+    }
+  }
+  if (!fold?.open) return;
+  const list = fold.querySelector("[data-layer-list]");
+  if (!list) return;
+  _sandLazy.layer[layerId] = true;
+  const res = _sandLazy.res;
+  const rules = ((res && res.compat) || {}).rules || [];
+  const rows = rules.filter((row) => String(row.layer || "") === layerId);
+  list.innerHTML = rows.map(_sandRuleItemHtml).join("");
+}
+
+function _sandPaintRulesCat() {
+  if (_sandLazy.rules || !$("sandCatRules")?.open) return;
+  const wrap = $("sandRuleGroups");
+  const res = _sandLazy.res;
+  if (!wrap) return;
+  _sandLazy.rules = true;
+  _sandLazy.layer = Object.create(null);
+  if (!res || !res.ok) {
+    wrap.innerHTML = "";
+    return;
+  }
+  const rules = (res.compat || {}).rules || [];
+  if (!rules.length) {
+    const layers = res.layers || {};
+    wrap.innerHTML = `<ul class="sand-layers">${SAND_LAYER_SPEC.map(([id, label, keys]) => {
+      const block = layers[id] || {};
+      const on = keys.filter((key) => Number(block[key] || 0) > 0).length;
+      const cls = on === keys.length ? "is-on" : (on > 0 ? "is-partial" : "is-off");
+      return `<li class="sand-layer ${cls}"><span>${esc(id)} ${esc(label)}</span><span>${on}/${keys.length}</span></li>`;
+    }).join("")}</ul>`;
+    return;
+  }
+  const byLayer = new Map();
+  for (const row of rules) {
+    const id = String(row.layer || "其他");
+    if (!byLayer.has(id)) byLayer.set(id, []);
+    byLayer.get(id).push(row);
+  }
+  const known = SAND_LAYER_SPEC.map(([id]) => id);
+  const extra = [...byLayer.keys()].filter((id) => !known.includes(id));
+  const order = known.concat(extra);
+  wrap.innerHTML = order.map((id) => {
+    const rows = byLayer.get(id);
+    if (!rows || !rows.length) return "";
+    const spec = SAND_LAYER_SPEC.find((item) => item[0] === id);
+    const label = spec ? spec[1] : id;
+    const required = rows.filter((row) => !row.optional);
+    const applied = required.filter((row) => row.status === "applied").length;
+    const pending = required.filter((row) => row.status === "pending" || row.status === "partial").length;
+    let meta = required.length ? `${applied}/${required.length}` : `${rows.length}`;
+    if (pending) meta += ` · ${pending} 未齐`;
+    return `<details class="sand-cat sand-cat-layer" data-layer="${esc(id)}"><summary><span>${esc(id)} ${esc(label)}</span><span class="sand-fold-meta">${esc(meta)}</span></summary><ul class="sand-layers" data-layer-list></ul></details>`;
+  }).join("");
+  wrap.querySelectorAll(".sand-cat-layer").forEach((el) => {
+    el.addEventListener("toggle", () => {
+      if (el.open) _sandPaintLayerRules(el.dataset.layer);
+    });
+  });
+}
+
+function _sandPaintOpenCats() {
+  _sandPaintHeaderCat();
+  _sandPaintPkgsCat();
+  _sandPaintRulesCat();
+}
+
 function paintSandStream(res) {
   const stateEl = $("sandStreamState");
   const copyEl = $("sandStreamCopy");
   const missingEl = $("sandStreamMissing");
-  const layersEl = $("sandStreamLayers");
-  const headerEl = $("sandHeaderLayers");
-  const pkgsEl = $("sandStreamPackages");
   const hintEl = $("sandCompatHint");
   const adviceEl = $("sandUpgradeAdvice");
   const fullBtn = $("btnSandStreamApplyFull");
@@ -1156,6 +1324,7 @@ function paintSandStream(res) {
     restoreBtn?.classList.toggle("is-blocked", restoreBlocked);
   };
   if (!stateEl && !copyEl) return;
+  _sandResetLazy(res);
   if (!res || !res.ok) {
     if (stateEl) {
       stateEl.textContent = "不可用";
@@ -1163,12 +1332,14 @@ function paintSandStream(res) {
     }
     if (copyEl) copyEl.textContent = res?.error || "无法检测 Bot 补丁状态";
     if (missingEl) missingEl.innerHTML = "";
-    if (layersEl) layersEl.innerHTML = "";
-    if (headerEl) headerEl.innerHTML = "";
-    if (pkgsEl) pkgsEl.innerHTML = "";
     if (hintEl) hintEl.textContent = "";
     if (adviceEl) adviceEl.textContent = "";
+    _sandSetMeta("sandDetailMeta", "");
+    _sandSetMeta("sandCatHeaderMeta", "");
+    _sandSetMeta("sandCatPkgsMeta", "");
+    _sandSetMeta("sandCatRulesMeta", "");
     setBlocked(true, true);
+    _sandPaintOpenCats();
     return;
   }
 
@@ -1213,27 +1384,13 @@ function paintSandStream(res) {
           : `补丁轨 ${compat.patchTrack}`)
         : "",
       compat.versionHint || "",
-      (compat.headerLayers && compat.headerLayers.hint) || "",
     ].filter(Boolean);
     hintEl.textContent = bits.join(" · ");
+    hintEl.hidden = !hintEl.textContent;
   }
   if (adviceEl) {
     adviceEl.textContent = (compat.upgrade && compat.upgrade.advice) || "";
-  }
-
-  if (headerEl) {
-    const rows = (compat.headerLayers && compat.headerLayers.rows) || [];
-    headerEl.innerHTML = rows.map((row) => {
-      const fake = {
-        optional: row.key === "membershipFetch",
-        status: row.status,
-        statusLabel: row.statusLabel,
-        missKind: "",
-      };
-      const [cls, label] = _sandRulePill(fake);
-      const extra = compat.headerLayers && compat.headerLayers.relation === "older" ? row.onOlder : "";
-      return `<li class="sand-rule"><span class="pill ${esc(cls)}">${esc(label)}</span><div><div class="sand-rule-title">${esc(row.title || "")}</div>${extra ? `<div class="hint">${esc(extra)}</div>` : ""}</div></li>`;
-    }).join("");
+    adviceEl.hidden = !adviceEl.textContent;
   }
 
   if (missingEl) {
@@ -1269,41 +1426,8 @@ function paintSandStream(res) {
     }
   }
 
-  if (pkgsEl) {
-    const packages = compat.packages || [];
-    const live = packages.filter((pkg) => (pkg.canPatch || []).length || (pkg.patched || []).length);
-    const idle = packages.length - live.length;
-    pkgsEl.innerHTML = live.map((pkg) => {
-      const [cls, label, keys] = _sandPkgKind(pkg);
-      const keyText = [...new Set(keys)].map(_sandKeyLabel).join("、");
-      return `<li class="sand-pkg" title="${esc(pkg.name)}"><span class="pill ${esc(cls)}">${esc(label)}</span><div><span class="sand-pkg-name">${esc(pkg.name)}</span>${keyText ? `<span class="sand-pkg-keys">${esc(keyText)}</span>` : ""}</div></li>`;
-    }).join("");
-    if (!live.length) {
-      pkgsEl.innerHTML = `<li class="hint">当前扫到的包里没有可改锚点。</li>`;
-    } else if (idle > 0) {
-      pkgsEl.insertAdjacentHTML("beforeend", `<li class="hint">另有 ${idle} 个包没有对应锚点。</li>`);
-    }
-  }
-
-  if (layersEl) {
-    const rules = compat.rules || [];
-    if (rules.length) {
-      layersEl.innerHTML = rules.map((row) => {
-        const [cls, label] = _sandRulePill(row);
-        const files = (row.files || []).join("  ");
-        const fix = row.fix && !(row.optional && row.status === "missing") ? row.fix : "";
-        return `<li class="sand-rule"><span class="pill ${esc(cls)}">${esc(label)}</span><div><div class="sand-rule-title">${esc(row.layer || "")} ${esc(row.title || "")}${row.optional ? " · 当前档不强制" : ""}</div><div class="hint">${esc(row.why || "")}</div>${files ? `<div class="sand-rule-files" title="${esc(files)}">${esc(files)}</div>` : ""}${fix ? `<div class="sand-rule-fix">${esc(fix)}</div>` : ""}</div></li>`;
-      }).join("");
-    } else {
-      const layers = res.layers || {};
-      layersEl.innerHTML = SAND_LAYER_SPEC.map(([id, label, keys]) => {
-        const block = layers[id] || {};
-        const on = keys.filter((key) => Number(block[key] || 0) > 0).length;
-        const cls = on === keys.length ? "is-on" : (on > 0 ? "is-partial" : "is-off");
-        return `<li class="sand-layer ${cls}"><span>${esc(id)} ${esc(label)}</span><span>${on}/${keys.length}</span></li>`;
-      }).join("");
-    }
-  }
+  _sandFillCatSummaries(res);
+  _sandPaintOpenCats();
 
   const blocked = !res.canApply;
   setBlocked(blocked, !res.canRestore);
@@ -1379,13 +1503,11 @@ async function runPatchJob(startName, args, fallbackFn, startMessage, paint) {
   }
 }
 
-function revealSandJobLog() {
-  const fold = $("sandDetailFold");
-  if (fold) fold.open = true;
-}
-
 function paintSandJobProgress(p) {
-  revealSandJobLog();
+  const steps = Array.isArray(p.steps) ? p.steps : [];
+  const show = Boolean(p.busy || steps.length);
+  const box = $("sandJobBox");
+  if (box) box.hidden = !show;
   const copy = $("sandStreamCopy");
   if (copy && p.message) copy.textContent = p.message;
   const stateEl = $("sandStreamState");
@@ -1395,11 +1517,7 @@ function paintSandJobProgress(p) {
   }
   const head = $("sandJobHead");
   const restoring = String(p.job || "").includes("restore") || String(p.message || "").includes("还原");
-  const steps = Array.isArray(p.steps) ? p.steps : [];
-  if (head) {
-    head.textContent = restoring ? "本次还原" : "本次写入";
-    head.hidden = !(p.busy || steps.length);
-  }
+  if (head) head.textContent = restoring ? "本次还原" : "本次写入";
   paintJobSteps($("sandJobSteps"), steps);
 }
 
@@ -1432,7 +1550,7 @@ async function runSandStream(kind, profile) {
     const extra = profile === "stream"
       ? "只改 Bot 对话通路，不装工具和子代理。不管 500k / MAX。"
       : (_sandIncludeSubagent() ? "打上对话通路、工具和子代理。不管 500k / MAX。" : "打上对话通路和工具，不含子代理。不管 500k / MAX。");
-    const ok = window.confirm(`${extra}\n改的是 Cursor 安装目录里的文件，明细里会一条条列出。确定？`);
+    const ok = window.confirm(`${extra}\n改的是 Cursor 安装目录里的文件，Bot 栏里会一条条列出。确定？`);
     if (!ok) {
       refreshSandStream();
       return;
@@ -2746,6 +2864,9 @@ if ($("btnSandStreamApplyStream")) $("btnSandStreamApplyStream").onclick = () =>
 if ($("btnSandStreamRestore")) $("btnSandStreamRestore").onclick = () => runSandStream("restore");
 if ($("btnSandStreamRefresh")) $("btnSandStreamRefresh").onclick = () => refreshSandStream();
 if ($("sandIncludeSubagent")) $("sandIncludeSubagent").onchange = () => refreshSandStream();
+$("sandCatHeader")?.addEventListener("toggle", () => _sandPaintHeaderCat());
+$("sandCatPkgs")?.addEventListener("toggle", () => _sandPaintPkgsCat());
+$("sandCatRules")?.addEventListener("toggle", () => _sandPaintRulesCat());
 if ($("btnWbDiagRefresh")) $("btnWbDiagRefresh").onclick = () => refreshWbDiag({ extras: true });
 if ($("btnHealthRefresh")) $("btnHealthRefresh").onclick = () => refreshWbDiag({ extras: true });
 if ($("btnAutofix")) $("btnAutofix").onclick = () => runAutofix();

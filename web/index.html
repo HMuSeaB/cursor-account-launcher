@@ -178,19 +178,30 @@
             <button type="button" class="btn ghost" id="btnSandStreamRestore" data-needs-closed>还原</button>
             <button type="button" class="btn ghost" id="btnSandStreamRefresh">刷新</button>
           </div>
+          <div class="sand-job" id="sandJobBox" hidden>
+            <p class="sand-subhead" id="sandJobHead">本次写入</p>
+            <ol class="sand-job-log" id="sandJobSteps"></ol>
+          </div>
           <details class="adv-fold" id="sandDetailFold">
-            <summary>版本与补丁明细</summary>
-            <p class="sand-subhead" id="sandJobHead" hidden>本次写入</p>
-            <ol class="sand-job-log" id="sandJobSteps" hidden></ol>
+            <summary>
+              <span>版本与补丁明细</span>
+              <span class="sand-fold-meta" id="sandDetailMeta"></span>
+            </summary>
             <p class="hint settings-hint" id="sandCompatHint"></p>
             <p class="hint settings-hint" id="sandUpgradeAdvice"></p>
-            <p class="hint settings-hint">出站：HDRFIX / RPC / 指纹。回包：完整解锁的会员 fetch（不是 500k）。两套钩子不要叠打。聊天里仍显示 256k，多半是 Sub2API 窄模型墙，启动器改不了那一层；YC 原生才走 500k 回包。</p>
-            <p class="sand-subhead">请求头与 fetch</p>
-            <ul class="sand-layers" id="sandHeaderLayers"></ul>
-            <p class="sand-subhead">可改的包</p>
-            <ul class="sand-pkgs" id="sandStreamPackages"></ul>
-            <p class="sand-subhead">规则</p>
-            <ul class="sand-layers" id="sandStreamLayers"></ul>
+            <details class="sand-cat" id="sandCatHeader">
+              <summary><span>请求头与 fetch</span><span class="sand-fold-meta" id="sandCatHeaderMeta"></span></summary>
+              <ul class="sand-layers" id="sandHeaderLayers"></ul>
+              <p class="hint settings-hint">出站：HDRFIX / RPC / 指纹。回包：完整解锁的会员 fetch（不是 500k）。两套钩子不要叠打。聊天里仍显示 256k，多半是 Sub2API 窄模型墙，启动器改不了那一层；YC 原生才走 500k 回包。</p>
+            </details>
+            <details class="sand-cat" id="sandCatPkgs">
+              <summary><span>可改的包</span><span class="sand-fold-meta" id="sandCatPkgsMeta"></span></summary>
+              <ul class="sand-pkgs" id="sandStreamPackages"></ul>
+            </details>
+            <details class="sand-cat" id="sandCatRules">
+              <summary><span>规则</span><span class="sand-fold-meta" id="sandCatRulesMeta"></span></summary>
+              <div class="sand-rule-groups" id="sandRuleGroups"></div>
+            </details>
           </details>
         </section>
         <details class="settings-panel">
