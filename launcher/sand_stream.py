@@ -23,7 +23,7 @@ from launcher.cursor_process import is_cursor_running, resolve_install
 from launcher.workbench.manager import WorkbenchWriteError, sync_product_checksums, write_atomic
 from launcher.workbench.preflight import PreflightError, assert_safe
 
-MODULE_VERSION = "1.3.0"
+MODULE_VERSION = "1.3.1"
 ANCHOR_VERSION = "3.18.9"
 SUPPORTED_TRACKS: dict[str, tuple[str, ...]] = {
     "3.18": ("3.18.9", "3.18.25"),
@@ -141,6 +141,116 @@ LEGACY_CLIENT_MARKER_PATTERN = re.escape(LEGACY_SAND_CLIENT_MARKER)
 LEGACY_ELIGIBILITY_MARKER_PATTERN = re.escape(LEGACY_SAND_ELIGIBILITY_MARKER)
 CLIENT_MARKER_GUARD_PATTERN = r"/\*[A-Z0-9_]*SAND_CLIENT(?:_(?:MODE|EXISTING))?_V1\*/"
 ELIGIBILITY_MARKER_GUARD_PATTERN = r"/\*[A-Z0-9_]*SAND_ELIGIBILITY(?:_MODE)?_V1\*/"
+
+# Sand-Stream-Installer 1.3.2-macos-seal.1（外部工具）新增 marker：只登记与迁移剥离，
+# 不外打；字面量对从该脚本 A:299-433 原样抄（见 docs/plan-sand-stream-v132.md）。
+SAND_V132_MULTITASK_ROUTE_MARKER = "/*SAND_MULTITASK_ROUTE_V1*/"
+SAND_V132_BACKGROUND_COMPLETION_MARKER = "/*SAND_BACKGROUND_COMPLETION_V1*/"
+SAND_V132_SUBAGENT_FEATURES_MARKER = "/*SAND_SUBAGENT_FEATURES_V1*/"
+SAND_V132_SUBAGENT_CAPTURE_MARKER = "/*SAND_SUBAGENT_CAPTURE_V1*/"
+SAND_V132_SUBAGENT_CONFIG_MARKER = "/*SAND_SUBAGENT_CONFIG_V1*/"
+SAND_V132_SUBAGENT_TASK_MARKER = "/*SAND_SUBAGENT_TASK_V1*/"
+SAND_V132_SUBAGENT_RUN_OPTIONS_MARKER = "/*SAND_SUBAGENT_RUN_OPTIONS_V1*/"
+SAND_V132_GLASS_OVERRIDE_MARKER = "/*SAND_GLASS_OVERRIDE_V1*/"
+SAND_V132_MARKERS: tuple[str, ...] = (
+    SAND_V132_MULTITASK_ROUTE_MARKER,
+    SAND_V132_BACKGROUND_COMPLETION_MARKER,
+    SAND_V132_SUBAGENT_FEATURES_MARKER,
+    SAND_V132_SUBAGENT_CAPTURE_MARKER,
+    SAND_V132_SUBAGENT_CONFIG_MARKER,
+    SAND_V132_SUBAGENT_TASK_MARKER,
+    SAND_V132_SUBAGENT_RUN_OPTIONS_MARKER,
+    SAND_V132_GLASS_OVERRIDE_MARKER,
+)
+V132_MULTITASK_ROUTE_ORIGINAL = 'e.requestedMode!==oe.xyI.AGENT?"mode-not-supported"'
+V132_MULTITASK_ROUTE_PATCHED = (
+    'e.actionCase==="userMessageAction"&&e.requestedMode!==oe.xyI.AGENT'
+    "&&e.requestedMode!==oe.xyI.MULTITASK"
+    + SAND_V132_MULTITASK_ROUTE_MARKER
+    + '?"mode-not-supported"'
+)
+V132_MULTITASK_ROUTE_PATCHED_LEGACY = (
+    "e.requestedMode!==oe.xyI.AGENT&&e.requestedMode!==oe.xyI.MULTITASK"
+    + SAND_V132_MULTITASK_ROUTE_MARKER
+    + '?"mode-not-supported"'
+)
+V132_BACKGROUND_COMPLETION_ORIGINAL = (
+    '"userMessageAction"!==e.actionCase?"action-not-supported"'
+)
+V132_BACKGROUND_COMPLETION_PATCHED = (
+    "!1" + SAND_V132_BACKGROUND_COMPLETION_MARKER + '?"action-not-supported"'
+)
+V132_BACKGROUND_COMPLETION_PATCHED_LEGACY = (
+    "e.actionCase!==\"userMessageAction\""
+    "&&e.actionCase!==\"backgroundTaskCompletionAction\""
+    + SAND_V132_BACKGROUND_COMPLETION_MARKER
+    + '?"action-not-supported"'
+)
+V132_BACKGROUND_COMPLETION_PATCHED_LEGACY_V2 = (
+    "(\"userMessageAction\"!==e.actionCase"
+    "&&\"backgroundTaskCompletionAction\"!==e.actionCase"
+    + SAND_V132_BACKGROUND_COMPLETION_MARKER
+    + ')?"action-not-supported"'
+)
+V132_SUBAGENT_RUN_OPTIONS_ORIGINAL = (
+    'e.hasUnsupportedRunOptions?"run-options-not-supported":void 0'
+)
+V132_SUBAGENT_RUN_OPTIONS_PATCHED = (
+    "!1" + SAND_V132_SUBAGENT_RUN_OPTIONS_MARKER + '?"run-options-not-supported":void 0'
+)
+V132_SUBAGENT_FEATURES_ORIGINAL = (
+    "const Cre={enableEmptyResponseRetry:!0,enableGrepBroadGlobGuard:!0,"
+    "enableReadToolNegativeOffset:!0,enableSandboxSharedBuildCache:!0,"
+    "nalLoopDetection:!0};"
+)
+V132_SUBAGENT_FEATURES_PATCHED = (
+    "const Cre={enableEmptyResponseRetry:!0,enableGrepBroadGlobGuard:!0,"
+    "enableReadToolNegativeOffset:!0,enableSandboxSharedBuildCache:!0,"
+    "nalLoopDetection:!0,useClientSideSubagent:!0,enableMultitaskMode:!0,"
+    "defaultSubagentsRunInBackground:!0}"
+    + SAND_V132_SUBAGENT_FEATURES_MARKER
+    + ";"
+)
+V132_SUBAGENT_FEATURES_PATCHED_LEGACY = (
+    "const Cre={enableEmptyResponseRetry:!0,enableGrepBroadGlobGuard:!0,"
+    "enableReadToolNegativeOffset:!0,enableSandboxSharedBuildCache:!0,"
+    "nalLoopDetection:!0,useClientSideSubagent:!0,enableMultitaskMode:!0,"
+    "defaultSubagentsRunInBackground:!0,enableAwaitForSubagents:!0,"
+    "longRunningJobs:!0}"
+    + SAND_V132_SUBAGENT_FEATURES_MARKER
+    + ";"
+)
+V132_SUBAGENT_CAPTURE_ORIGINAL = (
+    "function Ere(e){return new Eoe({createAgentConfig:t=>function(e,t){var n,o;"
+)
+V132_SUBAGENT_CAPTURE_PATCHED = (
+    "function Ere(e){return new Eoe({createAgentConfig:t=>function(e,t,H){"
+    + SAND_V132_SUBAGENT_CAPTURE_MARKER
+    + "var n,o;"
+)
+V132_SUBAGENT_CONFIG_ORIGINAL = "d=new PF;return Object.assign("
+V132_SUBAGENT_CONFIG_PATCHED = (
+    "d=new PF;let P;"
+    + SAND_V132_SUBAGENT_CONFIG_MARKER
+    + "return P=Object.assign("
+)
+V132_SUBAGENT_INVOKE_ORIGINAL = (
+    "}(t,e.agentToolsClient),createPromptSession:hre(e.inferenceClient)"
+)
+V132_SUBAGENT_INVOKE_PATCHED = (
+    "}(t,e.agentToolsClient,e.inferenceClient),createPromptSession:hre(e.inferenceClient)"
+)
+V132_SUBAGENT_TASK_ORIGINAL = "taskToolProps:void 0"
+V132_SUBAGENT_TASK_PATCH_RE = re.compile(
+    r"taskToolProps:\{.*?\}" + re.escape(SAND_V132_SUBAGENT_TASK_MARKER),
+    re.DOTALL,
+)
+V132_MOVE_EXEC_BRACKET_PATCHED = "p=(!0" + SAND_MOVE_EXEC_MARKER + ")"
+V132_MOVE_EXEC_SEMI_PATCHED = "p=!0;" + SAND_MOVE_EXEC_MARKER
+V132_GLASS_OVERRIDE_RE = re.compile(
+    r'(isGlass\s*\?\s*["\'])sand(["\']\s*:\s*["\'])sand(["\'])'
+    + re.escape(SAND_V132_GLASS_OVERRIDE_MARKER)
+)
 
 TARGET_SPECS: tuple[tuple[str, str | None], ...] = (
     ("out/main.js", None),
@@ -696,6 +806,7 @@ class PatchStats:
     rules_preseed: int = 0
     push_context_timeout: int = 0
     route_label: int = 0
+    v132: int = 0
 
     @property
     def total(self) -> int:
@@ -726,6 +837,7 @@ class RemoveStats:
     rules_preseed: int = 0
     push_context_timeout: int = 0
     route_label: int = 0
+    v132: int = 0
 
     @property
     def total(self) -> int:
@@ -743,12 +855,22 @@ class SandLayout:
     version: str
 
 
+def _empty_installer132() -> dict[str, Any]:
+    return {
+        "tool": "Sand-Stream-Installer 1.3.2-macos-seal.1",
+        "detected": False,
+        "counts": {},
+        "files": (),
+    }
+
+
 @dataclass
 class PatchStatus:
     hits: dict[str, int] = field(default_factory=dict)
     patched_files: tuple[str, ...] = ()
     external_marker_count: int = 0
     launcher_markers: int = 0
+    installer132: dict[str, Any] = field(default_factory=_empty_installer132)
     compat: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -1430,6 +1552,49 @@ def _strip_route_label(content: str, stats: RemoveStats | None = None) -> str:
     return next_content
 
 
+_V132_LITERAL_PAIRS: tuple[tuple[str, str], ...] = (
+    (V132_MULTITASK_ROUTE_PATCHED, V132_MULTITASK_ROUTE_ORIGINAL),
+    (V132_MULTITASK_ROUTE_PATCHED_LEGACY, V132_MULTITASK_ROUTE_ORIGINAL),
+    (V132_BACKGROUND_COMPLETION_PATCHED, V132_BACKGROUND_COMPLETION_ORIGINAL),
+    (V132_BACKGROUND_COMPLETION_PATCHED_LEGACY, V132_BACKGROUND_COMPLETION_ORIGINAL),
+    (V132_BACKGROUND_COMPLETION_PATCHED_LEGACY_V2, V132_BACKGROUND_COMPLETION_ORIGINAL),
+    (V132_SUBAGENT_RUN_OPTIONS_PATCHED, V132_SUBAGENT_RUN_OPTIONS_ORIGINAL),
+    (V132_SUBAGENT_FEATURES_PATCHED, V132_SUBAGENT_FEATURES_ORIGINAL),
+    (V132_SUBAGENT_FEATURES_PATCHED_LEGACY, V132_SUBAGENT_FEATURES_ORIGINAL),
+    (V132_SUBAGENT_CAPTURE_PATCHED, V132_SUBAGENT_CAPTURE_ORIGINAL),
+    (V132_SUBAGENT_CONFIG_PATCHED, V132_SUBAGENT_CONFIG_ORIGINAL),
+    (V132_SUBAGENT_INVOKE_PATCHED, V132_SUBAGENT_INVOKE_ORIGINAL),
+    (V132_MOVE_EXEC_BRACKET_PATCHED, AGENT_HOST_MOVE_EXEC_ORIGINAL),
+    (V132_MOVE_EXEC_SEMI_PATCHED, AGENT_HOST_MOVE_EXEC_ORIGINAL),
+)
+
+
+def _strip_v132(content: str) -> tuple[str, int]:
+    """剥掉 Sand-Stream-Installer 1.3.2-macos-seal.1 的补丁字面量，回到其 ORIGINAL。
+
+    只搜带 V132 marker 的 PATCHED 形态，不会误伤启动器自己的补丁；
+    SUBAGENT_TASK 的目录内容每台机器不同，按 marker 定界的骨架正则剥。
+    """
+    total = 0
+    for patched, original in _V132_LITERAL_PAIRS:
+        if patched not in content:
+            continue
+        count = content.count(patched)
+        content = content.replace(patched, original)
+        total += count
+
+    def _restore_glass(match: re.Match[str]) -> str:
+        return f"{match.group(1)}glass{match.group(2)}ide{match.group(3)}"
+
+    content, glass_count = V132_GLASS_OVERRIDE_RE.subn(_restore_glass, content)
+    total += glass_count
+    content, task_count = V132_SUBAGENT_TASK_PATCH_RE.subn(
+        V132_SUBAGENT_TASK_ORIGINAL, content
+    )
+    total += task_count
+    return content, total
+
+
 def _normalize_profile(profile: str | None) -> str:
     value = (profile or "full").strip().lower()
     return "stream" if value == "stream" else "full"
@@ -1448,6 +1613,11 @@ def apply_patch_to_content(
     want_l6 = want_full and bool(include_subagent)
     resolved_track = track or sniff_patch_track(content) or "3.18"
     want_specialized = resolved_track != "other"
+
+    # 先剥 Sand-Stream-Installer 1.3.2 残留（同锚点：action route / taskToolProps / hre），
+    # 剥完的 ORIGINAL 让下面的自家补丁正常命中。
+    next_content, v132_count = _strip_v132(next_content)
+    stats.v132 += v132_count
 
     if not want_l6:
         next_content = _strip_l6(next_content)
@@ -1699,7 +1869,9 @@ def apply_patch_to_content(
 
 def remove_patch_from_content(content: str) -> tuple[str, RemoveStats]:
     stats = RemoveStats()
-    next_content, rpc_snip_count = _strip_rpc_snippets(content)
+    next_content, v132_count = _strip_v132(content)
+    stats.v132 += v132_count
+    next_content, rpc_snip_count = _strip_rpc_snippets(next_content)
     stats.rpc_rewrite += rpc_snip_count
     if NEW_RPC_PATH in next_content:
         n = next_content.count(NEW_RPC_PATH)
@@ -1860,6 +2032,21 @@ def inspect_content_hits(content: str) -> dict[str, int]:
     }
 
 
+def inspect_v132_hits(content: str) -> dict[str, int]:
+    """Sand-Stream-Installer 1.3.2 专属 marker 计数（同串 marker 不在此列）。"""
+    return {
+        "multitaskRoute": content.count(SAND_V132_MULTITASK_ROUTE_MARKER),
+        "backgroundCompletion": content.count(SAND_V132_BACKGROUND_COMPLETION_MARKER),
+        "subagentFeatures": content.count(SAND_V132_SUBAGENT_FEATURES_MARKER),
+        "subagentCapture": content.count(SAND_V132_SUBAGENT_CAPTURE_MARKER),
+        "subagentConfig": content.count(SAND_V132_SUBAGENT_CONFIG_MARKER),
+        "subagentTask": content.count(SAND_V132_SUBAGENT_TASK_MARKER),
+        "subagentRunOptions": content.count(SAND_V132_SUBAGENT_RUN_OPTIONS_MARKER),
+        "glassOverride": content.count(SAND_V132_GLASS_OVERRIDE_MARKER),
+        "moveExecBracket": content.count(V132_MOVE_EXEC_BRACKET_PATCHED),
+    }
+
+
 def classify_readiness(
     hits: dict[str, int],
     profile: str = "full",
@@ -2013,6 +2200,8 @@ def inspect_status(layout: SandLayout, *, include_compat: bool = True) -> PatchS
     external_marker_count = 0
     patched_files: list[str] = []
     launcher_markers = 0
+    v132_totals: dict[str, int] = {}
+    v132_files: list[str] = []
     snaps: list[tuple[str, str]] = []
     for target in layout.target_paths:
         content = target.read_text(encoding="utf-8", errors="ignore")
@@ -2025,6 +2214,12 @@ def inspect_status(layout: SandLayout, *, include_compat: bool = True) -> PatchS
             patched_files.append(rel)
         for key, value in hits.items():
             totals[key] = totals.get(key, 0) + value
+        v132_hits = inspect_v132_hits(content)
+        if any(v132_hits.values()):
+            v132_files.append(rel)
+            for key, value in v132_hits.items():
+                if value:
+                    v132_totals[key] = v132_totals.get(key, 0) + value
         if "SAND_" in content or "KC_SAND" in content:
             client_count = hits.get("client") or 0
             eligibility_count = hits.get("eligibility") or 0
@@ -2052,6 +2247,12 @@ def inspect_status(layout: SandLayout, *, include_compat: bool = True) -> PatchS
         patched_files=tuple(patched_files),
         external_marker_count=external_marker_count,
         launcher_markers=launcher_markers,
+        installer132={
+            "tool": "Sand-Stream-Installer 1.3.2-macos-seal.1",
+            "detected": bool(v132_totals),
+            "counts": v132_totals,
+            "files": tuple(v132_files),
+        },
         compat=compat_data,
     )
 
@@ -2249,6 +2450,7 @@ _PATCH_STEP_LABELS: tuple[tuple[str, str], ...] = (
     ("migrated_task_tool", "Task 迁移"),
     ("migrated_action_route", "Action 迁移"),
     ("migrated_session_stream", "会话迁移"),
+    ("v132", "1.3.2 迁移"),
 )
 
 
@@ -2557,6 +2759,7 @@ def _status_payload(
         "canApply": not running,
         "canRestore": not running and patch.installed,
         "externalMarkers": patch.external_marker_count,
+        "installer132": dict(patch.installer132),
         "message": _message(ready, patch.installed),
         "endpoint": NEW_RPC_PATH,
         "profile": ready["profile"],
@@ -2698,6 +2901,11 @@ def apply(
     st["complete"] = ready["complete"]
     if not ready["complete"]:
         st["message"] = "已写入能打到的补丁，以下未命中：" + "、".join(ready["missingLabels"])
+    if (after.installer132 or {}).get("detected"):
+        st["message"] = (st.get("message") or "写入完成") + (
+            "；仍有 Sand-Stream-Installer 1.3.2 残留（可剥部分已迁回），"
+            "建议先运行该工具自己的卸载再重新启用"
+        )
     log.emit(100, "写入完成", phase="done")
     return st
 
@@ -2764,6 +2972,8 @@ def restore(on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict
         message += "；" + " / ".join(layers["kept"]) + " 未动"
     if layers["failed"]:
         message += "；未能补回 " + " / ".join(layers["failed"]) + "，请在急救补丁里重打"
+    if (after.installer132 or {}).get("detected"):
+        message += "；仍有 Sand-Stream-Installer 1.3.2 残留，建议先运行该工具自己的卸载"
     st["message"] = message
     log.emit(100, "还原完成", phase="done")
     return st

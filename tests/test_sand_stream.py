@@ -6,6 +6,7 @@ from pathlib import Path
 from launcher.sand_stream import (
     AGENT_HOST_IDENTITY_ORIGINAL,
     AGENT_HOST_IDENTITY_PATCHED,
+    AGENT_HOST_MOVE_EXEC_ORIGINAL,
     CLIENT_MARKER_GUARD_PATTERN,
     DIRECT_STREAM_ANCHOR,
     ELIGIBILITY_MARKER_GUARD_PATTERN,
@@ -44,13 +45,32 @@ from launcher.sand_stream import (
     SAND_SUBAGENT_RESUME_MODE_MARKER,
     SAND_TRANSPORT_HOST_MARKER,
     SAND_USER_RULES_MARKER,
+    SAND_V132_MARKERS,
     SUBAGENT_RESUME_MODE_ORIGINAL,
     USER_RULES_SAMPLE,
+    V132_BACKGROUND_COMPLETION_ORIGINAL,
+    V132_BACKGROUND_COMPLETION_PATCHED,
+    V132_MULTITASK_ROUTE_ORIGINAL,
+    V132_MULTITASK_ROUTE_PATCHED,
+    V132_SUBAGENT_CAPTURE_ORIGINAL,
+    V132_SUBAGENT_CAPTURE_PATCHED,
+    V132_SUBAGENT_CONFIG_ORIGINAL,
+    V132_SUBAGENT_CONFIG_PATCHED,
+    V132_SUBAGENT_FEATURES_ORIGINAL,
+    V132_SUBAGENT_FEATURES_PATCHED,
+    V132_SUBAGENT_INVOKE_ORIGINAL,
+    V132_SUBAGENT_INVOKE_PATCHED,
+    V132_SUBAGENT_RUN_OPTIONS_ORIGINAL,
+    V132_SUBAGENT_RUN_OPTIONS_PATCHED,
+    V132_SUBAGENT_TASK_ORIGINAL,
     _conditional_direct_stream_injection,
+    _legacy_direct_stream_injection,
     _managed_task_tool_patched_v126,
+    _strip_v132,
     apply_patch_to_content,
     classify_readiness,
     inspect_content_hits,
+    inspect_v132_hits,
     remove_patch_from_content,
     resolve_patch_track,
     SandLayout,
@@ -853,3 +873,171 @@ def test_uninstall_plan_emits_done_step_per_stripped_file(tmp_path):
     assert "file:657.js" in by_id
     assert "file:noise.js" not in by_id
     assert by_id["file:657.js"].get("status") == "done"
+
+
+
+# ---------------------------------------------------------------- installer 1.3.2
+
+
+def _v132_task_patched() -> str:
+    """动态目录版 SUBAGENT_TASK：目录内容每台机器不同，特意不用 LEGACY 硬编码 slug。"""
+    return (
+        "isGenerateImageModelRestricted:!1,"
+        "taskToolProps:{parentRequestedModelName:i,"
+        'subagentModels:{modelsBySlug:{keys:()=>new Set(["x","y"]).keys(),'
+        'get:e=>({slug:"x"===e?"x-custom":"y"}),has:()=>!0}}'
+        "}/*SAND_SUBAGENT_TASK_V1*/},resolvers:"
+    )
+
+
+def _v132_bundle() -> str:
+    """模拟 1.3.2 打过的 3.18.9 片段：action 链三处中插 + 其余独立站点（字面量原样抄 A）。"""
+    action_route = (
+        MANAGED_ACTION_ROUTE_ORIGINAL.replace(
+            V132_BACKGROUND_COMPLETION_ORIGINAL, V132_BACKGROUND_COMPLETION_PATCHED
+        )
+        .replace(V132_MULTITASK_ROUTE_ORIGINAL, V132_MULTITASK_ROUTE_PATCHED)
+        .replace(V132_SUBAGENT_RUN_OPTIONS_ORIGINAL, V132_SUBAGENT_RUN_OPTIONS_PATCHED)
+    )
+    return (
+        action_route
+        + V132_SUBAGENT_FEATURES_PATCHED
+        + V132_SUBAGENT_CAPTURE_PATCHED
+        + V132_SUBAGENT_CONFIG_PATCHED
+        + V132_SUBAGENT_INVOKE_PATCHED
+        + _v132_task_patched()
+        + 'isGlass?"sand":"sand"/*SAND_GLASS_OVERRIDE_V1*/'
+        + "p=(!0/*SAND_MOVE_EXEC_V1*/)"
+    )
+
+
+def test_v132_literals_strip_roundtrip():
+    out, stats = remove_patch_from_content(_v132_bundle())
+    assert stats.v132 >= 9
+    assert MANAGED_ACTION_ROUTE_ORIGINAL in out
+    for original in (
+        V132_SUBAGENT_FEATURES_ORIGINAL,
+        V132_SUBAGENT_CAPTURE_ORIGINAL,
+        V132_SUBAGENT_CONFIG_ORIGINAL,
+        V132_SUBAGENT_INVOKE_ORIGINAL,
+        MANAGED_TASK_TOOL_ORIGINAL,
+        AGENT_HOST_MOVE_EXEC_ORIGINAL,
+        'isGlass?"glass":"ide"',
+    ):
+        assert original in out, original
+    for marker in SAND_V132_MARKERS:
+        assert marker not in out, marker
+    assert not any(inspect_v132_hits(out).values())
+
+
+def test_v132_task_dynamic_catalog_strips():
+    out, n = _strip_v132(_v132_task_patched())
+    assert n == 1
+    assert out == "isGenerateImageModelRestricted:!1,taskToolProps:void 0},resolvers:"
+
+
+def test_apply_migrates_v132_to_launcher_core():
+    src = _core_bundle() + _l6_bundle() + _v132_bundle()
+    patched, stats = apply_patch_to_content(src, profile="full", include_subagent=True)
+    assert stats.v132 >= 9
+    for marker in SAND_V132_MARKERS:
+        assert marker not in patched, marker
+    hits = inspect_content_hits(patched)
+    assert hits["taskTool"] >= 1
+    assert hits["actionRoute"] >= 1
+    assert hits["directStream"] == 1
+    # 自家 V3 语义在：子代理禁再派发守卫 + 无 mode-not-supported
+    assert patched.count("void 0!==e.runOptions.subagentTypeName?void 0:") >= 2
+    assert "mode-not-supported" not in patched
+    assert "enableMultitaskMode" not in patched
+    assert _external_marker_count(patched) == 0
+
+
+def test_v132_direct_injection_migrates_on_apply():
+    # 1.3.2 的 Direct 注入体（A:436-469）与启动器 legacy 注入逐字相同（已核对）：
+    # 无 agentTokenLimit、isGrok45ProductPrompt 不含 4.6 互斥。
+    src = _core_bundle().replace(
+        DIRECT_STREAM_ANCHOR,
+        DIRECT_STREAM_ANCHOR + _legacy_direct_stream_injection(),
+    )
+    patched, stats = apply_patch_to_content(src, profile="stream")
+    assert stats.v132 == 0  # Direct 走 migrated_direct_stream，不算 v132 字面量
+    assert stats.migrated_direct_stream >= 1
+    assert inspect_content_hits(patched)["directStream"] == 1
+    assert "agentTokenLimit" in patched  # 自家新版带 1M；1.3.2 版没有
+
+
+def test_v132_move_exec_bracket_restore():
+    out, stats = remove_patch_from_content("p=(!0/*SAND_MOVE_EXEC_V1*/)")
+    assert out == AGENT_HOST_MOVE_EXEC_ORIGINAL
+    assert stats.v132 == 1
+
+
+def test_v132_markers_not_external_and_not_layer_hits():
+    src = _v132_bundle()
+    hits = inspect_content_hits(src)
+    # moveExec 例外：括号形态复用同串 SAND_MOVE_EXEC_V1
+    assert not any(value for key, value in hits.items() if key != "moveExec")
+    assert hits["moveExec"] == 1
+    assert _external_marker_count(src) == 0
+    v132 = inspect_v132_hits(src)
+    assert v132["subagentTask"] == 1
+    assert v132["glassOverride"] == 1
+    assert v132["moveExecBracket"] == 1
+
+
+def test_v132_strip_leaves_launcher_patches_alone():
+    src = _core_bundle() + _l6_bundle() + _l7_bundle() + _l8_bundle()
+    patched, _ = apply_patch_to_content(src, profile="full", include_subagent=True)
+    out, stats = remove_patch_from_content(patched)
+    assert stats.v132 == 0  # 自家 apply 不会产生任何 1.3.2 形态
+
+
+def test_inspect_status_reports_installer132(tmp_path):
+    chunk = tmp_path / "675.js"
+    chunk.write_text(_v132_bundle(), encoding="utf-8")
+    layout = SandLayout(
+        install_root=tmp_path,
+        app_root=tmp_path,
+        product_json=tmp_path / "product.json",
+        executable=tmp_path / "Cursor.exe",
+        target_paths=(chunk,),
+        ext_host_path=None,
+        version="3.18.9",
+    )
+    st = inspect_status(layout, include_compat=False)
+    assert st.installer132["detected"] is True
+    assert st.installer132["files"] == ("675.js",)
+    assert st.installer132["counts"]["subagentTask"] == 1
+    payload = _status_payload(layout, st, running=False)
+    assert payload["installer132"]["detected"] is True
+    assert payload["externalMarkers"] == 0
+
+
+def test_status_payload_empty_installer132_by_default():
+    layout = SandLayout(
+        install_root=Path("."),
+        app_root=Path("."),
+        product_json=Path("product.json"),
+        executable=Path("Cursor.exe"),
+        target_paths=(),
+        ext_host_path=None,
+        version="3.18.9",
+    )
+    payload = _status_payload(layout, PatchStatus(), running=False)
+    assert payload["installer132"]["detected"] is False
+    assert payload["installer132"]["counts"] == {}
+
+
+def test_remove_clears_launcher_and_v132_mixed_state():
+    """已装启动器完整档 + 1.3.2 叠写过的脏文件：一次 restore 应全清（无任何 SAND 残留）。"""
+    src = _core_bundle() + _l6_bundle() + _l7_bundle() + _l8_bundle()
+    launcher_patched, _ = apply_patch_to_content(src, profile="full", include_subagent=True)
+    mixed = launcher_patched + _v132_bundle()
+    out, stats = remove_patch_from_content(mixed)
+    assert stats.v132 >= 9
+    assert "SAND_" not in out
+    assert "KC_SAND" not in out
+    assert "ROUTE_LABEL" not in out
+    for marker in SAND_V132_MARKERS:
+        assert marker not in out, marker
