@@ -24,4 +24,5 @@ vendor/process-proxy/
 
 # 第三方反编译/探测产物
 _fly_extract/
+_cgw_extract/
 _probe_machine.py
