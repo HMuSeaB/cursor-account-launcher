@@ -26,6 +26,7 @@ from launcher.sand_stream import (
     SAND_ELIGIBILITY_MARKER,
     SAND_HDRFIX_V2_MARKER,
     SAND_MANAGED_ACTION_ROUTE_MARKER,
+    SAND_MANAGED_LOCAL_ROUTE_MARKER,
     SAND_MANAGED_TASK_TOOL_MARKER,
     SAND_MAX_TOKENS_MARKER,
     SAND_MCP_FILESYSTEM_MARKER,
@@ -489,3 +490,54 @@ def test_resolve_patch_track_default_318_when_unknown():
     assert out["track"] == "3.18"
     assert out["source"] == "default"
     assert "版本未知" in out["hint"]
+
+
+def _core_bundle_319() -> str:
+    return (
+        'g.header.set("x-cursor-client-type","ide");'
+        + "function r4g(e){const{adminSettingsService:t"
+        + 'if(!o)return{runtime:"connect",reason:"gate-off"};'
+        + 'const s=g(t),i=A(s,e,r);return void 0!==i?f(i,s):{runtime:"managed-local",reason:"eligible"}'
+        + "let t=!1;try{t=await r.cursor.checkFeatureGate(Ms)}"
+        + "catch(e){console.error('agent_host_local_loop',e)}"
+        + "if(!t)"
+        + AGENT_HOST_IDENTITY_ORIGINAL
+        + "class J{constructor(e,t,n,o){this.x=e}"
+        + "foo.Ycw(bar)"
+        + "function qwe(e){return t=>{return n=this,o=void 0,s=function*(){"
+        + "yield 1;};};"
+        + "this._agentHostEnabled=x,"
+        + "createAgentHost),h=await Promise.resolve(r.cursor.checkFeatureGate(Js)).catch(()=>!1)"
+        + "this._overrideServiceNameToTransportMapLowerPriorityThanMethodOverrides[kt.typeName]=s.agentBidiTransport"
+        + "this._overrideMethodNameToTransportMap[kt.methods.run.name]=s.agentBidiTransport"
+        + 'throw new Error("INVARIANT VIOLATION: Transport is undefined for service: "+kt.typeName);return kt.transport.stream(e,t,n)'
+    )
+
+
+def test_319_stream_injects_early_return_and_prompt_model_info():
+    src = _core_bundle_319()
+    patched, stats = apply_patch_to_content(src, profile="stream")
+    assert SAND_MANAGED_LOCAL_ROUTE_MARKER in patched
+    assert 'if(!o)return{runtime:"connect",reason:"gate-off"}' in patched
+    assert stats.managed_local_route == 1
+    assert SAND_DIRECT_STREAM_MARKER in patched
+    assert "promptModelInfo" in patched
+    assert "useDsv3Harness:!1" in patched
+    assert "isGrok46ProductPrompt" in patched
+    assert "resolvedModelMetadata:nre(" not in patched
+    assert "supportsSelfSummary:!1" in patched
+    restored, _ = remove_patch_from_content(patched)
+    assert SAND_DIRECT_STREAM_MARKER not in restored
+    assert SAND_MANAGED_LOCAL_ROUTE_MARKER not in restored
+    assert 'if(!o)return{runtime:"connect",reason:"gate-off"}' in restored
+
+
+def test_318_direct_migrates_to_319_when_kernel_markers_appear():
+    first, _ = apply_patch_to_content(_core_bundle(), profile="stream")
+    assert "resolvedModelMetadata:nre(" in first
+    mixed = first + "class J{constructor(e,t,n,o)}" + "foo.Ycw("
+    second, stats = apply_patch_to_content(mixed, profile="stream")
+    assert stats.migrated_direct_stream >= 1
+    assert "promptModelInfo" in second
+    assert "resolvedModelMetadata:nre(" not in second
+    assert second.count(SAND_DIRECT_STREAM_MARKER) == 1

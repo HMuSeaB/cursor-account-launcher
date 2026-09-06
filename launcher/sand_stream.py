@@ -211,6 +211,14 @@ MANAGED_LOCAL_ROUTE_RESTORE_RE = re.compile(
     + re.escape(SAND_MANAGED_LOCAL_ROUTE_MARKER)
     + r";"
 )
+MANAGED_LOCAL_ROUTE_319_RE = re.compile(
+    r'if\(!([A-Za-z_$][\w$]*)\)return\{runtime:"connect",reason:"gate-off"\};'
+)
+MANAGED_LOCAL_ROUTE_319_RESTORE_RE = re.compile(
+    r"return"
+    + re.escape(SAND_MANAGED_LOCAL_ROUTE_MARKER)
+    + r'\{runtime:"managed-local",reason:"sand-client"\};'
+)
 LOCAL_RUNTIME_LOAD_RE = re.compile(
     r"(let (\w+)=!1;try\{\2=await \w+\.cursor\.checkFeatureGate\(\w+\)\}"
     r"catch\(\w+\)\{[^{}]*agent_host_local_loop[^{}]*\})"
@@ -221,6 +229,10 @@ LOCAL_RUNTIME_LOAD_RESTORE_RE = re.compile(
 )
 LOCAL_RUNTIME_LOAD_ORIGINAL = "let t=!1;try{t=await r.cursor.checkFeatureGate(Ds)}"
 LOCAL_RUNTIME_LOAD_PATCHED = "let t=!0;" + SAND_LOCAL_RUNTIME_LOAD_MARKER + "try{t=!0}"
+LOCAL_RUNTIME_LOAD_319_ORIGINAL = "let t=!1;try{t=await r.cursor.checkFeatureGate(Ms)}"
+LOCAL_RUNTIME_LOAD_319_PATCHED = (
+    "let t=!0;" + SAND_LOCAL_RUNTIME_LOAD_MARKER + "/*Ms*/try{t=!0}"
+)
 AGENT_HOST_IDENTITY_ORIGINAL = 'clientIdentity:{clientType:"ide"}'
 AGENT_HOST_IDENTITY_PATCHED = (
     'clientIdentity:{clientType:"sand"' + SAND_AGENT_HOST_IDENTITY_MARKER + "}"
@@ -345,6 +357,10 @@ AGENT_HOST_MOVE_EXEC_ORIGINAL = (
     "p=await Promise.resolve(r.cursor.checkFeatureGate(Us)).catch(()=>!1)"
 )
 AGENT_HOST_MOVE_EXEC_PATCHED = "p=!0" + SAND_AGENT_HOST_MOVE_EXEC_MARKER
+AGENT_HOST_MOVE_EXEC_319_ORIGINAL = (
+    "h=await Promise.resolve(r.cursor.checkFeatureGate(Js)).catch(()=>!1)"
+)
+AGENT_HOST_MOVE_EXEC_319_PATCHED = "h=!0" + SAND_AGENT_HOST_MOVE_EXEC_MARKER + "/*Js*/"
 
 MANAGED_SUBAGENT_ROUTE_ORIGINAL = (
     "hasUnsupportedRunOptions:void 0!==e.runOptions.customSystemPrompt||"
@@ -861,6 +877,64 @@ def _direct_stream_injection() -> str:
     return "{" + SAND_DIRECT_STREAM_MARKER + _joe_stream_session_js() + "}"
 
 
+def _direct_stream_injection_319() -> str:
+    return (
+        "{"
+        + SAND_DIRECT_STREAM_MARKER
+        + "const req=t.requestedModel;"
+        'if(void 0===req)throw new Error("Sand direct Stream requires requestedModel");'
+        'const mid=String(req.modelId||""),low=mid.toLowerCase(),'
+        "pmap=new Map((req.parameters||[]).map(e=>[e.id,e.value])),"
+        'ctx=String(pmap.get("context")||"").toLowerCase(),'
+        "sess=new J(e,req,void 0,void 0).getSession(),"
+        "tools={getExecutor:x=>new o.Ycw(sess.getExecutor(x))},"
+        'grok46=low.includes("grok")&&(low.includes("4.6")||low.includes("grok46")),'
+        'meta={vendor:low.includes("grok")?"xai":low.includes("gemini")?"gemini":'
+        'low.includes("claude")||low.includes("opus")||low.includes("sonnet")||low.includes("fable")?'
+        '"anthropic":low.includes("gpt")||low.includes("codex")?"openai":"unknown",'
+        'promptVersion:"latest",reasoningEffort:pmap.get("effort"),'
+        'agentTokenLimit:ctx==="1m"?1e6:ctx==="300k"?3e5:ctx==="200k"?2e5:void 0,'
+        'isGrok45ProductPrompt:low.includes("grok")&&!grok46,'
+        "isGrok46ProductPrompt:grok46,"
+        'isClaude4x:low.includes("claude")||low.includes("opus")||low.includes("sonnet")||low.includes("fable"),'
+        'isFable5:low.includes("fable-5"),'
+        'isOpus5:low.includes("opus-5")||low.includes("opus5"),'
+        'isOpus48:low.includes("opus-4.8")||low.includes("opus48"),'
+        'isOpus46:low.includes("opus-4.6")||low.includes("opus46"),'
+        'isOpus45:low.includes("opus-4.5")||low.includes("opus45"),'
+        'isSonnet45:low.includes("sonnet-4.5")||low.includes("sonnet45"),'
+        'isSonnet4:low.includes("sonnet-4")||low.includes("sonnet4"),'
+        'isGemini3:low.includes("gemini-3")||low.includes("gemini3"),'
+        'isGpt56:low.includes("gpt-5.6")||low.includes("gpt5.6"),'
+        'isGpt55:low.includes("gpt-5.5")||low.includes("gpt5.5"),'
+        'isGpt54:low.includes("gpt-5.4")||low.includes("gpt5.4"),'
+        'isGpt53Codex:low.includes("gpt-5.3-codex"),'
+        'isGpt52Codex:low.includes("gpt-5.2-codex"),'
+        'isCodexFamily:low.includes("codex"),isGpt5Family:low.includes("gpt-5")};'
+        "return{promptSession:sess,promptToolSession:tools,attempt:{resolvedModel:req,"
+        "supportsSelfSummary:!1,routedModelDisplayName:mid,"
+        "resolvedModelMetadata:{promptModelInfo:oe(meta,mid),useDsv3Harness:!1},"
+        "finish:()=>Promise.resolve()}}}"
+    )
+
+
+def _pick_direct_stream_injection(content: str) -> str | None:
+    if _DIRECT_SNIFF_319_CLASS in content and _DIRECT_SNIFF_319_EXEC in content:
+        return _direct_stream_injection_319()
+    if _DIRECT_SNIFF_318_JOE in content or DIRECT_STREAM_ANCHOR_RE.search(content):
+        return _direct_stream_injection()
+    return None
+
+
+def _managed_local_route_319_sub(match: re.Match[str]) -> str:
+    return (
+        "return"
+        + SAND_MANAGED_LOCAL_ROUTE_MARKER
+        + '{runtime:"managed-local",reason:"sand-client"};'
+        + match.group(0)
+    )
+
+
 DIRECT_STREAM_SNIPPET_RE = re.compile(
     re.escape("{")
     + re.escape(SAND_DIRECT_STREAM_MARKER)
@@ -874,6 +948,7 @@ def _strip_direct_stream_injection(content: str) -> tuple[str, int]:
     total = 0
     for exact in (
         _direct_stream_injection(),
+        _direct_stream_injection_319(),
         _conditional_direct_stream_injection(),
         _legacy_direct_stream_injection(),
     ):
@@ -1072,6 +1147,11 @@ def _strip_move_exec(content: str, stats: RemoveStats | None = None) -> str:
     )
     if stats:
         stats.move_exec += n
+    next_content, n = _replace_count(
+        next_content, AGENT_HOST_MOVE_EXEC_319_PATCHED, AGENT_HOST_MOVE_EXEC_319_ORIGINAL
+    )
+    if stats:
+        stats.move_exec += n
     return next_content
 
 
@@ -1235,11 +1315,14 @@ def apply_patch_to_content(
     profile: str = "full",
     include_subagent: bool = True,
     inject_rpc: bool = False,
+    track: str | None = None,
 ) -> tuple[str, PatchStats]:
     stats = PatchStats()
     next_content = content
     want_full = _normalize_profile(profile) == "full"
     want_l6 = want_full and bool(include_subagent)
+    resolved_track = track or sniff_patch_track(content) or "3.18"
+    want_specialized = resolved_track != "other"
 
     if not want_l6:
         next_content = _strip_l6(next_content)
@@ -1340,90 +1423,122 @@ def apply_patch_to_content(
 
     next_content = AGENT_IDE_INJECT_RE.sub(_inject_agent_ide, next_content)
 
-    next_content, route_count = MANAGED_LOCAL_ROUTE_RE.subn(
-        _managed_local_route_sub, next_content
-    )
-    stats.managed_local_route += route_count
-
-    next_content, runtime_load_count = LOCAL_RUNTIME_LOAD_RE.subn(
-        _local_runtime_load_sub, next_content
-    )
-    stats.local_runtime_load += runtime_load_count
-    if (
-        stats.local_runtime_load == 0
-        and SAND_LOCAL_RUNTIME_LOAD_MARKER not in next_content
-        and LOCAL_RUNTIME_LOAD_ORIGINAL in next_content
-    ):
-        next_content, n = _replace_count(
-            next_content, LOCAL_RUNTIME_LOAD_ORIGINAL, LOCAL_RUNTIME_LOAD_PATCHED
+    if want_specialized:
+        next_content, route_count = MANAGED_LOCAL_ROUTE_RE.subn(
+            _managed_local_route_sub, next_content
         )
-        stats.local_runtime_load += n
+        stats.managed_local_route += route_count
+        if SAND_MANAGED_LOCAL_ROUTE_MARKER not in next_content:
+            next_content, n319 = MANAGED_LOCAL_ROUTE_319_RE.subn(
+                _managed_local_route_319_sub, next_content, count=1
+            )
+            stats.managed_local_route += n319
 
-    identity_count = next_content.count(AGENT_HOST_IDENTITY_ORIGINAL)
-    if identity_count:
-        next_content = next_content.replace(
-            AGENT_HOST_IDENTITY_ORIGINAL,
-            AGENT_HOST_IDENTITY_PATCHED,
+        next_content, runtime_load_count = LOCAL_RUNTIME_LOAD_RE.subn(
+            _local_runtime_load_sub, next_content
         )
-        stats.agent_host_identity += identity_count
-
-    if want_full:
-        next_content, move_exec_count = MOVE_EXEC_GATE_RE.subn(
-            _move_exec_gate_sub, next_content
-        )
-        stats.move_exec += move_exec_count
+        stats.local_runtime_load += runtime_load_count
         if (
-            stats.move_exec == 0
-            and SAND_MOVE_EXEC_MARKER not in next_content
-            and SAND_AGENT_HOST_MOVE_EXEC_MARKER not in next_content
+            stats.local_runtime_load == 0
+            and SAND_LOCAL_RUNTIME_LOAD_MARKER not in next_content
+            and LOCAL_RUNTIME_LOAD_ORIGINAL in next_content
         ):
             next_content, n = _replace_count(
-                next_content, AGENT_HOST_MOVE_EXEC_ORIGINAL, AGENT_HOST_MOVE_EXEC_PATCHED
+                next_content, LOCAL_RUNTIME_LOAD_ORIGINAL, LOCAL_RUNTIME_LOAD_PATCHED
             )
-            stats.move_exec += n
-
-    migrated_session = next_content.count(SAND_SESSION_STREAM_MARKER)
-    if migrated_session:
-        next_content = next_content.replace(SAND_SESSION_STREAM_MARKER, "")
-        stats.migrated_session_stream += migrated_session
-
-    direct_injection = _direct_stream_injection()
-    if SAND_DIRECT_STREAM_MARKER in next_content and direct_injection not in next_content:
-        next_content, stripped = _strip_direct_stream_injection(next_content)
-        stats.migrated_direct_stream += stripped
-    if SAND_DIRECT_STREAM_MARKER not in next_content:
-
-        def inject_direct(match: re.Match[str]) -> str:
-            stats.direct_stream += 1
-            return match.group(0) + direct_injection
-
-        next_content, _n = DIRECT_STREAM_ANCHOR_RE.subn(inject_direct, next_content, count=1)
-
-    if SAND_AGENT_HOST_ENABLEMENT_MARKER not in next_content:
-
-        def enable_agent_host(match: re.Match[str]) -> str:
-            variable = match.group(2)
-            return (
-                variable
-                + "=!0;"
-                + SAND_AGENT_HOST_ENABLEMENT_MARKER
-                + match.group(1)
-                + variable
-                + match.group(3)
+            stats.local_runtime_load += n
+        if (
+            stats.local_runtime_load == 0
+            and SAND_LOCAL_RUNTIME_LOAD_MARKER not in next_content
+            and LOCAL_RUNTIME_LOAD_319_ORIGINAL in next_content
+        ):
+            next_content, n = _replace_count(
+                next_content, LOCAL_RUNTIME_LOAD_319_ORIGINAL, LOCAL_RUNTIME_LOAD_319_PATCHED
             )
+            stats.local_runtime_load += n
 
-        next_content, agent_host_count = AGENT_HOST_ENABLEMENT_RE.subn(
-            enable_agent_host,
-            next_content,
-            count=1,
-        )
-        stats.agent_host_enablement += agent_host_count
-    if AGENTEXEC_SKIP_PATCHED in next_content:
-        next_content = next_content.replace(AGENTEXEC_SKIP_PATCHED, AGENTEXEC_SKIP_ORIGINAL)
+        identity_count = next_content.count(AGENT_HOST_IDENTITY_ORIGINAL)
+        if identity_count:
+            next_content = next_content.replace(
+                AGENT_HOST_IDENTITY_ORIGINAL,
+                AGENT_HOST_IDENTITY_PATCHED,
+            )
+            stats.agent_host_identity += identity_count
 
-    if want_l6:
-        next_content = _apply_l6(next_content, stats)
-        next_content = _apply_l78(next_content, stats)
+        if want_full:
+            next_content, move_exec_count = MOVE_EXEC_GATE_RE.subn(
+                _move_exec_gate_sub, next_content
+            )
+            stats.move_exec += move_exec_count
+            if (
+                stats.move_exec == 0
+                and SAND_MOVE_EXEC_MARKER not in next_content
+                and SAND_AGENT_HOST_MOVE_EXEC_MARKER not in next_content
+            ):
+                next_content, n = _replace_count(
+                    next_content, AGENT_HOST_MOVE_EXEC_ORIGINAL, AGENT_HOST_MOVE_EXEC_PATCHED
+                )
+                stats.move_exec += n
+            if (
+                stats.move_exec == 0
+                and SAND_MOVE_EXEC_MARKER not in next_content
+                and SAND_AGENT_HOST_MOVE_EXEC_MARKER not in next_content
+            ):
+                next_content, n = _replace_count(
+                    next_content,
+                    AGENT_HOST_MOVE_EXEC_319_ORIGINAL,
+                    AGENT_HOST_MOVE_EXEC_319_PATCHED,
+                )
+                stats.move_exec += n
+
+        migrated_session = next_content.count(SAND_SESSION_STREAM_MARKER)
+        if migrated_session:
+            next_content = next_content.replace(SAND_SESSION_STREAM_MARKER, "")
+            stats.migrated_session_stream += migrated_session
+
+        direct_injection = _pick_direct_stream_injection(next_content)
+        if direct_injection:
+            if (
+                SAND_DIRECT_STREAM_MARKER in next_content
+                and direct_injection not in next_content
+            ):
+                next_content, stripped = _strip_direct_stream_injection(next_content)
+                stats.migrated_direct_stream += stripped
+            if SAND_DIRECT_STREAM_MARKER not in next_content:
+
+                def inject_direct(match: re.Match[str]) -> str:
+                    stats.direct_stream += 1
+                    return match.group(0) + direct_injection
+
+                next_content, _n = DIRECT_STREAM_ANCHOR_RE.subn(
+                    inject_direct, next_content, count=1
+                )
+
+        if SAND_AGENT_HOST_ENABLEMENT_MARKER not in next_content:
+
+            def enable_agent_host(match: re.Match[str]) -> str:
+                variable = match.group(2)
+                return (
+                    variable
+                    + "=!0;"
+                    + SAND_AGENT_HOST_ENABLEMENT_MARKER
+                    + match.group(1)
+                    + variable
+                    + match.group(3)
+                )
+
+            next_content, agent_host_count = AGENT_HOST_ENABLEMENT_RE.subn(
+                enable_agent_host,
+                next_content,
+                count=1,
+            )
+            stats.agent_host_enablement += agent_host_count
+        if AGENTEXEC_SKIP_PATCHED in next_content:
+            next_content = next_content.replace(AGENTEXEC_SKIP_PATCHED, AGENTEXEC_SKIP_ORIGINAL)
+
+        if want_l6:
+            next_content = _apply_l6(next_content, stats)
+            next_content = _apply_l78(next_content, stats)
 
     for old, new in _TRANSPORT_HOST_SWAPS:
         if new in next_content:
@@ -1517,6 +1632,8 @@ def remove_patch_from_content(content: str) -> tuple[str, RemoveStats]:
     next_content, eligibility_count = eligibility_re.subn("", next_content)
     stats.eligibility += eligibility_count
 
+    next_content, n319 = MANAGED_LOCAL_ROUTE_319_RESTORE_RE.subn("", next_content)
+    stats.managed_local_route += n319
     next_content, route_count = MANAGED_LOCAL_ROUTE_RESTORE_RE.subn(
         "try{return", next_content
     )
@@ -1527,6 +1644,10 @@ def remove_patch_from_content(content: str) -> tuple[str, RemoveStats]:
     stats.local_runtime_load += runtime_load_count
     next_content, n = _replace_count(
         next_content, LOCAL_RUNTIME_LOAD_PATCHED, LOCAL_RUNTIME_LOAD_ORIGINAL
+    )
+    stats.local_runtime_load += n
+    next_content, n = _replace_count(
+        next_content, LOCAL_RUNTIME_LOAD_319_PATCHED, LOCAL_RUNTIME_LOAD_319_ORIGINAL
     )
     stats.local_runtime_load += n
 

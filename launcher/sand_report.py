@@ -21,9 +21,11 @@ from launcher.sand_stream import (
     DIRECT_STREAM_ANCHOR_RE,
     ELIGIBILITY_PREFIXES,
     HEADER_SET_SIMPLE_RE,
+    LOCAL_RUNTIME_LOAD_319_ORIGINAL,
     LOCAL_RUNTIME_LOAD_ORIGINAL,
     LOCAL_RUNTIME_LOAD_RE,
     MANAGED_ACTION_ROUTE_ORIGINAL,
+    MANAGED_LOCAL_ROUTE_319_RE,
     MANAGED_LOCAL_ROUTE_RE,
     MANAGED_SUBAGENT_ROUTE_ORIGINAL,
     MANAGED_SUBAGENT_SESSION_RE,
@@ -125,7 +127,11 @@ RELATED_NEEDLES: dict[str, tuple[str, ...]] = {
     "localRuntimeLoad": ("agent_host_local_loop",),
     "agentHostIdentity": ('clientIdentity:{clientType:"ide"}', 'clientType:"ide"'),
     "agentHostEnablement": ("_agentHostEnabled=",),
-    "directStream": ("return t=>{return n=this,o=void 0,s=function*(){",),
+    "directStream": (
+        "return t=>{return n=this,o=void 0,s=function*(){",
+        "class J{constructor",
+        "promptModelInfo",
+    ),
     "transportHost": ("agentBidiTransport",),
     "streamWrap": ("INVARIANT VIOLATION: Transport is undefined for service:",),
     "moveExec": ("createAgentHost),",),
@@ -310,7 +316,11 @@ RULES: tuple[RuleSpec, ...] = (
         (SAND_MANAGED_LOCAL_ROUTE_MARKER,),
         _unmarked(
             SAND_MANAGED_LOCAL_ROUTE_MARKER,
-            _has('reason:"gate-off"', lambda c: MANAGED_LOCAL_ROUTE_RE.search(c) is not None),
+            _has(
+                'reason:"gate-off"',
+                lambda c: MANAGED_LOCAL_ROUTE_RE.search(c) is not None
+                or MANAGED_LOCAL_ROUTE_319_RE.search(c) is not None,
+            ),
         ),
     ),
     RuleSpec(
@@ -322,6 +332,7 @@ RULES: tuple[RuleSpec, ...] = (
         _unmarked(
             SAND_LOCAL_RUNTIME_LOAD_MARKER,
             lambda c: LOCAL_RUNTIME_LOAD_ORIGINAL in c
+            or LOCAL_RUNTIME_LOAD_319_ORIGINAL in c
             or LOCAL_RUNTIME_LOAD_RE.search(c) is not None,
         ),
     ),
