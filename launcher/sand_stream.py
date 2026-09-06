@@ -2221,6 +2221,7 @@ def _build_install_plan(
     pending: dict[Path, bytes] = {}
     originals: dict[Path, bytes] = {}
     total = PatchStats()
+    default_track = str(resolve_patch_track(layout.version).get("track") or "3.18")
     for target in layout.target_paths:
         original = target.read_bytes()
         if not _bytes_may_need_sand_patch(original):
@@ -2232,6 +2233,7 @@ def _build_install_plan(
             profile=profile,
             include_subagent=include_subagent,
             inject_rpc=_is_rpc_target(target, layout.app_root),
+            track=default_track,
         )
         if target.name == "workbench.desktop.main.js" and LAUNCHER_SAND_MARKER not in next_content:
             next_content = LAUNCHER_SAND_MARKER + next_content
@@ -2292,6 +2294,7 @@ def _status_payload(
     compat = adjust_compat_scope(
         patch.compat or {}, profile=profile, include_subagent=include_subagent
     )
+    resolved = resolve_patch_track(layout.version)
     return {
         "ok": True,
         "installed": patch.installed,
@@ -2304,7 +2307,12 @@ def _status_payload(
         "missingLabels": ready["missingLabels"],
         "running": running,
         "version": layout.version,
-        "versionHint": _version_hint(layout.version),
+        "versionHint": resolved.get("hint") or "",
+        "patchTrack": resolved["track"],
+        "trackSource": resolved["source"],
+        "testedBuild": resolved["tested"],
+        "supportedTracks": resolved["supportedTracks"],
+        "versionOk": resolved["versionOk"],
         "appRoot": str(layout.app_root),
         "files": list(patch.patched_files),
         "hits": hits,

@@ -1,6 +1,7 @@
 """sand_stream: 补丁逻辑单元测试（不碰真实 Cursor 安装）。"""
 
 import re
+from pathlib import Path
 
 from launcher.sand_stream import (
     AGENT_HOST_IDENTITY_ORIGINAL,
@@ -53,8 +54,11 @@ from launcher.sand_stream import (
     remove_patch_from_content,
     resolve_patch_track,
     SandLayout,
+    PatchStatus,
     _build_install_plan,
     _bytes_may_have_sand_patch,
+    _status_payload,
+    inspect_status,
 )
 
 
@@ -658,3 +662,61 @@ def test_route_label_only_when_present_and_not_bound_to_stream_ready():
     assert "本次使用" not in restored
     assert _bytes_may_have_sand_patch(patched.encode("utf-8")) is True
     assert _bytes_may_have_sand_patch('/*ROUTE_LABEL_V1*/["本次使用 "'.encode("utf-8")) is True
+
+
+def test_status_payload_exposes_patch_track():
+    layout = SandLayout(
+        install_root=Path("."),
+        app_root=Path("."),
+        product_json=Path("product.json"),
+        executable=Path("Cursor.exe"),
+        target_paths=(),
+        ext_host_path=None,
+        version="3.19.13",
+    )
+    payload = _status_payload(layout, PatchStatus(), running=False)
+    assert payload["patchTrack"] == "3.19"
+    assert payload["trackSource"] == "version"
+    assert payload["testedBuild"] is True
+    assert payload["versionOk"] is True
+    assert "3.18" in payload["supportedTracks"]
+    assert "3.19" in payload["supportedTracks"]
+
+
+def test_install_plan_other_track_skips_specialized(tmp_path):
+    chunk = tmp_path / "main.js"
+    chunk.write_text(_core_bundle(), encoding="utf-8")
+    layout = SandLayout(
+        install_root=tmp_path,
+        app_root=tmp_path,
+        product_json=tmp_path / "product.json",
+        executable=tmp_path / "Cursor.exe",
+        target_paths=(chunk,),
+        ext_host_path=None,
+        version="3.12.30",
+    )
+    pending, _stats, _originals = _build_install_plan(
+        layout, profile="stream", include_subagent=False
+    )
+    text = pending[chunk].decode("utf-8")
+    assert SAND_HDRFIX_V2_MARKER in text
+    assert SAND_MANAGED_LOCAL_ROUTE_MARKER not in text
+    assert SAND_DIRECT_STREAM_MARKER not in text
+
+
+def test_319_direct_markers_are_not_external(tmp_path):
+    patched, _ = apply_patch_to_content(_core_bundle_319(), profile="stream")
+    target = tmp_path / "main.js"
+    target.write_text(patched, encoding="utf-8")
+    layout = SandLayout(
+        install_root=tmp_path,
+        app_root=tmp_path,
+        product_json=tmp_path / "product.json",
+        executable=tmp_path / "Cursor.exe",
+        target_paths=(target,),
+        ext_host_path=None,
+        version="3.19.13",
+    )
+    status = inspect_status(layout, include_compat=False)
+    assert status.hits["directStream"] >= 1
+    assert status.external_marker_count == 0
