@@ -77,8 +77,6 @@
         <span class="compact-pct" id="compactPct"></span>
       </div>
       <div class="progress-bar"><div class="progress-fill teal" id="compactFill" style="width:0%"></div></div>
-      <ol class="job-steps" id="compactSteps" hidden></ol>
-      <ol class="job-steps" id="compactSteps" hidden></ol>
     </div>
 
     <div class="health-banner" id="healthBanner" hidden>
@@ -167,7 +165,7 @@
           <div class="sand-head">
             <div>
               <h3 class="settings-title">Grok Bot</h3>
-              <p class="hint settings-hint">Bot 对话走 Direct Stream。按本机 Cursor 版本选 3.18 或 3.19 补丁轨。500k 窗口和 MAX 开关是另两道补丁，不在这一栏；还原 Bot 会尽量留着它们。写入时每打完一个文件会列出来。</p>
+              <p class="hint settings-hint">Bot 对话走 Direct Stream。按本机 Cursor 版本选 3.18 或 3.19 补丁轨。500k 窗口和 MAX 开关是另两道补丁，不在这一栏；还原 Bot 会尽量留着它们。</p>
             </div>
             <span class="sand-state" id="sandStreamState" data-state="off">检测中</span>
           </div>
@@ -180,8 +178,10 @@
             <button type="button" class="btn ghost" id="btnSandStreamRestore" data-needs-closed>还原</button>
             <button type="button" class="btn ghost" id="btnSandStreamRefresh">刷新</button>
           </div>
-          <details class="adv-fold">
+          <details class="adv-fold" id="sandDetailFold">
             <summary>版本与补丁明细</summary>
+            <p class="sand-subhead" id="sandJobHead" hidden>本次写入</p>
+            <ol class="sand-job-log" id="sandJobSteps" hidden></ol>
             <p class="hint settings-hint" id="sandCompatHint"></p>
             <p class="hint settings-hint" id="sandUpgradeAdvice"></p>
             <p class="hint settings-hint">出站：HDRFIX / RPC / 指纹。回包：完整解锁的会员 fetch（不是 500k）。两套钩子不要叠打。聊天里仍显示 256k，多半是 Sub2API 窄模型墙，启动器改不了那一层；YC 原生才走 500k 回包。</p>

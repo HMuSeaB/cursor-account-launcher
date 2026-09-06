@@ -1322,7 +1322,8 @@ async function refreshSandStream() {
   }
 }
 
-function waitPatchJob() {
+function waitPatchJob(paint) {
+  const show = typeof paint === "function" ? paint : () => {};
   return new Promise((resolve) => {
     let settled = false;
     const finish = (p) => {
@@ -1330,21 +1331,20 @@ function waitPatchJob() {
       settled = true;
       clearInterval(waitPatchJob._t);
       window.removeEventListener("patch-job-progress", onEvent);
-      showCompactBanner(p);
-      hideCompactBannerLater();
+      show(p);
       const res = p.result || { ok: p.phase !== "error", error: p.message, message: p.message };
       resolve(res);
     };
     const onEvent = (ev) => {
       const p = ev.detail || {};
-      showCompactBanner(p);
+      show(p);
       if (!p.busy) finish(p);
     };
     window.addEventListener("patch-job-progress", onEvent);
     waitPatchJob._t = setInterval(async () => {
       try {
         const p = await api().patch_job_progress();
-        showCompactBanner(p);
+        show(p);
         if (!p.busy) finish(p);
       } catch {
         finish({ busy: false, phase: "error", message: "进度读取失败", result: { ok: false, error: "进度读取失败" } });
@@ -1353,32 +1353,54 @@ function waitPatchJob() {
   });
 }
 
-async function runPatchJob(startName, args, fallbackFn, startMessage) {
-  showCompactBanner({ pct: 3, phase: "start", message: startMessage || "开始处理…", busy: true });
+async function runPatchJob(startName, args, fallbackFn, startMessage, paint) {
+  const show = typeof paint === "function" ? paint : () => {};
+  show({ pct: 3, phase: "start", message: startMessage || "开始处理…", busy: true, steps: [] });
   const bridge = api();
   if (bridge?.[startName]) {
     const started = await bridge[startName](...args);
     if (!started?.ok) {
-      showCompactBanner({ pct: 0, phase: "error", message: started?.error || "无法开始" });
-      hideCompactBannerLater();
+      show({ pct: 0, phase: "error", message: started?.error || "无法开始", steps: [] });
       return started || { ok: false, error: "无法开始" };
     }
-    return waitPatchJob();
+    return waitPatchJob(show);
   }
   try {
     const res = await fallbackFn();
-    showCompactBanner({
+    show({
       pct: 100,
       phase: res?.ok ? "done" : "error",
       message: res?.message || res?.error || (res?.ok ? "完成" : "失败"),
     });
-    hideCompactBannerLater();
     return res;
   } catch (e) {
-    showCompactBanner({ pct: 0, phase: "error", message: String(e) });
-    hideCompactBannerLater();
+    show({ pct: 0, phase: "error", message: String(e) });
     return { ok: false, error: String(e) };
   }
+}
+
+function revealSandJobLog() {
+  const fold = $("sandDetailFold");
+  if (fold) fold.open = true;
+}
+
+function paintSandJobProgress(p) {
+  revealSandJobLog();
+  const copy = $("sandStreamCopy");
+  if (copy && p.message) copy.textContent = p.message;
+  const stateEl = $("sandStreamState");
+  if (stateEl && p.busy) {
+    stateEl.textContent = "处理中";
+    stateEl.dataset.state = "busy";
+  }
+  const head = $("sandJobHead");
+  const restoring = String(p.job || "").includes("restore") || String(p.message || "").includes("还原");
+  const steps = Array.isArray(p.steps) ? p.steps : [];
+  if (head) {
+    head.textContent = restoring ? "本次还原" : "本次写入";
+    head.hidden = !(p.busy || steps.length);
+  }
+  paintJobSteps($("sandJobSteps"), steps);
 }
 
 function _paintSandBusy(text) {
@@ -1389,7 +1411,6 @@ function _paintSandBusy(text) {
     stateEl.dataset.state = "busy";
   }
   if (copy) copy.textContent = text;
-  showCompactBanner({ pct: 4, phase: "start", message: text, busy: true });
 }
 
 async function runSandStream(kind, profile) {
@@ -1411,7 +1432,7 @@ async function runSandStream(kind, profile) {
     const extra = profile === "stream"
       ? "只改 Bot 对话通路，不装工具和子代理。不管 500k / MAX。"
       : (_sandIncludeSubagent() ? "打上对话通路、工具和子代理。不管 500k / MAX。" : "打上对话通路和工具，不含子代理。不管 500k / MAX。");
-    const ok = window.confirm(`${extra}\n改的是 Cursor 安装目录里的文件，每打完一个会列出来。确定？`);
+    const ok = window.confirm(`${extra}\n改的是 Cursor 安装目录里的文件，明细里会一条条列出。确定？`);
     if (!ok) {
       refreshSandStream();
       return;
@@ -1422,12 +1443,13 @@ async function runSandStream(kind, profile) {
   toast(startMessage);
   const includeSubagent = _sandIncludeSubagent();
   const res = kind === "restore"
-    ? await runPatchJob("sand_stream_restore_start", [], () => api().sand_stream_restore(), startMessage)
+    ? await runPatchJob("sand_stream_restore_start", [], () => api().sand_stream_restore(), startMessage, paintSandJobProgress)
     : await runPatchJob(
       "sand_stream_apply_start",
       [profile === "stream" ? "stream" : "full", includeSubagent],
       () => api().sand_stream_apply(profile === "stream" ? "stream" : "full", includeSubagent),
       startMessage,
+      paintSandJobProgress,
     );
   paintSandStream(res);
   if (!res.ok) return toast(res.error || "失败");
@@ -1785,7 +1807,9 @@ async function runCtxwin(kind) {
   const startMessage = kind === "restore" ? "正在还原 500k…" : "正在启用 500k…";
   const info = $("ctxwinInfo");
   if (info) info.textContent = startMessage;
-  const res = await runPatchJob(startName, [], () => api()[fn](), startMessage);
+  const res = await runPatchJob(startName, [], () => api()[fn](), startMessage, (p) => {
+    if (info && p.message) info.textContent = p.message;
+  });
   paintCtxwin(res);
   if (!res.ok) return toast(res.error || "失败");
   if (res.skipped) return toast(res.message || "无需还原");
@@ -1957,12 +1981,17 @@ async function runModelUnlock(kind) {
   const startMessage = kind === "restore" ? "正在还原 MAX…" : (kind === "applyMax" ? "正在解锁 MAX…" : "正在完整解锁…");
   if (info) info.textContent = startMessage;
   const res = kind === "applyMax"
-    ? await runPatchJob("model_unlock_apply_start", [null, true], () => api().model_unlock_apply(null, true), startMessage)
+    ? await runPatchJob("model_unlock_apply_start", [null, true], () => api().model_unlock_apply(null, true), startMessage, (p) => {
+      if (info && p.message) info.textContent = p.message;
+    })
     : await runPatchJob(
       kind === "restore" ? "model_unlock_restore_start" : "model_unlock_apply_start",
       kind === "restore" ? [] : [select?.value, false],
       () => api()[fn](kind === "apply" ? select?.value : undefined),
       startMessage,
+      (p) => {
+        if (info && p.message) info.textContent = p.message;
+      },
     );
   paintModelUnlock(res);
   if (!res.ok) return toast(res.error || "失败");
@@ -2114,8 +2143,7 @@ async function compactState() {
   watchCompactProgress();
 }
 
-function paintJobSteps(steps) {
-  const list = $("compactSteps");
+function paintJobSteps(list, steps) {
   if (!list) return;
   if (!Array.isArray(steps) || !steps.length) {
     list.innerHTML = "";
@@ -2138,19 +2166,19 @@ function paintJobSteps(steps) {
     if (!li) {
       li = document.createElement("li");
       li.dataset.stepId = id;
-      li.className = "job-step job-step-enter";
-      li.innerHTML = '<span class="job-step-mark" aria-hidden="true"></span><span class="job-step-label"></span><span class="job-step-detail"></span>';
+      li.className = "sand-job-item sand-job-enter";
+      li.innerHTML = '<span class="sand-pkg-name"></span><span class="sand-pkg-keys"></span>';
       list.appendChild(li);
     }
     const status = step.status || "run";
     li.classList.remove("is-run", "is-done", "is-fail", "is-skip");
     li.classList.add(`is-${status}`);
-    const labelEl = li.querySelector(".job-step-label");
-    const detailEl = li.querySelector(".job-step-detail");
+    const labelEl = li.querySelector(".sand-pkg-name");
+    const detailEl = li.querySelector(".sand-pkg-keys");
     if (labelEl) labelEl.textContent = step.label || id;
     if (detailEl) {
       detailEl.textContent = step.detail || "";
-      detailEl.hidden = !step.detail;
+      detailEl.hidden = !detailEl.textContent;
     }
   }
   for (const child of [...list.children]) {
@@ -2169,9 +2197,7 @@ function showCompactBanner(p) {
   if ($("compactPct")) $("compactPct").textContent = p.phase === "blocked" || p.phase === "error" ? "" : `${pct}%`;
   bar.classList.toggle("is-done", p.phase === "done");
   bar.classList.toggle("is-error", p.phase === "error" || p.phase === "blocked");
-  const hasSteps = Array.isArray(p.steps) && p.steps.length > 0;
-  bar.classList.toggle("is-busy", Boolean(p.busy) && pct < 15 && !hasSteps && p.phase !== "done" && p.phase !== "error");
-  paintJobSteps(p.steps);
+  bar.classList.toggle("is-busy", Boolean(p.busy) && pct < 15 && p.phase !== "done" && p.phase !== "error");
 }
 
 function hideCompactBannerLater() {
@@ -2179,7 +2205,6 @@ function hideCompactBannerLater() {
   hideCompactBannerLater._t = setTimeout(() => {
     const bar = $("compactBanner");
     if (bar) bar.hidden = true;
-    paintJobSteps([]);
   }, 8000);
 }
 
