@@ -1048,6 +1048,10 @@ html[data-theme="dark"] .sand-layer.is-partial {
   justify-content: space-between;
   align-items: baseline;
   gap: 12px;
+  font-size: 13px;
+}
+#sandDetailFold > .settings-hint {
+  font-size: 12px;
 }
 .sand-fold-meta {
   font-weight: 500;
@@ -1070,17 +1074,31 @@ html[data-theme="dark"] .sand-layer.is-partial {
   justify-content: space-between;
   align-items: baseline;
   gap: 12px;
-  padding: 8px 0;
-  font-size: 12px;
+  padding: 10px 0;
+  font-size: 13px;
   font-weight: 650;
   color: var(--text);
 }
 .sand-cat > summary::-webkit-details-marker { display: none; }
-.sand-cat[open] > summary { padding-bottom: 6px; }
+.sand-cat[open] > summary { padding-bottom: 8px; }
 .sand-cat .sand-layers,
 .sand-cat .sand-pkgs,
 .sand-rule-groups {
-  padding-bottom: 8px;
+  padding-bottom: 10px;
+}
+.sand-rules-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px 14px;
+  flex-wrap: wrap;
+  padding: 2px 0 10px;
+}
+.sand-rules-legend {
+  margin: 0;
+  flex: 1 1 16em;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
 }
 .sand-cat-layer {
   border-top: 1px solid var(--border);
@@ -1097,27 +1115,39 @@ html[data-theme="dark"] .sand-layer.is-partial {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 4px;
-  font-size: 12px;
+  gap: 8px;
+  font-size: 13px;
 }
 .sand-pkg {
   display: grid;
-  grid-template-columns: 3.2rem minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 4px;
   align-items: start;
-  padding: 4px 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.sand-pkg > .pill,
+.sand-rule > .pill {
+  justify-self: start;
+  align-self: start;
+  width: max-content;
+  max-width: max-content;
+  white-space: nowrap;
 }
 .sand-pkg-name {
   font-family: var(--mono);
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 12px;
+  overflow-wrap: anywhere;
   color: var(--text);
 }
 .sand-pkg-keys {
   display: block;
-  font-size: 11px;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.45;
   color: var(--muted);
 }
 .sand-layer {
@@ -1130,28 +1160,54 @@ html[data-theme="dark"] .sand-layer.is-partial {
 .sand-layer.is-partial { color: #b45309; }
 .sand-rule {
   display: grid;
-  grid-template-columns: 7.2rem minmax(0, 1fr);
-  gap: 8px 10px;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 4px;
   align-items: start;
-  padding: 7px 0;
-  border-top: 1px solid var(--border);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg);
 }
-.sand-rule:first-child { border-top: 0; }
+.sand-rule-body {
+  min-width: 0;
+}
 .sand-rule-title {
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.4;
 }
-.sand-rule-files,
-.sand-rule-fix {
-  margin-top: 2px;
-  font-size: 11px;
+.sand-rule-opt {
+  font-weight: 500;
   color: var(--muted);
 }
+.sand-rule-why,
+.sand-rule-fix {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.sand-rule-why { color: var(--muted); }
 .sand-rule-files {
+  margin-top: 4px;
   font-family: var(--mono);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.sand-rule-fix {
+  color: #b45309;
+}
+.sand-rule-actions {
+  margin-top: 8px;
+}
+.sand-rule-actions .btn {
+  margin-top: 0;
+}
+html[data-theme="dark"] .sand-rule-fix {
+  color: #fbbf24;
 }
 
 .crash-box {

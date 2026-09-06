@@ -861,14 +861,14 @@ function paintWbIncidents(res) {
     });
   }
   const classic = res.classic || {};
-  if (classic.ok && classic.usingClassic !== true) {
+  if (classic.ok && classic.lost) {
     items.push({
       kind: "classic",
-      tone: classic.lost ? "lost" : "tip",
-      title: classic.title || "旧版风格",
+      tone: "lost",
+      title: classic.title || "旧版风格被覆盖了",
       why: classic.why || "",
       action: classic.action || "",
-      badge: classic.lost ? "进程没带 --classic" : (classic.running ? "无法判定" : "请用启动器开"),
+      badge: "进程没带 --classic",
       restore: false,
     });
   }
@@ -1179,9 +1179,14 @@ function _sandResetLazy(res) {
 
 function _sandRuleItemHtml(row) {
   const [cls, label] = _sandRulePill(row);
-  const files = (row.files || []).join("  ");
+  const files = (row.files || []).filter(Boolean);
+  const why = [row.why, row.extra].filter(Boolean).join(" ");
   const fix = row.fix && !(row.optional && row.status === "missing") ? row.fix : "";
-  return `<li class="sand-rule"><span class="pill ${esc(cls)}">${esc(label)}</span><div><div class="sand-rule-title">${esc(row.title || "")}${row.optional ? " · 当前档不强制" : ""}</div><div class="hint">${esc(row.why || "")}</div>${files ? `<div class="sand-rule-files" title="${esc(files)}">${esc(files)}</div>` : ""}${fix ? `<div class="sand-rule-fix">${esc(fix)}</div>` : ""}</div></li>`;
+  const needUnlock = row.key === "membershipFetch" && (row.status === "pending" || row.status === "partial");
+  const action = needUnlock
+    ? `<div class="sand-rule-actions"><button type="button" class="btn ghost sm" data-sand-go="unlock">去完整解锁</button></div>`
+    : "";
+  return `<li class="sand-rule"><span class="pill ${esc(cls)}">${esc(label)}</span><div class="sand-rule-body"><div class="sand-rule-title">${esc(row.title || "")}${row.optional ? '<span class="sand-rule-opt"> · 当前档不强制</span>' : ""}</div>${why ? `<p class="sand-rule-why">${esc(why)}</p>` : ""}${files.length ? `<div class="sand-rule-files">${esc(files.join("  "))}</div>` : ""}${fix ? `<p class="sand-rule-fix">${esc(fix)}</p>` : ""}${action}</div></li>`;
 }
 
 function _sandPaintHeaderCat() {
@@ -1196,16 +1201,23 @@ function _sandPaintHeaderCat() {
   }
   const compat = res.compat || {};
   const rows = (compat.headerLayers && compat.headerLayers.rows) || [];
+  const byKey = {};
+  for (const row of compat.rules || []) byKey[row.key] = row;
+  const older = compat.headerLayers && compat.headerLayers.relation === "older";
   headerEl.innerHTML = rows.map((row) => {
-    const fake = {
-      optional: row.key === "membershipFetch",
+    const full = byKey[row.key] || {};
+    return _sandRuleItemHtml({
+      key: row.key,
+      title: row.title,
+      why: full.why || "",
+      extra: older ? (row.onOlder || "") : "",
+      files: full.files,
+      fix: full.fix,
+      optional: row.key === "membershipFetch" || full.optional,
       status: row.status,
       statusLabel: row.statusLabel,
-      missKind: "",
-    };
-    const [cls, label] = _sandRulePill(fake);
-    const extra = compat.headerLayers && compat.headerLayers.relation === "older" ? row.onOlder : "";
-    return `<li class="sand-rule"><span class="pill ${esc(cls)}">${esc(label)}</span><div><div class="sand-rule-title">${esc(row.title || "")}</div>${extra ? `<div class="hint">${esc(extra)}</div>` : ""}</div></li>`;
+      missKind: full.missKind || "",
+    });
   }).join("");
 }
 
@@ -1284,7 +1296,14 @@ function _sandPaintRulesCat() {
   const known = SAND_LAYER_SPEC.map(([id]) => id);
   const extra = [...byLayer.keys()].filter((id) => !known.includes(id));
   const order = known.concat(extra);
-  wrap.innerHTML = order.map((id) => {
+  const summary = (res.compat || {}).summary || {};
+  const need = Number(summary.required || 0);
+  const done = Number(summary.applied || 0);
+  const verdict = need && done >= need
+    ? `${done}/${need} 条当前档已生效`
+    : (need ? `${done}/${need} 条已生效，还没打全` : `${rules.length} 条规则`);
+  const pillCls = need && done >= need ? "ok" : (done ? "warn" : "");
+  wrap.innerHTML = `<div class="sand-rules-head"><span class="pill ${esc(pillCls)}">${esc(verdict)}</span><p class="sand-rules-legend">已生效 = 标记已写入。可打未打 = 找到锚点还没改。锚点缺失 = 这版 Cursor 没有这段代码。</p></div>` + order.map((id) => {
     const rows = byLayer.get(id);
     if (!rows || !rows.length) return "";
     const spec = SAND_LAYER_SPEC.find((item) => item[0] === id);
@@ -1781,14 +1800,12 @@ function paintHealthBanner(res) {
   const steps = (af.steps || []).filter((s) => !s.manual && !s.inspectOnly);
   const upgrade = res.cursorUpgrade || {};
   const wall = res.wall || {};
-  const classic = res.classic || {};
   const active = wall.active || (wall.present === false ? "none" : (wall.present ? "yc" : "none"));
   const conflict = active === "both";
   const wallDown = active === "none";
-  const styleLost = !!classic.lost;
   let state = "ok";
   if (res.modelUnlock?.corrupted) state = "critical";
-  else if (conflict || wallDown || styleLost || !af.ready || upgrade.needsRepatch) state = "warn";
+  else if (conflict || wallDown || !af.ready || upgrade.needsRepatch) state = "warn";
   banner.dataset.state = state;
 
   if (wallStatus) {
@@ -1811,8 +1828,6 @@ function paintHealthBanner(res) {
       title.textContent = wall.title || "两套网关补丁叠在一起";
     } else if (wallDown) {
       title.textContent = wall.title || "两套网关都没接管 workbench";
-    } else if (styleLost) {
-      title.textContent = classic.title || "旧版风格被覆盖了";
     } else if (af.ready && !upgrade.needsRepatch) {
       const kind = active === "sub2api" ? "Sub2API 窄墙" : "YC 原生";
       title.textContent = `${kind} · Cursor v${res.version || "?"} · 启动器 v${res.launcherVersion || "?"}`;
@@ -1830,10 +1845,8 @@ function paintHealthBanner(res) {
     if (conflict || wallDown) {
       const why = wall.why || "YC 原生和 Sub2API 窄墙同一时间只应打一套。不要重装客户端。";
       hint.textContent = steps.length > 0 ? `${why} ${noWallWrite}` : why;
-    } else if (styleLost) {
-      hint.textContent = classic.why || "官方图标 / 更新器重启不会带 --classic。";
     } else if (af.ready && !upgrade.needsRepatch) {
-      hint.textContent = `${res.profile || (active === "sub2api" ? "Sub2API" : "YC 原生")} · 旧版风格只有启动器会带 --classic，官方图标会冲掉`;
+      hint.textContent = res.profile || (active === "sub2api" ? "Sub2API 窄墙" : "YC 原生");
     } else {
       const labels = steps.map((s) => s.label).join(" → ");
       hint.textContent = (labels || "有事项待处理") + (res.cursorRunning ? "（需先关 IDE）" : "");
@@ -2867,6 +2880,21 @@ if ($("sandIncludeSubagent")) $("sandIncludeSubagent").onchange = () => refreshS
 $("sandCatHeader")?.addEventListener("toggle", () => _sandPaintHeaderCat());
 $("sandCatPkgs")?.addEventListener("toggle", () => _sandPaintPkgsCat());
 $("sandCatRules")?.addEventListener("toggle", () => _sandPaintRulesCat());
+document.addEventListener("click", (ev) => {
+  const go = ev.target.closest("[data-sand-go='unlock']");
+  if (!go) return;
+  const settings = $("settingsFold");
+  const emergency = $("emergencyFold");
+  const full = $("fullUnlockFold");
+  if (settings) settings.open = true;
+  if (emergency) emergency.open = true;
+  if (full) full.open = true;
+  const btn = $("btnModelUnlockApply");
+  requestAnimationFrame(() => {
+    btn?.scrollIntoView({ block: "center" });
+    btn?.focus();
+  });
+});
 if ($("btnWbDiagRefresh")) $("btnWbDiagRefresh").onclick = () => refreshWbDiag({ extras: true });
 if ($("btnHealthRefresh")) $("btnHealthRefresh").onclick = () => refreshWbDiag({ extras: true });
 if ($("btnAutofix")) $("btnAutofix").onclick = () => runAutofix();
