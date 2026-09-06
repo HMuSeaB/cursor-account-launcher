@@ -1404,6 +1404,13 @@ function paintSandStream(res) {
         : "",
       compat.versionHint || "",
     ].filter(Boolean);
+    const v132 = res.installer132;
+    if (v132 && v132.detected) {
+      const total = Object.values(v132.counts || {}).reduce((a, b) => a + (b || 0), 0);
+      bits.push(
+        `检测到 Sand-Stream-Installer 1.3.2 残留 ${total} 处：启用/还原会自动迁回，已装启动器就不要再跑该工具`
+      );
+    }
     hintEl.textContent = bits.join(" · ");
     hintEl.hidden = !hintEl.textContent;
   }
