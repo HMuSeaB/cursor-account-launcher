@@ -293,8 +293,10 @@ class Api(PatchesApiMixin):
         email = acct.get("email")
         if account_id and email and "@" in email:
             self._store.set_label(account_id, email)
-        if account_id and acct.get("refreshToken"):
-            self._store.set_refresh_token(account_id, acct["refreshToken"])
+        access = acct.get("accessToken") or ""
+        refresh = acct.get("refreshToken") or ""
+        if account_id and refresh and refresh != access:
+            self._store.set_refresh_token(account_id, refresh)
         # 探测时绑定当前机器码，后续切回该号可复用，避免多出 Desktop
         if account_id:
             fp = acct.get("fingerprint") or read_fingerprint()
@@ -338,8 +340,10 @@ class Api(PatchesApiMixin):
         updated = self._store.update_token(account_id, ws)
         if not updated:
             return {"ok": False, "error": "更新 token 失败"}
-        if local.get("refreshToken"):
-            self._store.set_refresh_token(account_id, local["refreshToken"])
+        refresh = local.get("refreshToken") or ""
+        access = local.get("accessToken") or ""
+        if refresh and refresh != access:
+            self._store.set_refresh_token(account_id, refresh)
         fp = local.get("fingerprint") or read_fingerprint()
         if fp.get("machineId") or fp.get("serviceMachineId"):
             if not self._store.get_device_ids(account_id):
@@ -644,7 +648,7 @@ class Api(PatchesApiMixin):
                             write_fingerprint(fp)
                         self._store.set_device_ids(account_id, fp)
 
-                write_local_account(
+                written = write_local_account(
                     item["token"],
                     email,
                     refresh_token=refresh,
@@ -672,6 +676,8 @@ class Api(PatchesApiMixin):
                 "machineMode": mode if account_id else "none",
                 "route": routed,
                 "processProxy": hooked,
+                "hasRefreshToken": bool(written.get("hasRefreshToken")) if account_id else None,
+                "wroteRefresh": bool(written.get("wroteRefresh")) if account_id else None,
             }
         except Exception as exc:
             return {"ok": False, "error": str(exc)}

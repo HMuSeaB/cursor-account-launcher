@@ -24,6 +24,15 @@ def test_last_switched_sorts_after_local():
     assert [r["id"] for r in out] == ["user_a", "user_c", "user_b"]
 
 
+def test_stale_cached_email_does_not_outrank_jwt_user():
+    rows = [
+        {"id": "user_pro", "email": "pro@x.com"},
+        {"id": "user_free", "email": "free@x.com"},
+    ]
+    out = sort_account_rows(rows, local_user_id="user_free", local_email="pro@x.com")
+    assert [r["id"] for r in out] == ["user_free", "user_pro"]
+
+
 def test_email_match_when_id_missing():
     rows = [{"id": "other", "email": "me@x.com"}, {"id": "x", "email": "z@x.com"}]
     out = sort_account_rows(rows, local_email="me@x.com")

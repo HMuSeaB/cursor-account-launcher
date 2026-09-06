@@ -369,7 +369,7 @@ def sort_account_rows(
         mail = str(item.get("email") or item.get("label") or "").strip().lower()
         if uid and aid == uid:
             return 0
-        if email and mail == email:
+        if not uid and email and mail == email:
             return 0
         if last and aid == last:
             return 1

@@ -406,7 +406,7 @@ function accountRank(a) {
 }
 
 function isLocalAccount(a) {
-  if (localIdentity.userId && a.id === localIdentity.userId) return true;
+  if (localIdentity.userId) return a.id === localIdentity.userId;
   const email = (localIdentity.email || "").toLowerCase();
   if (email && displayEmail(a).toLowerCase() === email) return true;
   return false;

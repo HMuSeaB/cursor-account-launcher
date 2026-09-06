@@ -16,6 +16,7 @@ from .token_utils import parse_token
 _KEYS = {
     "token": "cursorAuth/accessToken",
     "email": "cursorAuth/cachedEmail",
+    "cursorEmail": "cursor.email",
     "membership": "cursorAuth/stripeMembershipType",
     "refresh": "cursorAuth/refreshToken",
 }
@@ -110,20 +111,36 @@ def _cached_user_id(values: dict[str, str]) -> str:
 
 
 def _cached_email(values: dict[str, str], user_id: str) -> str:
-    """cachedEmail 只在缓存 userId 与 accessToken 同属一个账号时才可信。"""
-    email = (values.get("email") or "").strip()
-    if "@" not in email:
-        return ""
+    """cachedEmail 只在缓存 userId 与 accessToken 同属一个账号时才可信。
+
+    cachedEmail 和 cursor.email 经常各留一个号：设置页信前者，启动器若也信就会
+    把「本机」标到另一个账号上。互相矛盾时宁可不显示邮箱，只信 JWT 的 userId。
+    """
+    cached = (values.get("email") or "").strip()
+    cursor_email = (values.get("cursorEmail") or "").strip()
     cached_uid = _cached_user_id(values)
     if user_id and cached_uid and cached_uid != user_id:
         return ""
-    return email
+    emails = [item for item in (cached, cursor_email) if "@" in item]
+    if not emails:
+        return ""
+    if len({item.lower() for item in emails}) > 1:
+        return ""
+    return emails[0]
 
 
 def _ws_token_owner(token: str) -> str:
     """WS token 归属的 userId：优先信 JWT 的 sub，其次信 user_xxx:: 前缀。"""
     head, sep, tail = token.partition("::")
     return _user_id_from_jwt(tail if sep else token) or (head.strip() if sep else "")
+
+
+def _auth_token_owner(raw: str | None) -> str:
+    """access / refresh / WS 任一形态能解析出的 user_xxx；解析不了返回空串。"""
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    return _user_id_from_jwt(text) or _ws_token_owner(text)
 
 
 def _normalize_session_token(raw: str | None) -> str | None:
@@ -307,7 +324,10 @@ def write_local_account(
 ) -> dict:
     """写入本机登录态。token 可为 JWT 或 user_xxx::jwt。
 
-    对齐 FlyCursor 会写的关键键；切号时若删掉 refreshToken，Cursor 常会重新鉴权并多出 Desktop。
+    同账号续登且没有新 refresh 时，可保留库里已有的 refreshToken（Cursor 续登更稳）。
+    跨号时绝不能留上一个号的 refresh / WorkOS：Cursor 稍后会用旧 refresh 把登录刷回去。
+    没有独立 refresh 时，把当前 access JWT 写入 refresh 键（FlyCursor 也是如此）；
+    空 refresh 会被 Cursor 当成未登录。
     """
     wait_state_db_ready()
     user_id, jwt, claims = parse_token(token)
@@ -316,6 +336,7 @@ def write_local_account(
     ws = _normalize_session_token(token)
     if not ws and user_id:
         ws = f"{user_id}::{jwt}"
+    write_refresh = False
 
     conn = _open_db(readonly=False)
     try:
@@ -326,6 +347,18 @@ def write_local_account(
                 "INSERT OR REPLACE INTO ItemTable (key, value) VALUES (?, ?)",
                 (key, value),
             )
+
+        def get(key: str) -> str:
+            row = cur.execute("SELECT value FROM ItemTable WHERE key=?", (key,)).fetchone()
+            return str(row[0]).strip() if row and row[0] is not None else ""
+
+        existing_access_uid = _auth_token_owner(get("cursorAuth/accessToken"))
+        existing_refresh = get("cursorAuth/refreshToken")
+        switching = bool(user_id and existing_access_uid and existing_access_uid != user_id)
+
+        incoming = str(refresh_token or "").strip()
+        incoming_owner = _auth_token_owner(incoming)
+        write_refresh = bool(incoming) and (not incoming_owner or incoming_owner == user_id)
 
         put("cursorAuth/accessToken", jwt)
         put("cursorAuth/cachedEmail", email or "")
@@ -341,15 +374,22 @@ def write_local_account(
         if membership:
             put("cursorAuth/stripeMembershipType", membership)
 
-        if refresh_token:
-            put("cursorAuth/refreshToken", refresh_token)
-        elif not keep_refresh_if_missing:
-            cur.execute("DELETE FROM ItemTable WHERE key=?", ("cursorAuth/refreshToken",))
-        # keep_refresh_if_missing=True：保留库里旧 refresh（同账号续登更稳）
+        leftover_owner = _auth_token_owner(existing_refresh)
+        if write_refresh:
+            put("cursorAuth/refreshToken", incoming)
+        elif leftover_owner == user_id and keep_refresh_if_missing:
+            pass
+        elif existing_refresh and not leftover_owner and keep_refresh_if_missing and not switching:
+            pass
+        else:
+            put("cursorAuth/refreshToken", jwt)
 
         if ws:
-            put("cursorAuth/workosCursorSessionToken", ws)
-            put("cursorAuth/cachedWorkosSessionToken", ws)
+            for key in WORKOS_SESSION_DB_KEYS:
+                put(key, ws)
+        else:
+            for key in WORKOS_SESSION_DB_KEYS:
+                cur.execute("DELETE FROM ItemTable WHERE key=?", (key,))
 
         conn.commit()
     finally:
@@ -361,7 +401,14 @@ def write_local_account(
         raise RuntimeError("写入后无法读回 accessToken，切号可能失败")
     if local["accessToken"] != jwt:
         raise RuntimeError("写入校验失败：accessToken 未生效")
-    return {"ok": True, "userId": user_id, "email": email, "hasWsToken": bool(ws)}
+    return {
+        "ok": True,
+        "userId": user_id,
+        "email": email,
+        "hasWsToken": bool(ws),
+        "wroteRefresh": bool(write_refresh),
+        "hasRefreshToken": bool(local.get("refreshToken")),
+    }
 
 
 def _rand_hex64() -> str:
