@@ -107,6 +107,7 @@
       </div>
       <div class="toolbar-actions">
         <button class="btn primary" id="btnAddOpen">添加账号</button>
+        <button class="btn ghost" id="btnOpenCliModal" title="独立启动 Cursor Agent CLI 终端">Agent CLI</button>
         <button class="btn ghost" id="btnDetect">探测本机</button>
         <button class="btn ghost" id="btnSelectAll">全选</button>
         <button class="btn ghost" id="btnExport">导出</button>
@@ -315,13 +316,13 @@
       <div class="modal-head">
         <div>
           <h2>添加账号</h2>
-          <p class="hint" style="margin:4px 0 0">支持 access_token；设备管理需 ws token（user_xxx::eyJ…）</p>
+          <p class="hint" style="margin:4px 0 0">用于 IDE 登录（支持 access_token 或 user_xxx::eyJ…；crsr_… 为 CLI 专用）</p>
         </div>
         <button type="button" class="icon-btn modal-close" id="btnAddCancel" aria-label="关闭">×</button>
       </div>
       <div class="modal-scroll">
         <label class="field-label">Token</label>
-        <textarea id="tokenInput" spellcheck="false" placeholder="每行一个 token，或整段 Cookie"></textarea>
+        <textarea id="tokenInput" spellcheck="false" placeholder="每行一个 IDE Token（eyJ…），或整段 Cookie；crsr_… 开头将引导启动 CLI"></textarea>
         <div class="field-grid">
           <div>
             <label class="field-label">邮箱</label>
@@ -346,6 +347,39 @@
         <span class="spacer"></span>
         <button type="button" class="btn ghost" id="btnAddCancel2">取消</button>
         <button type="button" class="btn primary" id="btnAdd">添加</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="cliDialog" class="modal">
+    <div class="modal-box">
+      <div class="modal-head">
+        <div>
+          <h2>Cursor Agent CLI</h2>
+          <p class="hint" style="margin:4px 0 0">独立命令行智能体（无需绑定 IDE 账号，支持 crsr_… Key）</p>
+        </div>
+        <button type="button" class="icon-btn modal-close" id="btnCliCancel" aria-label="关闭">×</button>
+      </div>
+      <div class="modal-scroll">
+        <label class="field-label" for="cliApiKeyInput">Cursor API Key (crsr_…)</label>
+        <input id="cliApiKeyInput" type="password" spellcheck="false" placeholder="crsr_…" class="token-box" style="margin-bottom:12px" />
+        
+        <label class="field-label" for="cliCwdInput">工作区目录 (Workspace)</label>
+        <input id="cliCwdInput" spellcheck="false" placeholder="留空则使用当前目录" style="margin-bottom:12px" />
+
+        <label class="field-label" for="cliPromptInput">初始任务 / 提示词 (可选)</label>
+        <input id="cliPromptInput" spellcheck="false" placeholder="例如：帮我分析当前项目结构" style="margin-bottom:12px" />
+
+        <label class="check-row" style="margin-top:4px">
+          <input type="checkbox" id="cliRememberKey" checked /> 记住此 API Key 与工作区
+        </label>
+        <p class="hint" id="cliStatusHint" style="margin-top:8px">正在检测 Cursor Agent CLI 安装状态…</p>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="btnCliInstallHint" hidden>安装 CLI 指引</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" id="btnCliCancel2">取消</button>
+        <button type="button" class="btn primary" id="btnLaunchCliDirect">启动 CLI</button>
       </div>
     </div>
   </dialog>

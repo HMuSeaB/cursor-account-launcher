@@ -312,6 +312,7 @@ function tokenBox(title, value, hint, warn) {
 
 function tokenDetailSection(a) {
   const { accessToken, wsToken } = splitDisplayTokens(a);
+  const apiKey = String(a?.apiKey || "").trim();
   return `<div class="detail-section token-section">
     ${tokenBox("Access Token", accessToken, "Cursor 登录用的 JWT（cursorAuth/accessToken）", false)}
     ${tokenBox(
@@ -322,6 +323,18 @@ function tokenDetailSection(a) {
         : "当前没有 WS Token。可点「同步本机 WS」，或先在 Cursor 网页完成登录",
       !wsToken,
     )}
+    <div class="token-block">
+      <div class="progress-head">
+        <strong>Agent API Key</strong>
+        <span class="hint">${apiKey ? "已保存" : "未保存"}</span>
+      </div>
+      <input id="detailApiKey" class="token-box" type="password" spellcheck="false" value="${esc(apiKey)}" placeholder="crsr_…" />
+      <p class="hint token-hint">用于 Cursor Agent CLI（与 IDE 登录 Token 不同）。保存后可点卡片「CLI」一键启动。</p>
+      <div class="guard-actions" style="margin-top:8px">
+        <button type="button" class="btn" id="btnSaveApiKey">保存 API Key</button>
+        <button type="button" class="btn primary" id="btnLaunchCliDetail">启动 CLI</button>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -418,6 +431,7 @@ function ico(name) {
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
     refresh: '<path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 3v6h-6"/>',
     devices: '<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/>',
+    cli: '<path d="M4 7l6 5-6 5"/><path d="M12 17h8"/>',
     trash: '<path d="M4 7h16M10 11v6M14 11v6M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/>',
   };
   return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name] || ""}</svg>`;
@@ -433,6 +447,7 @@ function renderAccountCard(a) {
   badges.push(`<span class="tag ${mClass}">${esc(membershipLabel(a.membershipType))}</span>`);
   if (hasWsToken(a)) badges.push('<span class="tag pro">WS</span>');
   else badges.push('<span class="tag custom">JWT</span>');
+  if (a.hasApiKey) badges.push('<span class="tag teal">CLI</span>');
   const machineShort = a.machineIdShort || "";
   if (machineShort) {
     const localShort = lastCursorStatus?.localMachineShort || "";
@@ -469,6 +484,7 @@ function renderAccountCard(a) {
       <button class="icon-btn" data-action="detail" data-id="${esc(a.id)}" title="详情">${ico("info")}</button>
       <button class="icon-btn" data-action="refresh" data-id="${esc(a.id)}" title="刷新额度">${ico("refresh")}</button>
       <button class="icon-btn" data-action="devices" data-id="${esc(a.id)}" title="登录设备">${ico("devices")}</button>
+      <button class="icon-btn${a.hasApiKey ? " has-key" : ""}" data-action="launch-cli" data-id="${esc(a.id)}" title="${a.hasApiKey ? "用已存 API Key 启动 Agent CLI" : "粘贴 crsr_ Key 启动 Agent CLI"}">${ico("cli")}</button>
       <button class="btn primary btn-switch" data-action="${switchAction}" data-id="${esc(a.id)}" title="${switchTitle}">${switchLabel}</button>
       <button class="icon-btn danger" data-action="remove" data-id="${esc(a.id)}" title="删除">${ico("trash")}</button>
     </div>
@@ -2246,6 +2262,82 @@ async function launch(accountId, force = false, light = false) {
   await refreshCursorStatus();
 }
 
+async function launchCli(accountId, apiKey = "", save = false) {
+  if (!api()?.launch_agent_cli) return toast("当前版本不支持 CLI 启动");
+  let key = String(apiKey || "").trim();
+  let shouldSave = Boolean(save);
+  if (!key) {
+    const detail = await api().get_account_detail(accountId);
+    if (detail.ok && detail.account?.apiKey) key = String(detail.account.apiKey).trim();
+  }
+  if (!key) {
+    key = String(prompt("粘贴 Cursor API Key（crsr_…）", "") || "").trim();
+    if (!key) return;
+    shouldSave = confirm("是否把这个 API Key 保存到该账号？（下次可直接点 CLI）");
+  }
+  toast("正在启动 Agent CLI…");
+  const res = await api().launch_agent_cli(accountId, key, null, null, shouldSave);
+  toast(res.ok ? (res.saved ? "已保存 Key 并打开 CLI 终端" : "已打开 CLI 终端") : (res.error || "启动失败"));
+  if (res.ok && res.saved) await renderAccounts();
+  return res;
+}
+
+async function saveDetailApiKey() {
+  if (!detailAccountId || !api()?.set_account_api_key) return toast("当前版本不支持保存 API Key");
+  const key = String($("detailApiKey")?.value || "").trim();
+  const res = await api().set_account_api_key(detailAccountId, key);
+  toast(res.ok ? (key ? "API Key 已保存" : "已清空 API Key") : (res.error || "保存失败"));
+  if (res.ok) {
+    await renderAccounts();
+    const detail = await api().get_account_detail(detailAccountId);
+    if (detail.ok) renderDetail(detail.account);
+  }
+}
+
+async function openCliDialog() {
+  const dlg = $("cliDialog");
+  if (!dlg) return;
+  dlg.showModal();
+  if (api()?.get_cli_config) {
+    const cfg = await api().get_cli_config();
+    if (cfg?.ok) {
+      if (cfg.apiKey && !$("cliApiKeyInput").value) $("cliApiKeyInput").value = cfg.apiKey;
+      if (cfg.cwd && !$("cliCwdInput").value) $("cliCwdInput").value = cfg.cwd;
+      const hint = $("cliStatusHint");
+      const installBtn = $("btnCliInstallHint");
+      if (cfg.installed) {
+        if (hint) hint.textContent = `已检测到 CLI: ${cfg.agentPath}`;
+        if (installBtn) installBtn.hidden = true;
+      } else {
+        if (hint) hint.textContent = "未检测到 Cursor Agent CLI。建议先安装。";
+        if (installBtn) installBtn.hidden = false;
+      }
+    }
+  }
+}
+
+function closeCliDialog() {
+  const dlg = $("cliDialog");
+  if (dlg?.open) dlg.close();
+}
+
+async function launchCliDirect() {
+  if (!api()?.launch_agent_cli) return toast("当前版本不支持 CLI 启动");
+  const key = String($("cliApiKeyInput")?.value || "").trim();
+  const cwd = String($("cliCwdInput")?.value || "").trim();
+  const prompt = String($("cliPromptInput")?.value || "").trim();
+  const remember = Boolean($("cliRememberKey")?.checked);
+  if (!key) return toast("请填写 Cursor API Key（crsr_…）");
+  toast("正在启动 Agent CLI…");
+  const res = await api().launch_agent_cli(null, key, prompt, cwd, remember);
+  if (res.ok) {
+    toast(res.saved ? "已保存配置并打开终端" : "已打开终端");
+    closeCliDialog();
+  } else {
+    toast(res.error || "启动失败");
+  }
+}
+
 async function closeIde(opts = {}) {
   const skipConfirm = Boolean(opts.skipConfirm);
   if (!skipConfirm && !confirm("关闭 Cursor 以腾出内存？账号仍留在启动器里。")) return { ok: false, cancelled: true };
@@ -2569,6 +2661,7 @@ document.addEventListener("click", async (ev) => {
   if (action === "devices") return openDevices(id);
   if (action === "switch") return launch(id);
   if (action === "launch-here") return launch(null);
+  if (action === "launch-cli") return launchCli(id);
   if (action === "remove") {
     if (!confirm("确定删除该账号？")) return;
     await api().remove_account(id);
@@ -2594,9 +2687,34 @@ $("addDialog").addEventListener("cancel", (ev) => {
   ev.preventDefault();
   closeAddDialog();
 });
+$("btnOpenCliModal").onclick = () => openCliDialog();
+$("btnCliCancel").onclick = closeCliDialog;
+$("btnCliCancel2").onclick = closeCliDialog;
+$("cliDialog").addEventListener("cancel", (ev) => {
+  ev.preventDefault();
+  closeCliDialog();
+});
+$("btnLaunchCliDirect").onclick = () => launchCliDirect();
+$("btnCliInstallHint").onclick = () => {
+  alert("请在 Windows PowerShell 终端中执行官方安装命令：\n\nirm 'https://cursor.com/install?win32=true' | iex");
+};
 $("btnAdd").onclick = async (ev) => {
   ev.preventDefault();
-  const res = await api().import_text($("tokenInput").value);
+  const rawInput = ($("tokenInput").value || "").trim();
+  if (/^crsr_[A-Za-z0-9]{16,}$/.test(rawInput)) {
+    const wantCli = confirm(
+      "检测到您输入的是 Cursor Agent API Key（crsr_…）。\n\n" +
+      "• 该 Key 仅用于命令行 Agent CLI，无法作为桌面 IDE 客户端的登录凭据（IDE 需要以 eyJ… 或 user_… 开头的 Session Token）。\n\n" +
+      "是否现在直接使用此 API Key 启动 Cursor Agent CLI 终端？"
+    );
+    if (wantCli) {
+      closeAddDialog();
+      $("tokenInput").value = "";
+      return launchCli(null, rawInput);
+    }
+    return toast("crsr_ Key 仅用于 CLI，IDE 登录需填 Session Token");
+  }
+  const res = await api().import_text(rawInput);
   if (!res.added) return toast("未识别到 token");
   const added = res.accounts.slice(-res.added);
   for (const acct of added) {
@@ -3018,6 +3136,16 @@ $("detailBody").addEventListener("click", (ev) => {
   if (ev.target.id === "btnRotateMachine") {
     ev.preventDefault();
     rotateMachine();
+  }
+  if (ev.target.id === "btnSaveApiKey") {
+    ev.preventDefault();
+    saveDetailApiKey();
+  }
+  if (ev.target.id === "btnLaunchCliDetail") {
+    ev.preventDefault();
+    if (!detailAccountId) return;
+    const key = String($("detailApiKey")?.value || "").trim();
+    launchCli(detailAccountId, key, Boolean(key));
   }
 });
 $("detailClose").onclick = closeDetailDialog;
