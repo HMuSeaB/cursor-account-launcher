@@ -97,6 +97,7 @@ class AccountStore(_BaseStore):
             "email": it.get("email") or "",
             "passwordEnc": it.get("passwordEnc") or "",
             "refreshTokenEnc": it.get("refreshTokenEnc") or "",
+            "apiKeyEnc": it.get("apiKeyEnc") or "",
             "group": it.get("group") or "未分组",
             "tags": list(it.get("tags") or []),
             "remark": it.get("remark") or "",
@@ -146,6 +147,7 @@ class AccountStore(_BaseStore):
                 "createdAt": int(time.time() * 1000),
                 "deviceIds": {},
                 "refreshTokenEnc": "",
+                "apiKeyEnc": "",
             }
         elif priority >= existing.get("_prio", 0):
             existing["token"] = token.strip()
@@ -173,6 +175,7 @@ class AccountStore(_BaseStore):
         out["hasDeviceIds"] = bool(canonical_machine_id(item.get("deviceIds")))
         out["machineIdShort"] = short_machine_id(item.get("deviceIds"))
         out["hasRefreshToken"] = bool(item.get("refreshTokenEnc"))
+        out["hasApiKey"] = bool(item.get("apiKeyEnc"))
         if include_token:
             raw = item.get("token") or ""
             access, ws = _split_token(raw)
@@ -180,6 +183,7 @@ class AccountStore(_BaseStore):
             out["accessToken"] = access
             out["wsToken"] = ws
             out["deviceIds"] = dict(item.get("deviceIds") or {})
+            out["apiKey"] = self.get_api_key(item["id"])
         return out
 
     def list(self) -> list[dict]:
@@ -263,6 +267,31 @@ class AccountStore(_BaseStore):
         if not item or not item.get("refreshTokenEnc"):
             return ""
         raw = item["refreshTokenEnc"]
+        try:
+            dec = _dpapi(base64.b64decode(raw), protect=False)
+            return dec.decode("utf-8") if dec else raw
+        except Exception:
+            return raw
+
+    def set_api_key(self, account_id: str, api_key: str) -> dict | None:
+        with self._lock:
+            item = self._items.get(account_id)
+            if not item:
+                return None
+            text = (api_key or "").strip()
+            if not text:
+                item["apiKeyEnc"] = ""
+            else:
+                enc = _dpapi(text.encode("utf-8"), protect=True)
+                item["apiKeyEnc"] = base64.b64encode(enc).decode("ascii") if enc else text
+            self._save()
+            return self._public_view(item)
+
+    def get_api_key(self, account_id: str) -> str:
+        item = self._items.get(account_id)
+        if not item or not item.get("apiKeyEnc"):
+            return ""
+        raw = item["apiKeyEnc"]
         try:
             dec = _dpapi(base64.b64decode(raw), protect=False)
             return dec.decode("utf-8") if dec else raw

@@ -831,6 +831,88 @@ class Api(PatchesApiMixin):
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
+    def get_cli_config(self) -> dict:
+        """获取独立 CLI 的全局配置与安装状态。"""
+        from launcher.agent_cli import resolve_agent_cli
+
+        cfg = _load_config()
+        agent = resolve_agent_cli()
+        return {
+            "ok": True,
+            "apiKey": str(cfg.get("cliApiKey") or ""),
+            "cwd": str(cfg.get("cliCwd") or ""),
+            "installed": agent is not None,
+            "agentPath": str(agent) if agent else "",
+        }
+
+    def save_cli_config(self, api_key: str = "", cwd: str = "") -> dict:
+        """保存独立 CLI 的全局默认配置。"""
+        from launcher.agent_cli import normalize_api_key, validate_api_key
+
+        key = normalize_api_key(api_key)
+        if key:
+            try:
+                key = validate_api_key(key)
+            except ValueError as exc:
+                return {"ok": False, "error": str(exc)}
+        update_config(cliApiKey=key, cliCwd=(cwd or "").strip())
+        return {"ok": True, "apiKey": key, "cwd": (cwd or "").strip()}
+
+    def set_account_api_key(self, account_id: str, api_key: str = "") -> dict:
+        """保存或清空账号绑定的 Cursor Agent API Key（crsr_…）。"""
+        from launcher.agent_cli import normalize_api_key, validate_api_key
+
+        item = self._store.get(account_id)
+        if not item:
+            return {"ok": False, "error": "账号不存在"}
+        text = normalize_api_key(api_key)
+        if text:
+            try:
+                text = validate_api_key(text)
+            except ValueError as exc:
+                return {"ok": False, "error": str(exc)}
+        updated = self._store.set_api_key(account_id, text)
+        if not updated:
+            return {"ok": False, "error": "保存失败"}
+        return {"ok": True, "account": updated, "hasApiKey": bool(text)}
+
+    def launch_agent_cli(
+        self,
+        account_id: str | None = None,
+        api_key: str | None = None,
+        prompt: str | None = None,
+        cwd: str | None = None,
+        save: bool = False,
+    ) -> dict:
+        """用 crsr_ API Key 打开新终端并启动 Cursor Agent CLI（支持账号绑定或独立运行）。"""
+        from launcher.agent_cli import launch_agent_cli, normalize_api_key, validate_api_key
+
+        key = normalize_api_key(api_key)
+        if not key and account_id:
+            key = self._store.get_api_key(account_id)
+        if not key:
+            key = str(_load_config().get("cliApiKey") or "")
+        if not key:
+            return {"ok": False, "error": "请先填写或保存 crsr_ API Key"}
+        try:
+            key = validate_api_key(key)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        if save:
+            if account_id:
+                if not self._store.get(account_id):
+                    return {"ok": False, "error": "账号不存在"}
+                self._store.set_api_key(account_id, key)
+            else:
+                update_config(cliApiKey=key, cliCwd=(cwd or "").strip())
+        target_cwd = (cwd or "").strip() or str(_load_config().get("cliCwd") or "") or None
+        result = launch_agent_cli(api_key=key, cwd=target_cwd, prompt=prompt)
+        if result.get("ok"):
+            if account_id:
+                result["accountId"] = account_id
+            result["saved"] = bool(save)
+        return result
+
     def close_ide(self) -> dict:
         """关掉 Cursor，腾出内存。账号仍留在启动器。"""
         try:
