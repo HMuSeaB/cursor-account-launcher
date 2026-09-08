@@ -17,6 +17,7 @@
           <p class="brand-sub" id="brandSub">启动器</p>
         </div>
         <button type="button" class="pill" id="loginPill" title="刷新 IDE 状态">检测中</button>
+        <span class="pill" id="settingsMeta" style="font-size:11px;opacity:0.85"></span>
       </div>
       <div class="topbar-actions">
         <button class="btn ghost icon-only" id="btnTheme" type="button" title="切换夜间模式" aria-label="切换夜间模式">
@@ -92,39 +93,68 @@
       </div>
     </div>
 
-    <section class="toolbar card">
-      <input id="searchInput" type="search" placeholder="搜索邮箱、备注…" />
-      <div class="toolbar-filters">
-        <select id="filterGroup" aria-label="分组"><option value="">全部分组</option></select>
-        <select id="filterTag" aria-label="标签"><option value="">全部标签</option></select>
-        <select id="filterPlan" aria-label="套餐">
-          <option value="">全部套餐</option>
-          <option value="ultra">Ultra</option>
-          <option value="pro">Pro</option>
-          <option value="free">Free</option>
-          <option value="trial">Trial</option>
-        </select>
-      </div>
-      <div class="toolbar-actions">
-        <button class="btn primary" id="btnAddOpen">添加账号</button>
-        <button class="btn ghost" id="btnOpenCliModal" title="独立启动 Cursor Agent CLI 终端">Agent CLI</button>
-        <button class="btn ghost" id="btnDetect">探测本机</button>
-        <button class="btn ghost" id="btnSelectAll">全选</button>
-        <button class="btn ghost" id="btnExport">导出</button>
-      </div>
-    </section>
+    <!-- 现代化分段导航 (Segmented Tabs) -->
+    <nav class="nav-tabs" role="tablist" id="mainTabs">
+      <button type="button" class="nav-tab active" data-tab="tabAccounts" role="tab" aria-selected="true">
+        <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span>账号管理</span>
+      </button>
+      <button type="button" class="nav-tab" data-tab="tabSand" role="tab" aria-selected="false">
+        <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        <span>Grok Bot 与补丁</span>
+      </button>
+      <button type="button" class="nav-tab" data-tab="tabNetwork" role="tab" aria-selected="false">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        <span>网络代理</span>
+      </button>
+      <button type="button" class="nav-tab" data-tab="tabSystem" role="tab" aria-selected="false">
+        <svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+        <span>系统与工具</span>
+      </button>
+    </nav>
 
-    <section class="accounts-wrap">
-      <div class="acc-grid" id="accGrid"></div>
-      <p class="empty" id="emptyAccounts">还没有账号。点「添加账号」或「探测本机」导入当前 Cursor 登录。</p>
-    </section>
+    <!-- Tab 1: 账号管理 -->
+    <div class="tab-panel active" id="tabAccounts" role="tabpanel">
+      <section class="toolbar card">
+        <input id="searchInput" type="search" placeholder="搜索邮箱、备注…" />
+        <div class="toolbar-filters">
+          <select id="filterGroup" aria-label="分组"><option value="">全部分组</option></select>
+          <select id="filterTag" aria-label="标签"><option value="">全部标签</option></select>
+          <select id="filterPlan" aria-label="套餐">
+            <option value="">全部套餐</option>
+            <option value="ultra">Ultra</option>
+            <option value="pro">Pro</option>
+            <option value="free">Free</option>
+            <option value="trial">Trial</option>
+          </select>
+        </div>
+        <div class="toolbar-actions">
+          <button class="btn primary" id="btnAddOpen">添加账号</button>
+          <button class="btn ghost" id="btnOpenCliModal" title="独立启动 Cursor Agent CLI 终端">Agent CLI</button>
+          <button class="btn ghost" id="btnDetect">探测本机</button>
+          <button class="btn ghost" id="btnSelectAll">全选</button>
+          <button class="btn ghost" id="btnExport">导出</button>
+        </div>
+      </section>
 
-    <details class="card settings-fold" id="settingsFold">
-      <summary>
-        <span class="settings-fold-title">设置与补丁</span>
-        <span class="settings-fold-meta" id="settingsMeta"></span>
-      </summary>
-      <div class="settings-sheet">
+      <section class="accounts-wrap">
+        <div class="acc-grid" id="accGrid"></div>
+        <div class="empty-hero" id="emptyAccounts">
+          <div class="empty-hero-icon">
+            <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          </div>
+          <h3>还没有添加任何 Cursor 账号</h3>
+          <p>您可以一键探测导入当前本机 IDE 登录态，或直接粘贴 Token 添加。</p>
+          <div class="empty-hero-actions">
+            <button type="button" class="btn primary" onclick="document.getElementById('btnDetect').click()">探测本机登录</button>
+            <button type="button" class="btn ghost" onclick="document.getElementById('btnAddOpen').click()">添加账号</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Tab 2: Grok Bot 与补丁 -->
+    <div class="tab-panel" id="tabSand" role="tabpanel" hidden>
       <div class="ide-gate" id="ideGate" data-state="unknown" aria-live="polite">
         <div class="ide-gate-main">
           <strong id="ideGateTitle">检测 IDE 状态…</strong>
@@ -135,10 +165,11 @@
           <button type="button" class="btn" id="btnWbNext" hidden>下一步</button>
         </div>
       </div>
+
       <div class="settings-grid" id="settingsGrid">
         <section class="settings-panel settings-span" id="wbDiagPanel">
           <h3 class="settings-title">日常状态（看这个就够）</h3>
-            <p class="hint settings-hint">YC 原生：自己的号、模型多、可开 Sand。Sub2API：窄模型墙。同一时间只应打一套，且必须在对应扩展面板里打，启动器不代写。</p>
+          <p class="hint settings-hint">YC 原生：自己的号、模型多、可开 Sand。Sub2API：窄模型墙。同一时间只应打一套，且必须在对应扩展面板里打，启动器不代写。</p>
           <ol class="wb-checklist" id="wbChecklist" aria-live="polite"></ol>
           <div class="wb-incidents" id="wbIncidents" hidden></div>
           <p class="wb-next-hint" id="wbNextHint">点刷新可重新扫描模型墙和补丁状态</p>
@@ -162,6 +193,7 @@
             </div>
           </details>
         </section>
+
         <section class="settings-panel settings-span" id="sandStreamPanel">
           <div class="sand-head">
             <div>
@@ -205,64 +237,7 @@
             </details>
           </details>
         </section>
-        <details class="settings-panel">
-          <summary class="settings-title">网络代理</summary>
-          <label class="check-row"><input type="checkbox" id="proxyEnabled" /> 开代理（settings / 环境变量）</label>
-          <label class="field-label" for="proxyRoute">你的 Cursor 是哪种？</label>
-          <select id="proxyRoute" aria-label="路由模式">
-            <option value="gateway" selected>打了补丁，走网关原生（推荐，不改模型墙）</option>
-            <option value="clash">只改代理参数（不剥网关；拆墙请用扩展面板回滚）</option>
-          </select>
-          <p class="hint settings-hint">IDE 开着点「保存」只记偏好、不改 Cursor 文件。真正写入只动 settings/argv，不动模型墙。</p>
-          <label class="field-label" for="proxyType">FlClash 端口</label>
-          <div class="proxy-fields">
-            <select id="proxyType" aria-label="代理类型"><option value="http">HTTP</option><option value="socks5" selected>SOCKS5</option></select>
-            <input id="proxyHost" value="127.0.0.1" spellcheck="false" aria-label="代理主机" />
-            <input id="proxyPort" type="number" value="7891" min="1" max="65535" aria-label="代理端口" />
-          </div>
-          <div class="guard-actions">
-            <button type="button" class="btn ghost" id="btnDetectProxy">检测本机代理</button>
-            <button type="button" class="btn ghost" id="btnTestLatency">测延迟</button>
-            <button type="button" class="btn" id="btnSaveProxy">保存</button>
-            <button type="button" class="btn danger" id="btnUndoProxy" data-needs-closed>一键还原误触</button>
-          </div>
-          <details class="adv-fold">
-            <summary>高级危险区（DLL / 改 workbench 路由）— 日常别开</summary>
-            <p class="hint settings-hint">进程 DLL 易闪退。「还原网关补丁」已停用，不会代写模型墙。</p>
-            <div class="guard-actions">
-              <button type="button" class="btn ghost" id="btnDllInstall" data-needs-closed>写入 DLL</button>
-              <button type="button" class="btn ghost" id="btnDllRemove" data-needs-closed>删除 DLL</button>
-              <button type="button" class="btn ghost" id="btnDllRestore" data-needs-closed>还原 DLL</button>
-              <button type="button" class="btn ghost" id="btnWorkbenchRestore" data-needs-closed>还原网关补丁（已停用）</button>
-            </div>
-          </details>
-          <pre class="mini" id="proxyDetectInfo">检测中…</pre>
-        </details>
-        <details class="settings-panel">
-          <summary class="settings-title">Cursor 安装路径</summary>
-          <label class="field-label" for="cursorPath">可执行文件</label>
-          <input id="cursorPath" spellcheck="false" placeholder="留空则自动检测 Cursor.exe" />
-          <button type="button" class="btn" id="btnSavePath">保存路径</button>
-          <label class="check-row" style="margin-top:12px"><input type="checkbox" id="disableAutoUpdate" checked /> 禁用自动更新</label>
-          <div class="guard-actions">
-            <button type="button" class="btn ghost" id="btnApplyDisableUpdate" data-needs-closed>立即应用</button>
-            <button type="button" class="btn ghost" id="btnRestoreUpdate" data-needs-closed>恢复更新</button>
-          </div>
-          <p class="hint settings-hint">写入 <code>update.mode: none</code>，并重命名 <code>inno_updater.exe</code>（需先关 IDE）。升级后补丁/DLL 会丢，建议保持禁用。</p>
-          <pre class="mini" id="updateInfo">—</pre>
-          <p class="hint settings-hint">右上角三条杠：轻量启动、削减内存、关闭 IDE、压缩状态库。顶栏状态可点一下削减内存。</p>
-          <pre class="mini" id="cursorInfo">—</pre>
-        </details>
-        <section class="settings-panel" id="shortcutPanel" hidden>
-          <h3 class="settings-title">快捷方式</h3>
-          <p class="hint settings-hint">放到桌面或开始菜单。换版本后若桌面还是旧图标，点「刷新图标」（Windows 会缓存 .lnk）。</p>
-          <div class="guard-actions">
-            <button type="button" class="btn" id="btnShortcutDesktop">放到桌面</button>
-            <button type="button" class="btn ghost" id="btnShortcutStart">放到开始菜单</button>
-            <button type="button" class="btn ghost" id="btnShortcutRefreshIcon">刷新图标</button>
-          </div>
-          <pre class="mini" id="shortcutInfo">—</pre>
-        </section>
+
         <section class="settings-panel settings-span">
           <details class="adv-fold" id="emergencyFold">
             <summary>急救补丁（MAX / 500k / 侧边栏）</summary>
@@ -307,7 +282,81 @@
           </details>
         </section>
       </div>
+    </div>
+
+    <!-- Tab 3: 网络代理 -->
+    <div class="tab-panel" id="tabNetwork" role="tabpanel" hidden>
+      <div class="settings-grid">
+        <section class="settings-panel settings-span">
+          <h3 class="settings-title">网络代理配置</h3>
+          <label class="check-row" style="margin-bottom:12px"><input type="checkbox" id="proxyEnabled" /> 开启代理（同步写入 settings / 环境变量）</label>
+          <label class="field-label" for="proxyRoute">路由模式</label>
+          <select id="proxyRoute" aria-label="路由模式" style="margin-bottom:12px">
+            <option value="gateway" selected>打了补丁，走网关原生（推荐，不改模型墙）</option>
+            <option value="clash">只改代理参数（不剥网关；拆墙请用扩展面板回滚）</option>
+          </select>
+          <p class="hint settings-hint">IDE 开着点「保存」只记偏好、不改 Cursor 程序文件。真正写入只动 settings/argv，不动模型墙。</p>
+          <label class="field-label" for="proxyType">本地代理地址与端口</label>
+          <div class="proxy-fields" style="margin-bottom:14px">
+            <select id="proxyType" aria-label="代理类型"><option value="http">HTTP</option><option value="socks5" selected>SOCKS5</option></select>
+            <input id="proxyHost" value="127.0.0.1" spellcheck="false" aria-label="代理主机" />
+            <input id="proxyPort" type="number" value="7891" min="1" max="65535" aria-label="代理端口" />
+          </div>
+          <div class="guard-actions">
+            <button type="button" class="btn ghost" id="btnDetectProxy">检测本机代理</button>
+            <button type="button" class="btn ghost" id="btnTestLatency">测延迟</button>
+            <button type="button" class="btn primary" id="btnSaveProxy">保存设置</button>
+            <button type="button" class="btn danger" id="btnUndoProxy" data-needs-closed>一键还原误触</button>
+          </div>
+          <details class="adv-fold" style="margin-top:14px">
+            <summary>高级危险区（DLL / 改 workbench 路由）— 日常别开</summary>
+            <p class="hint settings-hint">进程 DLL 易闪退。「还原网关补丁」已停用，不会代写模型墙。</p>
+            <div class="guard-actions">
+              <button type="button" class="btn ghost" id="btnDllInstall" data-needs-closed>写入 DLL</button>
+              <button type="button" class="btn ghost" id="btnDllRemove" data-needs-closed>删除 DLL</button>
+              <button type="button" class="btn ghost" id="btnDllRestore" data-needs-closed>还原 DLL</button>
+              <button type="button" class="btn ghost" id="btnWorkbenchRestore" data-needs-closed>还原网关补丁（已停用）</button>
+            </div>
+          </details>
+          <pre class="mini" id="proxyDetectInfo">检测中…</pre>
+        </section>
       </div>
+    </div>
+
+    <!-- Tab 4: 系统与维护 -->
+    <div class="tab-panel" id="tabSystem" role="tabpanel" hidden>
+      <div class="settings-grid">
+        <section class="settings-panel">
+          <h3 class="settings-title">Cursor 安装路径与更新拦截</h3>
+          <label class="field-label" for="cursorPath">可执行文件路径</label>
+          <input id="cursorPath" spellcheck="false" placeholder="留空则自动检测 Cursor.exe" style="margin-bottom:12px" />
+          <button type="button" class="btn" id="btnSavePath" style="margin-bottom:14px">保存路径</button>
+          
+          <label class="check-row" style="margin-top:8px"><input type="checkbox" id="disableAutoUpdate" checked /> 禁用自动更新（推荐）</label>
+          <p class="hint settings-hint">写入 <code>update.mode: none</code>，并重命名 <code>inno_updater.exe</code>（需先关 IDE）。升级后补丁/DLL 会丢，强烈建议保持禁用。</p>
+          <div class="guard-actions">
+            <button type="button" class="btn ghost" id="btnApplyDisableUpdate" data-needs-closed>立即应用</button>
+            <button type="button" class="btn ghost" id="btnRestoreUpdate" data-needs-closed>恢复更新</button>
+          </div>
+          <pre class="mini" id="updateInfo">—</pre>
+          <pre class="mini" id="cursorInfo">—</pre>
+        </section>
+
+        <section class="settings-panel" id="shortcutPanel">
+          <h3 class="settings-title">桌面与快捷方式</h3>
+          <p class="hint settings-hint">放到桌面或开始菜单。换版本后若桌面还是旧图标，点「刷新图标」（Windows 会缓存 .lnk）。</p>
+          <div class="guard-actions">
+            <button type="button" class="btn" id="btnShortcutDesktop">放到桌面</button>
+            <button type="button" class="btn ghost" id="btnShortcutStart">放到开始菜单</button>
+            <button type="button" class="btn ghost" id="btnShortcutRefreshIcon">刷新图标</button>
+          </div>
+          <pre class="mini" id="shortcutInfo">—</pre>
+        </section>
+      </div>
+    </div>
+    <details class="card settings-fold" id="settingsFold" hidden>
+      <summary style="display:none"></summary>
+      <div class="settings-sheet"></div>
     </details>
   </div>
 

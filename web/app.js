@@ -433,8 +433,11 @@ function ico(name) {
     devices: '<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/>',
     cli: '<path d="M4 7l6 5-6 5"/><path d="M12 17h8"/>',
     trash: '<path d="M4 7h16M10 11v6M14 11v6M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/>',
+    more: '<circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="6" cy="12" r="1.5" fill="currentColor"/><circle cx="18" cy="12" r="1.5" fill="currentColor"/>',
+    launch: '<polygon points="8 5 19 12 8 19 8 5" fill="currentColor" stroke="none"/>',
+    switch: '<path d="M8 3L4 7l4 4"/><path d="M4 7h16"/><path d="M16 21l4-4-4-4"/><path d="M20 17H4"/>',
   };
-  return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name] || ""}</svg>`;
+  return `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || ""}</svg>`;
 }
 
 function renderAccountCard(a) {
@@ -463,7 +466,7 @@ function renderAccountCard(a) {
   const botPct = a.botPercent;
   const err = a.err ? `<div class="hint" style="color:var(--danger)">${esc(a.err)}</div>` : "";
   const switchAction = local ? "launch-here" : "switch";
-  const switchLabel = local ? "启动" : "切换";
+  const switchLabel = local ? "启动 IDE" : "切换并启动";
   const switchTitle = local ? "当前就是这个账号，直接启动 IDE" : "写入此账号并启动 IDE";
 
   return `<article class="acc-card${local ? " is-local" : ""}" data-id="${esc(a.id)}">
@@ -480,13 +483,35 @@ function renderAccountCard(a) {
     ${err}
     ${usageBlock(apiPct, autoPct, botPct)}
     <div class="acc-foot">
-      <button class="icon-btn" data-action="copy-token" data-id="${esc(a.id)}" title="复制 Token">${ico("copy")}</button>
-      <button class="icon-btn" data-action="detail" data-id="${esc(a.id)}" title="详情">${ico("info")}</button>
-      <button class="icon-btn" data-action="refresh" data-id="${esc(a.id)}" title="刷新额度">${ico("refresh")}</button>
-      <button class="icon-btn" data-action="devices" data-id="${esc(a.id)}" title="登录设备">${ico("devices")}</button>
-      <button class="icon-btn${a.hasApiKey ? " has-key" : ""}" data-action="launch-cli" data-id="${esc(a.id)}" title="${a.hasApiKey ? "用已存 API Key 启动 Agent CLI" : "粘贴 crsr_ Key 启动 Agent CLI"}">${ico("cli")}</button>
-      <button class="btn primary btn-switch" data-action="${switchAction}" data-id="${esc(a.id)}" title="${switchTitle}">${switchLabel}</button>
-      <button class="icon-btn danger" data-action="remove" data-id="${esc(a.id)}" title="删除">${ico("trash")}</button>
+      <div class="acc-foot-main">
+        <button class="btn primary btn-switch" data-action="${switchAction}" data-id="${esc(a.id)}" title="${switchTitle}">
+          ${local ? ico("launch") : ico("switch")} <span>${switchLabel}</span>
+        </button>
+      </div>
+      <div class="acc-foot-side">
+        <button class="icon-btn" data-action="detail" data-id="${esc(a.id)}" title="详情">${ico("info")}</button>
+        <button class="icon-btn" data-action="refresh" data-id="${esc(a.id)}" title="刷新额度">${ico("refresh")}</button>
+        <div class="acc-more-wrap">
+          <button class="icon-btn" data-action="toggle-more" data-id="${esc(a.id)}" title="更多操作" aria-label="更多操作">
+            ${ico("more")}
+          </button>
+          <div class="acc-more-menu" role="menu">
+            <button type="button" class="acc-menu-item" data-action="copy-token" data-id="${esc(a.id)}">
+              ${ico("copy")} <span>复制 Token</span>
+            </button>
+            <button type="button" class="acc-menu-item" data-action="devices" data-id="${esc(a.id)}">
+              ${ico("devices")} <span>登录设备与守卫</span>
+            </button>
+            <button type="button" class="acc-menu-item" data-action="launch-cli" data-id="${esc(a.id)}">
+              ${ico("cli")} <span>启动 Agent CLI</span>
+            </button>
+            <div class="acc-menu-divider"></div>
+            <button type="button" class="acc-menu-item danger" data-action="remove" data-id="${esc(a.id)}">
+              ${ico("trash")} <span>删除账号</span>
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   </article>`;
 }
@@ -2645,12 +2670,62 @@ $("sessionBody")?.addEventListener("change", (ev) => {
   if (ev.target.matches("[data-keep]")) updateKickSummary();
 });
 
+const PREF_ACTIVE_TAB = "cursorLauncher.activeTab";
+
+function initTabs() {
+  const tabs = document.querySelectorAll(".nav-tab");
+  const panels = document.querySelectorAll(".tab-panel");
+  if (!tabs.length) return;
+
+  function switchTab(tabId) {
+    tabs.forEach((t) => {
+      const active = t.dataset.tab === tabId;
+      t.classList.toggle("active", active);
+      t.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    panels.forEach((p) => {
+      p.hidden = p.id !== tabId;
+      if (!p.hidden) p.classList.add("active");
+      else p.classList.remove("active");
+    });
+    try { localStorage.setItem(PREF_ACTIVE_TAB, tabId); } catch {}
+  }
+
+  tabs.forEach((tab) => {
+    tab.onclick = () => switchTab(tab.dataset.tab);
+  });
+
+  try {
+    const saved = localStorage.getItem(PREF_ACTIVE_TAB);
+    if (saved && document.getElementById(saved)) {
+      switchTab(saved);
+    }
+  } catch {}
+}
+
 document.addEventListener("click", async (ev) => {
   const t = ev.target.closest("[data-action], [data-copy], [data-kick], .copy-link");
-  if (!t) return;
+  if (!t) {
+    // 点击非菜单区域，关闭所有展开的更多菜单
+    document.querySelectorAll(".acc-more-wrap.open").forEach((el) => el.classList.remove("open"));
+    return;
+  }
+
+  const action = t.dataset.action;
+  if (action === "toggle-more") {
+    ev.stopPropagation();
+    const wrap = t.closest(".acc-more-wrap");
+    const wasOpen = wrap?.classList.contains("open");
+    document.querySelectorAll(".acc-more-wrap.open").forEach((el) => el.classList.remove("open"));
+    if (wrap && !wasOpen) wrap.classList.add("open");
+    return;
+  }
+
+  // 点击其它任何操作时关闭已展开的菜单
+  document.querySelectorAll(".acc-more-wrap.open").forEach((el) => el.classList.remove("open"));
+
   if (t.dataset.copy !== undefined) return copyText(t.dataset.copy);
   const id = t.dataset.id;
-  const action = t.dataset.action;
   if (action === "detail") return openDetail(id);
   if (action === "copy-token") {
     const res = await api().get_account_detail(id);
@@ -3008,6 +3083,8 @@ $("sandCatRules")?.addEventListener("toggle", () => _sandPaintRulesCat());
 document.addEventListener("click", (ev) => {
   const go = ev.target.closest("[data-sand-go='unlock']");
   if (!go) return;
+  const tabBtn = document.querySelector(".nav-tab[data-tab='tabSand']");
+  if (tabBtn) tabBtn.click();
   const settings = $("settingsFold");
   const emergency = $("emergencyFold");
   const full = $("fullUnlockFold");
@@ -3249,6 +3326,7 @@ async function maybePromptShortcuts() {
 $("proxyEnabled")?.addEventListener("change", () => paintSettingsMeta(lastCursorStatus));
 
 async function boot() {
+  initTabs();
   if (!api()) {
     const pill = $("loginPill");
     if (pill && boot._tries > 40) pill.textContent = "API 未就绪";
@@ -3270,3 +3348,4 @@ async function boot() {
 }
 boot._tries = 0;
 boot();
+initTabs();
