@@ -72,11 +72,13 @@
 ## 进度
 
 - A：EnsureSandBox → `upstream.json` — **已做**
-- A+：Box 内挂 `/sand-stream-relay`（`box_mount.py`，对照 Claimer 1.4.8 / v136）— **已做**；CLI/`领取并挂路由` 默认走挂路由
-- B：本机监听 + 与 Direct 互斥 — **已做**；**未**注入 Cursor `applyAuthorization`
+- A+：Box 内挂 `/sand-stream-relay`（`box_mount.py`）— **已做**
+- B：本机监听 + 与 Direct 互斥 — **已做**
+- B+：Cursor `applyAuthorization` 改道到本机 `8765`（独立 marker `SAND_LOCAL_BOT_GATEWAY_AUTH_V1`，可关网关剥离）— **已做**
 
 ## 后续
 
 - C：OpenAI `/v1/models` 兼容层（对齐 CPA 插件形态）  
-- D：登记/剥离 Box Relay marker，方便误装还原  
-- 路①：官方 Bot 宿主脚本整理（等网关线稳定后再做）
+- D：登记/剥离外置 Box Relay marker（v136），方便误装还原  
+- 票自动刷新（upstream.refresh）  
+- 路①：官方 Bot 宿主脚本整理

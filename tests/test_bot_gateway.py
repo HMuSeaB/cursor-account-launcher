@@ -206,3 +206,56 @@ def test_find_agent_id_in_record():
     assert find_agent_id_in_record({"agentId": "a-1", "id": "other"}) == "a-1"
     assert find_agent_id_in_record({"nested": {"id": "fallback-id"}}) == "fallback-id"
     assert find_agent_id_in_record({}) == ""
+
+
+def test_cursor_inject_roundtrip():
+    from bot_gateway.cursor_inject import (
+        MARKER,
+        ORIGINALS,
+        InjectError,
+        apply_to_content,
+        foreign_markers_in,
+        remove_from_content,
+    )
+
+    host = (
+        "applyAuthorization(e,t){return a(this,void 0,void 0,function*(){"
+        "var n,r,o,s,i,a,l,c,u,d,m,p;if(t.overrideAuthToken){doStuff()}"
+    )
+    local = (
+        "applyAuthorization(e,t){return a(this,void 0,void 0,function*(){"
+        "var n,r,s,o,i,a,l,u,m,c,d,p;if(t.overrideAuthToken){doStuff()}"
+    )
+    content = "//hdr\n" + host + "\n" + local + "\n//end\n"
+    patched, n = apply_to_content(content)
+    assert n == 2
+    assert MARKER in patched
+    assert "CursorLauncher" in patched
+    assert "listen.json" in patched
+    # idempotent
+    again, n2 = apply_to_content(patched)
+    assert n2 == 0
+    assert again == patched
+    restored, stripped = remove_from_content(patched)
+    assert stripped == 2
+    assert MARKER not in restored
+    assert ORIGINALS[0] in restored
+    assert ORIGINALS[1] in restored
+
+    with pytest.raises(InjectError):
+        apply_to_content("x/*SAND_DIRECT_INFERENCE_STREAM_V1*/" + ORIGINALS[0] + "y")
+    assert foreign_markers_in("/*SAND_GROK_BOX_RELAY_AUTH_V1*/") == [
+        "/*SAND_GROK_BOX_RELAY_AUTH_V1*/"
+    ]
+
+
+def test_write_listen_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from bot_gateway import cursor_inject as inj
+
+    path = tmp_path / "listen.json"
+    monkeypatch.setenv("BOT_GATEWAY_LISTEN_CONFIG", str(path))
+    out = inj.write_listen_config(host="127.0.0.1", port=8765)
+    assert out == path
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["baseUrl"] == "http://127.0.0.1:8765"
+    assert data["relayPath"].startswith("/sand-stream-relay/")

@@ -29,11 +29,11 @@
 
 | 搬 | 不搬 |
 |----|------|
-| `BOX_RELAY_PROVISION_PROMPT` + `createAgent` + `sendPrompt`（先开 `/events`）+ Connect 帧探测 | `provision_and_install` 里的 Cursor `applyAuthorization` 注入 |
+| `BOX_RELAY_PROVISION_PROMPT` + `createAgent` + `sendPrompt`（先开 `/events`）+ Connect 帧探测 | Claimer 的 Cursor `applyAuthorization` 注入（启动器改用独立 marker 指本机 8765） |
 | EnsureSandBox 领票写 `upstream.json` | 旧 STREAM_RPC / LOCAL_ACTIONS「打补丁」核 |
 | agent 复用状态（防重复扣费） | 会员伪装 / sand_advanced |
 
-本仓库已落到：`bot_gateway/provision.py`（领票）+ `bot_gateway/box_mount.py`（挂路由）。UI「领取并挂路由」= 领票+挂路由；「开本机网关」= 本机监听且禁 Direct。
+本仓库已落到：`provision.py`（领票）+ `box_mount.py`（挂路由）+ `cursor_inject.py`（Cursor→本机）+ 本机监听。UI「开本机网关」= 写 listen.json + 注入 + 启动进程。
 
 ---
 

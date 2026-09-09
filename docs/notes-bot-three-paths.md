@@ -2,7 +2,7 @@
 
 **对象**：9/9 服务端改口径之后，如何继续使用 Grok Bot / Sand 高级模型。  
 **关联**：[notes-box-relay-v136.md](notes-box-relay-v136.md) · [notes-sandclaimer-142.md](notes-sandclaimer-142.md) · [notes-sandclaimer-148.md](notes-sandclaimer-148.md) · [notes-storm-dock.md](notes-storm-dock.md) · [plan-bot-gateway.md](plan-bot-gateway.md)  
-**代码**：[`bot_gateway/`](../bot_gateway/)（领票 + 挂路由 + 本机转发；不改 Cursor）。
+**代码**：[`bot_gateway/`](../bot_gateway/)（领票 + 挂路由 + 本机转发 + Cursor 改道注入）。
 
 ## A 是什么（领票 + 挂路由）
 
@@ -20,7 +20,13 @@ A **不是**：改 Cursor 安装目录。若仍长期 404，看 Box Agent 是否
 
 ## B 是什么（本机改道）
 
-B 在 `127.0.0.1:8765` 监听与 Box 相同的 Stream 路径，并打开「网关模式」：此时 **禁止再打 Direct**。Cursor 要真正走到本机端口，还需要把 Stream URL 指过来；本轮 **不自动注入** JS（防止和 Direct 抢 `applyAuthorization`）。
+B 在 `127.0.0.1:8765` 监听与 Box 相同的 Stream 路径，并打开「网关模式」：此时 **禁止再打 Direct**。启用时会：
+
+1. 写 `%LOCALAPPDATA%\CursorLauncher\bot-gateway\listen.json`（`baseUrl=http://127.0.0.1:8765`）
+2. 在 `cursor-agent-host` / `cursor-always-local` 的 `applyAuthorization` 注入独立 marker `SAND_LOCAL_BOT_GATEWAY_AUTH_V1`（仅 InferenceService.Stream）
+3. 启动本机网关进程；关网关时剥离该注入
+
+须先关 Cursor 再开/关。若已有 Direct 或 v136 `SAND_GROK_BOX_RELAY_AUTH_V1`，拒绝启用。
 
 
 ---
@@ -52,7 +58,7 @@ B 在 `127.0.0.1:8765` 监听与 Box 相同的 Stream 路径，并打开「网�
 2. **① 当对照**：Bot 里能跑通的模型 / 头，才是网关该转发的。  
 3. **③ 收缩**：启动器保留 Task/Action/原生体验补丁；外围大一统脚本进档案，不再加码「伪装计额度」。
 
-未立项（见 plan）：EnsureSandBox 真开箱、Cursor `applyAuthorization` 改道接到本机网关、CPA 插件形态合并。
+未立项（见 plan）：CPA `/v1/models` 兼容层、外置 v136 marker 一键剥离、路①宿主脚本。
 
 ---
 

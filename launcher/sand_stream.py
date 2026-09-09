@@ -2813,6 +2813,7 @@ def apply(
     include_subagent = bool(include_subagent) if profile == "full" else False
     try:
         from launcher.bot_gateway_ctl import is_gateway_mode
+        from bot_gateway.cursor_inject import MARKER as BOT_GW_MARKER
 
         if is_gateway_mode():
             return {
@@ -2820,9 +2821,22 @@ def apply(
                 "error": "已启用 Bot 网关模式，不能再打 Direct Stream。请先在 Bot 栏关掉本机网关，或先还原网关模式。",
             }
     except Exception:
-        pass
+        BOT_GW_MARKER = ""
     if is_cursor_running():
         return {"ok": False, "error": "请先关闭 IDE，再启用 Sand Stream", "running": True}
+    # 若残留本机网关 applyAuthorization 注入，也不要叠 Direct
+    if BOT_GW_MARKER:
+        try:
+            layout_probe = build_layout()
+            for target in layout_probe.target_paths:
+                text = target.read_text(encoding="utf-8", errors="ignore")
+                if BOT_GW_MARKER in text:
+                    return {
+                        "ok": False,
+                        "error": "检测到本机 Bot 网关改道注入。请先在设置里「关本机网关」剥离后再打 Direct。",
+                    }
+        except Exception:
+            pass
     log = _ProgressLog(on_progress)
     log.begin("layout", "读取安装目录")
     log.emit(6, "读取 Cursor 安装目录…")

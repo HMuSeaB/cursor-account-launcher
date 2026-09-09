@@ -3257,11 +3257,14 @@ async function refreshBotGateway() {
       return;
     }
     const up = res.upstream || {};
+    const inj = res.cursorInject || {};
     const lines = [
       res.modeEnabled ? "模式：本机网关开" : "模式：关（仍可用 Direct）",
       res.process?.running ? `进程：pid ${res.process.pid}` : "进程：未监听",
       up.configured ? `上游：${up.baseUrlHost} 票已加载` : "上游：还没有 Box 票",
+      inj.injected ? `Cursor 改道：已注入（${inj.totalHits || 0}）` : "Cursor 改道：未注入",
       res.conflictDirect ? "冲突：已检测到 Direct 补丁，不要叠打" : "Direct：未检测到（或无法扫描）",
+      res.conflictForeign ? `冲突：外置 relay ${((inj.foreign) || []).join(",")}` : "",
       res.localStreamUrl ? `本机入口：${res.localStreamUrl}` : "",
       res.note || "",
     ].filter(Boolean);
@@ -3281,7 +3284,7 @@ async function runBotGw(kind) {
     else res = await api().bot_gateway_disable();
     await refreshBotGateway();
     if (!res?.ok) return toast(res?.error || "失败");
-    toast(res.note || res.message || res.cursorHint || "完成");
+    toast(res.note || res.message || "完成");
   } catch (e) {
     toast(String(e));
   }

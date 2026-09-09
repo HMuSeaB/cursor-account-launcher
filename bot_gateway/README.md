@@ -2,8 +2,8 @@
 
 本地 HTTP 服务，契约对齐 v136 的 `grok-box-relay.json`。
 
-- **做**：EnsureSandBox 领票、尽量在 Box 挂 `/sand-stream-relay`、本机 `/health` + Stream 透传。
-- **不做**：改 Cursor JS、与启动器 Direct 叠打。
+- **做**：EnsureSandBox 领票、Box 挂 `/sand-stream-relay`、本机 `/health`+Stream 透传、Cursor 注入指到本机（可还原）。
+- **不做**：Direct / Joe / RPC 叠打；不写 v136 的 `SAND_GROK_BOX_RELAY_AUTH_V1`。
 
 详见 `docs/notes-bot-three-paths.md`、`docs/plan-bot-gateway.md`、`docs/notes-sandclaimer-148.md`。
 
@@ -11,8 +11,10 @@
 
 ```powershell
 cd cursor-launcher
-python -m bot_gateway provision   # A：领票 + 挂路由 → upstream.json
-python -m bot_gateway             # 监听 127.0.0.1:8765
+python -m bot_gateway provision   # 领票 + 挂路由 → upstream.json
+# 关闭 Cursor 后：
+# 启动器设置 →「开本机网关」会写 listen.json、注入 JS、监听 8765
+python -m bot_gateway             # 仅监听（不含 Cursor 注入）
 ```
 
 ## Upstream 配置
