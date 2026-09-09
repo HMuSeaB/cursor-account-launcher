@@ -22,6 +22,7 @@ Windows 桌面版 **Cursor 账号启动器**（非官方），基于 Python + py
 - 主界面补丁自检与一键补齐（网关原生 + 仅 MAX + 500k + 代理）
 - 设置里可读 Cursor 日志，归因崩溃（尤其是刚装的插件）
 - 可选 Sand Stream：完整档（工具 / Task V3）或仅 Stream（Grok Bot Direct）
+- **实验**：本地 Bot 网关骨架 `python -m bot_gateway`（路②；见 `docs/notes-bot-three-paths.md`，默认不挂进补丁 apply）
 - 登录设备管理 / 会话守卫
 - 代理：settings / argv / 环境变量（仅「保存」写入；启动只带进程参数）；网关路由；可选进程级 `version.dll`（易闪退，非必要别用）
 - 禁用 Cursor 自动更新（settings + Windows 更新器拦截）

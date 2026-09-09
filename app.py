@@ -605,6 +605,38 @@ class Api(PatchesApiMixin):
             "正在还原 Grok Bot…",
         )
 
+    def bot_gateway_status(self) -> dict:
+        from launcher.bot_gateway_ctl import status as gw_status
+
+        try:
+            return gw_status()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def bot_gateway_provision(self) -> dict:
+        from launcher.bot_gateway_ctl import provision as gw_provision
+
+        try:
+            return gw_provision()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def bot_gateway_enable(self) -> dict:
+        from launcher.bot_gateway_ctl import enable_redirect
+
+        try:
+            return enable_redirect()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def bot_gateway_disable(self) -> dict:
+        from launcher.bot_gateway_ctl import stop_gateway
+
+        try:
+            return stop_gateway()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
     def ctxwin_apply_start(self) -> dict:
         def job(cb):
             steps = [{"id": "host", "label": "extensionHostProcess.js", "status": "run", "detail": ""}]

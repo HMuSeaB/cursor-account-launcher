@@ -2811,6 +2811,16 @@ def apply(
 ) -> dict[str, Any]:
     profile = _normalize_profile(profile)
     include_subagent = bool(include_subagent) if profile == "full" else False
+    try:
+        from launcher.bot_gateway_ctl import is_gateway_mode
+
+        if is_gateway_mode():
+            return {
+                "ok": False,
+                "error": "已启用 Bot 网关模式，不能再打 Direct Stream。请先在 Bot 栏关掉本机网关，或先还原网关模式。",
+            }
+    except Exception:
+        pass
     if is_cursor_running():
         return {"ok": False, "error": "请先关闭 IDE，再启用 Sand Stream", "running": True}
     log = _ProgressLog(on_progress)

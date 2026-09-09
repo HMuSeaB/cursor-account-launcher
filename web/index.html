@@ -211,6 +211,15 @@
             <button type="button" class="btn ghost" id="btnSandStreamRestore" data-needs-closed>还原</button>
             <button type="button" class="btn ghost" id="btnSandStreamRefresh">刷新</button>
           </div>
+          <h3 class="settings-title">Bot 网关（路②，实验）</h3>
+          <p class="hint settings-hint" id="botGwCopy">A=用当前 Cursor 登录号领 Box 短票，并尽量在云端 Box 挂上 /sand-stream-relay（对照 Claimer 1.4.8 / v136）。B=本机 8765 监听，禁止叠 Direct。本轮仍不自动改 Cursor JS。</p>
+          <pre class="mini" id="botGwInfo">—</pre>
+          <div class="guard-actions">
+            <button type="button" class="btn" id="btnBotGwProvision">领取并挂路由</button>
+            <button type="button" class="btn ghost" id="btnBotGwEnable">开本机网关</button>
+            <button type="button" class="btn ghost" id="btnBotGwDisable">关本机网关</button>
+            <button type="button" class="btn ghost" id="btnBotGwRefresh">刷新网关</button>
+          </div>
           <div class="sand-job" id="sandJobBox" hidden>
             <p class="sand-subhead" id="sandJobHead">本次写入</p>
             <ol class="sand-job-log" id="sandJobSteps"></ol>

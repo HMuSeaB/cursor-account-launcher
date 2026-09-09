@@ -952,7 +952,10 @@ async function refreshCursorStatus(opts = {}) {
     paintSettingsMeta(res);
     if (opts.ctxwin) refreshCtxwin();
     if (opts.modelUnlock) refreshModelUnlock();
-    if (opts.sandStream) refreshSandStream();
+    if (opts.sandStream) {
+      refreshSandStream();
+      refreshBotGateway();
+    }
     maybePaintLocalCards();
     return;
   }
@@ -1003,7 +1006,10 @@ async function refreshCursorStatus(opts = {}) {
   }
   if (opts.ctxwin) refreshCtxwin();
   if (opts.modelUnlock) refreshModelUnlock();
-  if (opts.sandStream) refreshSandStream();
+  if (opts.sandStream) {
+    refreshSandStream();
+    if (typeof refreshBotGateway === "function") refreshBotGateway();
+  }
   if (opts.update !== false) refreshUpdateStatus();
   maybePaintLocalCards();
 }
@@ -3239,6 +3245,52 @@ if ($("btnSandStreamApplyStream")) $("btnSandStreamApplyStream").onclick = () =>
 if ($("btnSandStreamRestore")) $("btnSandStreamRestore").onclick = () => runSandStream("restore");
 if ($("btnSandStreamRefresh")) $("btnSandStreamRefresh").onclick = () => refreshSandStream();
 if ($("sandIncludeSubagent")) $("sandIncludeSubagent").onchange = () => refreshSandStream();
+
+async function refreshBotGateway() {
+  const pre = $("botGwInfo");
+  const copy = $("botGwCopy");
+  if (!pre && !copy) return;
+  try {
+    const res = await api().bot_gateway_status();
+    if (!res?.ok) {
+      if (pre) pre.textContent = res?.error || "网关状态不可用";
+      return;
+    }
+    const up = res.upstream || {};
+    const lines = [
+      res.modeEnabled ? "模式：本机网关开" : "模式：关（仍可用 Direct）",
+      res.process?.running ? `进程：pid ${res.process.pid}` : "进程：未监听",
+      up.configured ? `上游：${up.baseUrlHost} 票已加载` : "上游：还没有 Box 票",
+      res.conflictDirect ? "冲突：已检测到 Direct 补丁，不要叠打" : "Direct：未检测到（或无法扫描）",
+      res.localStreamUrl ? `本机入口：${res.localStreamUrl}` : "",
+      res.note || "",
+    ].filter(Boolean);
+    if (pre) pre.textContent = lines.join("\n");
+  } catch (e) {
+    if (pre) pre.textContent = String(e);
+  }
+}
+
+async function runBotGw(kind) {
+  const labels = { provision: "领取并挂路由", enable: "开本机网关", disable: "关本机网关" };
+  toast((labels[kind] || kind) + "…");
+  try {
+    let res;
+    if (kind === "provision") res = await api().bot_gateway_provision();
+    else if (kind === "enable") res = await api().bot_gateway_enable();
+    else res = await api().bot_gateway_disable();
+    await refreshBotGateway();
+    if (!res?.ok) return toast(res?.error || "失败");
+    toast(res.note || res.message || res.cursorHint || "完成");
+  } catch (e) {
+    toast(String(e));
+  }
+}
+
+if ($("btnBotGwProvision")) $("btnBotGwProvision").onclick = () => runBotGw("provision");
+if ($("btnBotGwEnable")) $("btnBotGwEnable").onclick = () => runBotGw("enable");
+if ($("btnBotGwDisable")) $("btnBotGwDisable").onclick = () => runBotGw("disable");
+if ($("btnBotGwRefresh")) $("btnBotGwRefresh").onclick = () => refreshBotGateway();
 $("sandCatHeader")?.addEventListener("toggle", () => _sandPaintHeaderCat());
 $("sandCatPkgs")?.addEventListener("toggle", () => _sandPaintPkgsCat());
 $("sandCatRules")?.addEventListener("toggle", () => _sandPaintRulesCat());

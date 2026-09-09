@@ -2,7 +2,9 @@
 
 **对象**：`za/1/8.24/Bot/` 根目录下原先散落的 7 个文件/压缩包  
 **对照**：`cursor-launcher`（启动器）现行架构（双轨 3.18/3.19、Joe Direct、Task V3、Action V2、原生网关、账号管家）  
-**归档更新**：散落文件已分类归档入 `Bot/extensions/`、`Bot/installers/`、`Bot/archives/` 并同步更新 `Bot/README.md`。
+**归档更新**：
+- 第一批散落文件已分类归档入 `Bot/extensions/`、`Bot/installers/`、`Bot/archives/` 并同步更新 `Bot/README.md`。
+- 第二批（2026-09-09 根目录再散落的 4 个 `.py` + 4 个压缩包）同样已归入 `Bot/installers/` 与 `Bot/archives/`；浏览器重复下载的 `(1)` 后缀已去掉。根目录只保留 `README.md`。
 
 ---
 
@@ -67,3 +69,73 @@
    - **日常编码与主要环境**：使用 `cursor-launcher` 启动器（双轨自适应、原生网关代理、进程守护、切号与更新屏蔽）。
    - **扩展轻量辅助**：可安装 `cursor-sand-claimer-1.0.52.vsix`，仅用于**在 IDE 状态栏内查看额度或快速切换 Token**，**严禁点击打补丁**。
    - **远程开发场景**：若需要使用 Cursor 连接 Remote-SSH 服务器，可解压 `archives/SandClientMode-v1.8.1-modular.zip` 按照其说明在 Linux 服务器端配置 `cursor-server`。
+
+---
+
+## 4. 第二批散落文件（2026-09-09）
+
+| 文件原名 | 整理后归档路径 | 版本标识 | 核心定位与技术特征 |
+| :--- | :--- | :--- | :--- |
+| **`sand_stream_installer_v134.py`** | `installers/sand_stream_installer_v134.py` | `1.3.4-grokbot-box-relay.4`<br>仅 `3.18.9` | Box Relay Stream：Direct 会话 + 经 Grok Bot Box 网关走 InferenceService.Stream；23 个 Client Marker。 |
+| **`sand_stream_installer_tools_grokbot_box_relay_v135.py`** | `installers/sand_stream_installer_tools_grokbot_box_relay_v135.py` | `1.4.0-grokbot-box-relay.1`<br>仅 `3.19.13` | 同族 Box Relay，目标切到 3.19.13；无 Linux 3.18.9 sibling 层。 |
+| **`sand_stream_installer_tools_grokbot_box_relay_v136(1).py`** | `installers/sand_stream_installer_tools_grokbot_box_relay_v136.py` | `1.4.4-grokbot-box-relay.2-linux31913`<br>原生 `3.19.13`，Linux 兼容 `3.18.9` | 本批最新 Box Relay。3.19.13 走本脚本锚点；Linux 3.18.9 委托 sibling Direct v131，两套锚点不混打。`(1)` 为重复下载后缀，已去掉。 |
+| **`Sand客户端模式安装工具20260909.py`** | `installers/sand_client_mode_installer_v1.9.0.py` | `1.9.0`<br>`3.18.9` / `3.19.13` | 双版本客户端模式安装器。含 Box 自动唤醒、唯一名 Sand Relay Agent（find-or-create）、Stream 元数据诊断。 |
+| **`SandClaimer-源码分享-1.4.2.zip`** | `archives/SandClaimer-源码分享-1.4.2.zip` | 源码包 1.4.2 | 领取器源码分享；相对 1.3.x 新增 `grok_box.py` / `grok_login.py` / `grok_relay.py`。 |
+| **`SandClaimer-源码分享-1.3.2.zip`** | `archives/SandClaimer-源码分享-1.3.2.zip` | 源码包 1.3.2 | 与已解压的 `archives/SandClaimer-源码分享-1.3.1/` 同族更早包。 |
+| **`SandClaimer-1.3.3魔改.rar`** | `archives/SandClaimer-1.3.3魔改.rar` | 1.3.3 魔改 | 第三方改包，未解压；仅归档。 |
+| **`grok-bot-反代.zip`** | `archives/grok-bot-反代.zip` | Go 插件树 | 顶层仅 `plugin/`（protocol / host / executor / auth / `cpa-grok-bot-plugin`）。体积约 27 MB，含 `__MACOSX` 与 `.git`。 |
+
+与启动器的关系（本批补充）：
+
+- Box Relay 系列把 Stream 指到 Grok Bot Box 网关，而启动器走本机原生网关；**不要叠打**。
+- `v134` 写死 3.18.9，`v135` 写死 3.19.13；只有 `v136` 和客户端 `1.9.0` 同时覆盖两个版本族，但仍是外围单脚本，没有启动器的双轨嗅探与 Task V3 / Action V2 纪律。
+- `v136` 的 Linux 3.18.9 路径依赖 `installers/sand_stream_installer_tools_grokbot_direct_v131.py` 作为 patch owner，缺该文件则兼容层不可用。
+
+---
+
+## 5. 9/9 之后的关键更新（v136 + Claimer 1.4.2 / 1.4.8）
+
+**深度对照**（规格对齐既有 `notes-installer-132` / `notes-sandclaimer-131`）：
+
+- [notes-box-relay-v136.md](notes-box-relay-v136.md) — 独立 Box Relay 安装器  
+- [notes-sandclaimer-142.md](notes-sandclaimer-142.md) — 源码分享 1.4.2（领号 + 内嵌 grok_box）  
+- [notes-sandclaimer-148.md](notes-sandclaimer-148.md) — 1.4.8 + 飙车群 1.1.3（挂路由引擎更完整；启动器网关已对齐领票+挂路由）
+
+### 5.1 服务端分水岭
+
+从 **2026-09-09** 起，服务端不再接受「Cursor 登录票 + `sand` 身份」直连 `InferenceService.Stream`（同路径 9/8 正常、9/9 起 401；直连 api2 回 `Sand traffic is not supported on this endpoint`）。外围结论：**只改客户端伪装已经无法计 Bot 额度**；可行路径是请求从 Grok Bot **云端 Box** 带 Bot 票出去。
+
+### 5.2 两份产物的角色分工
+
+| 产物 | 版本真相 | 干什么 | 不干什么 |
+|------|----------|--------|----------|
+| **独立 v136** | `1.4.4-grokbot-box-relay.2-linux31913` | `setup-all`：EnsureSandBox → Box 内 relay → 注入 `applyAuthorization`（含票自刷新） | 不管领号、不做启动器管家 |
+| **Claimer 1.4.2** | `sand_patch=1.4.2`；内嵌 `grok_box=1.4.4-….1`（无 Linux sibling） | 领号 +「一键接入 Grok」（进程内跑 grok_box）；「打补丁」仍是 STREAM_RPC 核，但**不再**在 apply 里注入 Grok 改道 | 不替代启动器；3.19.13 接 Grok 时**禁止**再点「打补丁」 |
+
+独立 v136 与包内 `grok_box.py` **不是同一文件**（相似度约 0.94）。需要 Linux 3.18.9 Box 时用独立 v136 + sibling v131。
+
+### 5.3 对 `cursor-launcher` 的即时含义
+
+1. `launcher/sand_stream.py`（1.3.1）对 Box Relay **零认知** → 误装后 status/restore 解释不清、可能剥不干净。  
+2. 日常纪律不变：启动器环境不要跑 v136 / Claimer 补丁 /「一键接入 Grok」。  
+3. **未立项**：先真机确认启动器 Direct 在 9/9 后是否仍计额度 → 再决定文案边界或「仅登记/剥离」Box Relay marker；**禁止**先把 EnsureSandBox 整包搬进 apply。
+
+### 5.4 Storm Dock（账号坞，不是补丁器）
+
+开源桌面坞 [tangsj-hub/Storm-Dock](https://github.com/tangsj-hub/Storm-Dock)（v1.3.0，Tauri）。管 Cursor / ChatGPT / Grok Build 账号；另有 `grok_bot` 模块把 Cursor JWT 写入 Grok Bot 桌面 `sand-secrets.json`（Claimer `grok_login.py` 同源）。
+
+- **不**注入 Cursor workbench / agent-host，与启动器补丁核一般不叠打。  
+- **不能**替代 v136：它不装 Box 内 relay。桌面写票路正是 Claimer 因 404 废弃的那条。  
+- 深度对照：[notes-storm-dock.md](notes-storm-dock.md)
+
+### 5.5 三路收敛 + 本机网关骨架
+
+产品判断见 [notes-bot-three-paths.md](notes-bot-three-paths.md)；实施见 [plan-bot-gateway.md](plan-bot-gateway.md)。
+
+| 路 | 定位 |
+|----|------|
+| ① 官方 Bot | 真源：在 Bot 里直接调高级模型（网关线稳定后再补宿主脚本） |
+| ② Bot 网关 | 主推进：`bot_gateway/` 领票 + Box 挂路由 + 本机转发（仍不写 Cursor） |
+| ③ 脚本补丁 | 收缩为 IDE 纪律；不再当计额度主方案 |
+
+`python -m bot_gateway` 默认 `127.0.0.1:8765`；upstream 契约对齐 `grok-box-relay.json`。**不**写 Cursor、**不**跑 EnsureSandBox（后续见 plan）。
