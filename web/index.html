@@ -352,6 +352,21 @@
           </div>
           <pre class="mini" id="shortcutInfo">—</pre>
         </section>
+
+        <section class="settings-panel mcp-panel" style="grid-column: 1 / -1;">
+          <div class="mcp-panel-header">
+            <div>
+              <h3 class="settings-title" style="margin-bottom:2px">插件与 CLI MCP 服务管理</h3>
+              <p class="hint settings-hint">管控 Cursor 扩展插件（tc-mcp、Tiancai、池鸢等）与独立命令行 CLI 读取的 MCP 服务。支持一键禁用，以及带安全备份与二次风险确认的彻底删除。</p>
+            </div>
+            <div class="mcp-header-actions">
+              <button type="button" class="btn ghost btn-sm" id="btnRefreshMcp">刷新服务</button>
+            </div>
+          </div>
+          <div class="mcp-server-list" id="mcpServerList">
+            <p class="hint" style="padding:12px 0">正在扫描 MCP 服务…</p>
+          </div>
+        </section>
       </div>
     </div>
     <details class="card settings-fold" id="settingsFold" hidden>
@@ -524,6 +539,41 @@
         <button type="button" class="btn ghost" id="btnShortcutSkip">以后再说</button>
         <span class="spacer"></span>
         <button type="button" class="btn primary" id="btnShortcutCreate">创建</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="mcpDeleteDialog" class="modal">
+    <div class="modal-box" style="max-width:440px">
+      <div class="modal-head">
+        <div>
+          <h2 style="color:var(--danger)">彻底删除 MCP 服务</h2>
+          <p class="hint" style="margin:4px 0 0">此操作将直接修改磁盘配置文件，不可撤销</p>
+        </div>
+        <button type="button" class="icon-btn modal-close" id="btnMcpDeleteCancel" aria-label="关闭">×</button>
+      </div>
+      <div class="modal-scroll">
+        <div class="alert-box danger" style="margin-bottom:12px;padding:10px;border-radius:var(--radius-sm);background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);color:var(--danger)">
+          <strong>⚠️ 高风险操作警告：</strong>
+          <p style="margin:4px 0 0;font-size:12px;line-height:1.5">
+            您即将从配置文件中彻底移除此 MCP。如果某个已安装的 Cursor 插件（如 tc-mcp/天才）依赖它，删除后插件功能将彻底失效。
+          </p>
+        </div>
+        <div class="field-label">目标服务名称</div>
+        <div id="mcpDeleteTargetName" class="token-box" style="margin-bottom:10px;font-weight:600"></div>
+
+        <div class="field-label">所在配置文件</div>
+        <div id="mcpDeleteTargetFile" class="mini" style="margin-bottom:10px;word-break:break-all"></div>
+
+        <label class="check-row" id="mcpCleanDirsRow" style="margin-top:6px" hidden>
+          <input type="checkbox" id="mcpCleanDirsCheck" checked /> 同时归档清理关联的数据缓存目录（安全重命名为 .deleted_*）
+        </label>
+        <p class="hint" style="margin-top:8px">系统将在删除前自动在同级目录生成带时间戳的 <code>.bak-purge-*</code> 安全备份。</p>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="btnMcpDeleteCancel2">取消</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn danger" id="btnConfirmDeleteMcp">确认彻底删除</button>
       </div>
     </div>
   </dialog>

@@ -261,7 +261,10 @@ class Api(PatchesApiMixin):
     def refresh_all_accounts(self) -> dict:
         refreshed = []
         errors = []
-        for acct in self._store.list():
+        items = self._store.list()
+        for idx, acct in enumerate(items):
+            if idx > 0:
+                time.sleep(0.35)  # 平滑请求间隔，避免单 IP 突发高频探测被官方 WAF 判定号池
             res = self.refresh_account(acct["id"])
             if res.get("ok"):
                 refreshed.append(acct["id"])
@@ -912,6 +915,31 @@ class Api(PatchesApiMixin):
                 result["accountId"] = account_id
             result["saved"] = bool(save)
         return result
+
+    def get_mcp_servers(self, workspace: str = "") -> dict:
+        """获取所有已发现的 MCP 服务列表（全局与工作区）。"""
+        from launcher.mcp_manager import list_mcp_servers
+        try:
+            servers = list_mcp_servers(workspace=workspace.strip() or None)
+            return {"ok": True, "servers": servers}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "servers": []}
+
+    def toggle_mcp_server(self, file_path: str, server_name: str, disabled: bool) -> dict:
+        """切换 MCP 服务的禁用/启用状态。"""
+        from launcher.mcp_manager import toggle_mcp_server
+        try:
+            return toggle_mcp_server(file_path=file_path, server_name=server_name, disabled=disabled)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def delete_mcp_server(self, file_path: str, server_name: str, cleanup_data: bool = False) -> dict:
+        """彻底从配置中移除指定 MCP 服务，带安全备份与可选数据清理。"""
+        from launcher.mcp_manager import delete_mcp_server
+        try:
+            return delete_mcp_server(file_path=file_path, server_name=server_name, cleanup_data=cleanup_data)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
 
     def close_ide(self) -> dict:
         """关掉 Cursor，腾出内存。账号仍留在启动器。"""

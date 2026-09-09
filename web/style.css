@@ -1833,3 +1833,89 @@ html[data-theme="dark"] .sand-rule-fix {
   .field-grid, .settings-grid { grid-template-columns: 1fr; }
   .toolbar-actions { margin-left: 0; width: 100%; }
 }
+
+/* 插件与 CLI MCP 服务管理 */
+.mcp-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+  gap: 12px;
+}
+.mcp-header-actions {
+  display: flex;
+  gap: 8px;
+}
+.mcp-server-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mcp-card {
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: border-color .16s, box-shadow .16s;
+}
+.mcp-card:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+.mcp-card.is-disabled {
+  border-style: dashed;
+  background: rgba(0,0,0,0.015);
+}
+html[data-theme="dark"] .mcp-card.is-disabled {
+  background: rgba(255,255,255,0.02);
+}
+.mcp-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  gap: 8px;
+}
+.mcp-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.mcp-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mcp-card-cmd {
+  background: rgba(0,0,0,0.03);
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-x: auto;
+  white-space: nowrap;
+  color: var(--text-muted);
+  border: 1px solid rgba(0,0,0,0.04);
+}
+html[data-theme="dark"] .mcp-card-cmd {
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,255,255,0.06);
+}
+.mcp-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--muted, #888);
+}
+.mcp-empty-state {
+  text-align: center;
+  padding: 24px 12px;
+  color: var(--muted, #888);
+  font-size: 13px;
+}
+

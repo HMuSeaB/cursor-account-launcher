@@ -448,8 +448,11 @@ function renderAccountCard(a) {
   const badges = [];
   if (local) badges.push('<span class="tag local">本机</span>');
   badges.push(`<span class="tag ${mClass}">${esc(membershipLabel(a.membershipType))}</span>`);
-  if (hasWsToken(a)) badges.push('<span class="tag pro">WS</span>');
-  else badges.push('<span class="tag custom">JWT</span>');
+  if (hasWsToken(a)) {
+    badges.push('<span class="tag pro" title="完整 WorkOS Session Token（长效稳定，支持设备与用量管理）">长效 WS</span>');
+  } else {
+    badges.push('<span class="tag trial" title="纯短期 Access Token（仅约1小时有效，无法自动续期，容易失效掉号），建议提供 user_xxx:: 完整 Session Token">临时 acc (易掉)</span>');
+  }
   if (a.hasApiKey) badges.push('<span class="tag teal">CLI</span>');
   const machineShort = a.machineIdShort || "";
   if (machineShort) {
@@ -2363,6 +2366,143 @@ async function launchCliDirect() {
   }
 }
 
+let _mcpServersCache = [];
+let _pendingDeleteMcp = null;
+
+async function loadMcpServers() {
+  const container = $("mcpServerList");
+  if (!container) return;
+  if (!api()?.get_mcp_servers) {
+    container.innerHTML = '<p class="hint">当前版本 API 未提供 MCP 管理接口</p>';
+    return;
+  }
+  container.innerHTML = '<p class="hint" style="padding:8px 0">正在扫描 MCP 服务配置…</p>';
+  try {
+    const res = await api().get_mcp_servers();
+    if (!res?.ok) {
+      container.innerHTML = `<p class="hint" style="color:var(--danger)">扫描失败: ${esc(res?.error || "未知错误")}</p>`;
+      return;
+    }
+    _mcpServersCache = res.servers || [];
+    renderMcpServers(_mcpServersCache);
+  } catch (err) {
+    container.innerHTML = `<p class="hint" style="color:var(--danger)">读取异常: ${esc(String(err))}</p>`;
+  }
+}
+
+function renderMcpServers(servers) {
+  const container = $("mcpServerList");
+  if (!container) return;
+  if (!servers || !servers.length) {
+    container.innerHTML = `
+      <div class="mcp-empty-state">
+        <p>未在系统或工作区发现任何有效的 <code>mcp.json</code> 服务配置。</p>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = servers.map((s) => {
+    const scopeClass = s.scope === "global" ? "teal" : "pro";
+    const statusPill = s.disabled
+      ? '<span class="pill warn" style="font-size:11px">已禁用</span>'
+      : '<span class="pill ok" style="font-size:11px">启用中</span>';
+    const pluginTag = s.isPlugin
+      ? '<span class="tag trial" title="疑似由安装的 Cursor 插件注入">插件服务</span>'
+      : '';
+    const cmdLine = [s.command, ...(s.args || [])].join(" ");
+    const hasDirs = s.extraDirs && s.extraDirs.length > 0;
+    const dirsHint = hasDirs
+      ? `<span title="关联本地数据目录: ${esc(s.extraDirs.join(', '))}">📁 关联数据 (${s.extraDirs.length})</span>`
+      : '';
+
+    return `
+      <div class="mcp-card${s.disabled ? ' is-disabled' : ''}" data-mcp-id="${esc(s.id)}">
+        <div class="mcp-card-head">
+          <div class="mcp-card-title">
+            <span>${esc(s.name)}</span>
+            <span class="pill ${scopeClass}" style="font-size:11px">${esc(s.scopeLabel)}</span>
+            ${statusPill}
+            ${pluginTag}
+          </div>
+          <div class="mcp-card-actions">
+            <button type="button" class="btn btn-sm ${s.disabled ? 'primary' : 'ghost'}" data-action="toggle-mcp" data-mcp-id="${esc(s.id)}">
+              ${s.disabled ? '启用服务' : '禁用服务'}
+            </button>
+            <button type="button" class="btn btn-sm danger" data-action="delete-mcp" data-mcp-id="${esc(s.id)}">
+              彻底删除
+            </button>
+          </div>
+        </div>
+        <div class="mcp-card-cmd" title="${esc(cmdLine)}">${esc(cmdLine || '(无执行命令)')}</div>
+        <div class="mcp-card-meta">
+          <span title="${esc(s.filePath)}">📄 ${esc(s.filePath)}</span>
+          ${dirsHint}
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+async function toggleMcp(mcpId) {
+  const item = _mcpServersCache.find((s) => s.id === mcpId);
+  if (!item) return;
+  const targetDisabled = !item.disabled;
+  toast(`正在${targetDisabled ? "禁用" : "启用"} MCP: ${item.name}…`);
+  const res = await api().toggle_mcp_server(item.filePath, item.name, targetDisabled);
+  if (res?.ok) {
+    toast(`已${targetDisabled ? "禁用" : "启用"} ${item.name}（已备份 mcp.json.bak）`);
+    await loadMcpServers();
+  } else {
+    toast(`操作失败: ${res?.error || "未知错误"}`);
+  }
+}
+
+function promptDeleteMcp(mcpId) {
+  const item = _mcpServersCache.find((s) => s.id === mcpId);
+  if (!item) return;
+  _pendingDeleteMcp = item;
+
+  $("mcpDeleteTargetName").textContent = item.name + (item.isPlugin ? " (插件注入服务)" : "");
+  $("mcpDeleteTargetFile").textContent = item.filePath;
+  const cleanRow = $("mcpCleanDirsRow");
+  if (item.extraDirs && item.extraDirs.length > 0) {
+    cleanRow.hidden = false;
+    $("mcpCleanDirsCheck").checked = true;
+  } else {
+    cleanRow.hidden = true;
+    $("mcpCleanDirsCheck").checked = false;
+  }
+
+  const dlg = $("mcpDeleteDialog");
+  if (dlg) dlg.showModal();
+}
+
+function closeMcpDeleteDialog() {
+  const dlg = $("mcpDeleteDialog");
+  if (dlg?.open) dlg.close();
+  _pendingDeleteMcp = null;
+}
+
+async function confirmDeleteMcp() {
+  if (!_pendingDeleteMcp) return;
+  const item = _pendingDeleteMcp;
+  const cleanDirs = Boolean($("mcpCleanDirsCheck")?.checked);
+  closeMcpDeleteDialog();
+
+  toast(`正在彻底删除 MCP 服务: ${item.name}…`);
+  const res = await api().delete_mcp_server(item.filePath, item.name, cleanDirs);
+  if (res?.ok) {
+    let msg = `已彻底删除 ${item.name}（已生成安全备份）`;
+    if (res.cleanedDirs && res.cleanedDirs.length > 0) {
+      msg += `，并安全归档数据目录`;
+    }
+    toast(msg);
+    await loadMcpServers();
+  } else {
+    toast(`删除失败: ${res?.error || "未知错误"}`);
+  }
+}
+
 async function closeIde(opts = {}) {
   const skipConfirm = Boolean(opts.skipConfirm);
   if (!skipConfirm && !confirm("关闭 Cursor 以腾出内存？账号仍留在启动器里。")) return { ok: false, cancelled: true };
@@ -2688,6 +2828,7 @@ function initTabs() {
       if (!p.hidden) p.classList.add("active");
       else p.classList.remove("active");
     });
+    if (tabId === "tabSystem") loadMcpServers();
     try { localStorage.setItem(PREF_ACTIVE_TAB, tabId); } catch {}
   }
 
@@ -2744,6 +2885,8 @@ document.addEventListener("click", async (ev) => {
     await renderAccounts();
     return;
   }
+  if (action === "toggle-mcp") return toggleMcp(t.dataset.mcpId);
+  if (action === "delete-mcp") return promptDeleteMcp(t.dataset.mcpId);
   if (t.dataset.kick) {
     if (!confirm("确定踢掉该设备？")) return;
     const res = await api().revoke_session(activeAccountId, t.dataset.kick, t.dataset.type || null);
@@ -2773,6 +2916,14 @@ $("btnLaunchCliDirect").onclick = () => launchCliDirect();
 $("btnCliInstallHint").onclick = () => {
   alert("请在 Windows PowerShell 终端中执行官方安装命令：\n\nirm 'https://cursor.com/install?win32=true' | iex");
 };
+$("btnRefreshMcp")?.addEventListener("click", () => loadMcpServers());
+$("btnMcpDeleteCancel")?.addEventListener("click", closeMcpDeleteDialog);
+$("btnMcpDeleteCancel2")?.addEventListener("click", closeMcpDeleteDialog);
+$("btnConfirmDeleteMcp")?.addEventListener("click", confirmDeleteMcp);
+$("mcpDeleteDialog")?.addEventListener("cancel", (ev) => {
+  ev.preventDefault();
+  closeMcpDeleteDialog();
+});
 $("btnAdd").onclick = async (ev) => {
   ev.preventDefault();
   const rawInput = ($("tokenInput").value || "").trim();
@@ -2788,6 +2939,17 @@ $("btnAdd").onclick = async (ev) => {
       return launchCli(null, rawInput);
     }
     return toast("crsr_ Key 仅用于 CLI，IDE 登录需填 Session Token");
+  }
+  const hasWsFormat = rawInput.includes("::") || rawInput.includes("%3A%3A") || /workoscursorsessiontoken/i.test(rawInput);
+  const isPureJwt = /^eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}$/.test(rawInput.trim());
+  if (isPureJwt && !hasWsFormat) {
+    const wantAcc = confirm(
+      "⚠️ 风险提示：检测到您输入的是纯 Access Token（裸 JWT）\n\n" +
+      "• 掉号风险：纯 acc 仅有约 1 小时有效期，缺乏长效 Session 凭据（WorkosCursorSessionToken），无法正常自动续期。1 小时后 IDE 尝试刷新会话将失败，极易被官方判定异常而导致该账号在云端被强制吊销！\n\n" +
+      "• 强烈建议：提供以 user_xxx::eyJ… 开头的完整 Session Token，或直接粘贴整段浏览器 Cookie。\n\n" +
+      "是否仍要强制以【临时调试模式】导入该 Token？"
+    );
+    if (!wantAcc) return;
   }
   const res = await api().import_text(rawInput);
   if (!res.added) return toast("未识别到 token");
@@ -3334,7 +3496,12 @@ async function boot() {
     return setTimeout(boot, 120);
   }
   try {
-    await Promise.all([refreshCursorStatus({ ctxwin: true, modelUnlock: true, sandStream: true }), loadProxy(), renderAccounts()]);
+    await Promise.all([
+      refreshCursorStatus({ ctxwin: true, modelUnlock: true, sandStream: true }),
+      loadProxy(),
+      renderAccounts(),
+      loadMcpServers(),
+    ]);
     paintSettingsMeta(lastCursorStatus);
     startStatusWatch();
     await maybePromptShortcuts();
