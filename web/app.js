@@ -327,9 +327,11 @@ function tokenDetailSection(a) {
       <div class="progress-head">
         <strong>Agent API Key</strong>
         <span class="hint">${apiKey ? "已保存" : "未保存"}</span>
+        <button type="button" class="copy-link" id="btnToggleDetailApiKey">显示</button>
+        <button type="button" class="copy-link" id="btnCopyDetailApiKey">复制</button>
       </div>
       <input id="detailApiKey" class="token-box" type="password" spellcheck="false" value="${esc(apiKey)}" placeholder="crsr_…" />
-      <p class="hint token-hint">用于 Cursor Agent CLI（与 IDE 登录 Token 不同）。保存后可点卡片「CLI」一键启动。</p>
+      <p class="hint token-hint">用于 Cursor Agent CLI（与 IDE 登录 Token 不同）。可显示/复制；保存后可点卡片「CLI」一键启动。</p>
       <div class="guard-actions" style="margin-top:8px">
         <button type="button" class="btn" id="btnSaveApiKey">保存 API Key</button>
         <button type="button" class="btn primary" id="btnLaunchCliDetail">启动 CLI</button>
@@ -2332,6 +2334,10 @@ async function openCliDialog() {
   const dlg = $("cliDialog");
   if (!dlg) return;
   dlg.showModal();
+  const keyInput = $("cliApiKeyInput");
+  const toggleBtn = $("btnCliToggleKey");
+  if (keyInput) keyInput.type = "password";
+  if (toggleBtn) toggleBtn.textContent = "显示";
   if (api()?.get_cli_config) {
     const cfg = await api().get_cli_config();
     if (cfg?.ok) {
@@ -2348,6 +2354,29 @@ async function openCliDialog() {
       }
     }
   }
+}
+
+function toggleSecretInput(inputId, buttonId) {
+  const input = $(inputId);
+  const btn = $(buttonId);
+  if (!input) return;
+  const show = input.type === "password";
+  input.type = show ? "text" : "password";
+  if (btn) btn.textContent = show ? "隐藏" : "显示";
+}
+
+async function copyInputValue(inputId, emptyMsg) {
+  const value = String($(inputId)?.value || "").trim();
+  if (!value) return toast(emptyMsg || "没有可复制的内容");
+  await copyText(value);
+}
+
+async function browseCliWorkspace() {
+  if (!api()?.pick_directory) return toast("当前版本不支持文件夹选择");
+  const res = await api().pick_directory("选择 Agent CLI 工作区");
+  if (res?.cancelled) return;
+  if (!res?.ok) return toast(res?.error || "选择失败");
+  if ($("cliCwdInput")) $("cliCwdInput").value = res.path || "";
 }
 
 function closeCliDialog() {
@@ -2919,6 +2948,9 @@ $("cliDialog").addEventListener("cancel", (ev) => {
   closeCliDialog();
 });
 $("btnLaunchCliDirect").onclick = () => launchCliDirect();
+if ($("btnCliToggleKey")) $("btnCliToggleKey").onclick = () => toggleSecretInput("cliApiKeyInput", "btnCliToggleKey");
+if ($("btnCliCopyKey")) $("btnCliCopyKey").onclick = () => copyInputValue("cliApiKeyInput", "请先填写 API Key");
+if ($("btnCliBrowseCwd")) $("btnCliBrowseCwd").onclick = () => browseCliWorkspace();
 $("btnCliInstallHint").onclick = () => {
   alert("请在 Windows PowerShell 终端中执行官方安装命令：\n\nirm 'https://cursor.com/install?win32=true' | iex");
 };
@@ -3434,6 +3466,14 @@ $("detailBody").addEventListener("click", (ev) => {
   if (ev.target.id === "btnSaveApiKey") {
     ev.preventDefault();
     saveDetailApiKey();
+  }
+  if (ev.target.id === "btnToggleDetailApiKey") {
+    ev.preventDefault();
+    toggleSecretInput("detailApiKey", "btnToggleDetailApiKey");
+  }
+  if (ev.target.id === "btnCopyDetailApiKey") {
+    ev.preventDefault();
+    copyInputValue("detailApiKey", "请先填写或保存 API Key");
   }
   if (ev.target.id === "btnLaunchCliDetail") {
     ev.preventDefault();

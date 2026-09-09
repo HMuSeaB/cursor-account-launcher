@@ -1,7 +1,7 @@
 # 实施计划：Bot 网关骨架（路②）
 
 **目标**：在启动器仓库落地一个**可运行、可测、不写 Cursor** 的本地 Bot 网关骨架，契约对齐 v136 的 `grok-box-relay.json` + Stream 路径。  
-**对照**：[notes-bot-three-paths.md](notes-bot-three-paths.md) · [notes-box-relay-v136.md](notes-box-relay-v136.md) · `archives/grok-bot-反代.zip`（CPA 插件，另形态）  
+**对照**：[notes-bot-three-paths.md](notes-bot-three-paths.md) · [notes-box-relay-v136.md](notes-box-relay-v136.md) · [notes-cpa-grok-bot-056.md](notes-cpa-grok-bot-056.md)  
 **发版意向**：不 bump 启动器版本；`bot_gateway` 独立模块，默认不挂进 `sand_stream` apply。
 
 ---
@@ -78,7 +78,7 @@
 
 ## 后续
 
-- C：OpenAI `/v1/models` 兼容层（对齐 CPA 插件形态）  
+- C：OpenAI `/v1/models` 兼容层（对照 CPA 0.5.6；启动器网关仍无此外壳）  
 - D：登记/剥离外置 Box Relay marker（v136），方便误装还原  
 - 票自动刷新（upstream.refresh）  
 - 路①：官方 Bot 宿主脚本整理

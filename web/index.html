@@ -435,10 +435,17 @@
       </div>
       <div class="modal-scroll">
         <label class="field-label" for="cliApiKeyInput">Cursor API Key (crsr_…)</label>
-        <input id="cliApiKeyInput" type="password" spellcheck="false" placeholder="crsr_…" class="token-box" style="margin-bottom:12px" />
-        
+        <div class="field-row cli-field-row">
+          <input id="cliApiKeyInput" type="password" spellcheck="false" placeholder="crsr_…" class="token-box" />
+          <button type="button" class="btn ghost" id="btnCliToggleKey" title="显示或隐藏密钥">显示</button>
+          <button type="button" class="btn ghost" id="btnCliCopyKey" title="复制密钥">复制</button>
+        </div>
+
         <label class="field-label" for="cliCwdInput">工作区目录 (Workspace)</label>
-        <input id="cliCwdInput" spellcheck="false" placeholder="留空则使用当前目录" style="margin-bottom:12px" />
+        <div class="field-row cli-field-row">
+          <input id="cliCwdInput" spellcheck="false" placeholder="留空则使用当前目录" />
+          <button type="button" class="btn ghost" id="btnCliBrowseCwd" title="用资源管理器选择文件夹">浏览…</button>
+        </div>
 
         <label class="field-label" for="cliPromptInput">初始任务 / 提示词 (可选)</label>
         <input id="cliPromptInput" spellcheck="false" placeholder="例如：帮我分析当前项目结构" style="margin-bottom:12px" />

@@ -84,6 +84,7 @@
 | **`SandClaimer-源码分享-1.3.2.zip`** | `archives/SandClaimer-源码分享-1.3.2.zip` | 源码包 1.3.2 | 与已解压的 `archives/SandClaimer-源码分享-1.3.1/` 同族更早包。 |
 | **`SandClaimer-1.3.3魔改.rar`** | `archives/SandClaimer-1.3.3魔改.rar` | 1.3.3 魔改 | 第三方改包，未解压；仅归档。 |
 | **`grok-bot-反代.zip`** | `archives/grok-bot-反代.zip` | Go 插件树 | 顶层仅 `plugin/`（protocol / host / executor / auth / `cpa-grok-bot-plugin`）。体积约 27 MB，含 `__MACOSX` 与 `.git`。 |
+| **`cpa-grok-bot-plugin-0.5.6-src.zip`** | `archives/cpa-grok-bot-plugin-0.5.6-src.zip` | CPA 插件 **0.5.6** | 干净源码（约 78 KB）。对照见 [notes-cpa-grok-bot-056.md](notes-cpa-grok-bot-056.md)。 |
 
 与启动器的关系（本批补充）：
 
@@ -99,7 +100,8 @@
 
 - [notes-box-relay-v136.md](notes-box-relay-v136.md) — 独立 Box Relay 安装器  
 - [notes-sandclaimer-142.md](notes-sandclaimer-142.md) — 源码分享 1.4.2（领号 + 内嵌 grok_box）  
-- [notes-sandclaimer-148.md](notes-sandclaimer-148.md) — 1.4.8 + 飙车群 1.1.3（挂路由引擎更完整；启动器网关已对齐领票+挂路由）
+- [notes-sandclaimer-148.md](notes-sandclaimer-148.md) — 1.4.8 + 飙车群 1.1.3（挂路由引擎更完整；启动器网关已对齐领票+挂路由）  
+- [notes-cpa-grok-bot-056.md](notes-cpa-grok-bot-056.md) — CPA 插件 0.5.6（OpenAI 外壳；Box 中继；不写 Cursor）
 
 ### 5.1 服务端分水岭
 

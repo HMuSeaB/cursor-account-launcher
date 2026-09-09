@@ -36,7 +36,7 @@ B 在 `127.0.0.1:8765` 监听与 Box 相同的 Stream 路径，并打开「网�
 | 路 | 一句话 | 代表材料 | 启动器关系 |
 |----|--------|----------|------------|
 | **① 官方 Bot 完善** | 人在 Grok Bot 客户端里直接选高级模型（Fable / Opus 等），靠 Bot 自己的 host + accessToken | 群聊截图（列模型 / apply / 验 `response_info.model`）；Storm Dock 切 Bot 登录态 | **正交**。不管 IDE 补丁；可作「真源对照」 |
-| **② Bot 网关反代** | 把 Bot/Box 能力暴露成可调用入口；Cursor（或其它客户端）只改道到网关 | v136 Box Relay、`grok-box-relay.json`、`archives/grok-bot-反代.zip`（CPA 插件）、本仓库 `bot_gateway/` | **可选旁路**。与 `sand_stream` Direct **互斥**；禁止叠打 |
+| **② Bot 网关反代** | 把 Bot/Box 能力暴露成可调用入口；Cursor（或其它客户端）只改道到网关 | v136 Box Relay、`grok-box-relay.json`、CPA 插件 0.5.6、本仓库 `bot_gateway/` | **可选旁路**。与 `sand_stream` Direct **互斥**；禁止叠打 |
 | **③ 脚本补丁** | 改 Cursor workbench / agent-host 的 marker | `Bot/installers/*`、Claimer「打补丁」、启动器 `sand_stream` / Task V3 / Action V2 | **IDE 纪律层**。9/9 后「本机 sand 直连计额度」已基本死 |
 
 截图里「38 models via accessToken」「Claude Fable 5.1 1M Max」「看服务端回的模型字段」属于 **路①**；`ERROR_OUTDATED_CLIENT` / checksum 是官方 Bot host 细节，不是 Cursor JS 补丁问题。
@@ -58,7 +58,7 @@ B 在 `127.0.0.1:8765` 监听与 Box 相同的 Stream 路径，并打开「网�
 2. **① 当对照**：Bot 里能跑通的模型 / 头，才是网关该转发的。  
 3. **③ 收缩**：启动器保留 Task/Action/原生体验补丁；外围大一统脚本进档案，不再加码「伪装计额度」。
 
-未立项（见 plan）：CPA `/v1/models` 兼容层、外置 v136 marker 一键剥离、路①宿主脚本。
+未立项（见 plan）：启动器侧 OpenAI `/v1/models` 兼容层（对照 CPA 0.5.6）、外置 v136 marker 一键剥离、路①宿主脚本。
 
 ---
 

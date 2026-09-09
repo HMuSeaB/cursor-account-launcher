@@ -372,6 +372,21 @@ textarea { min-height: 96px; resize: vertical; }
   margin-top: 12px;
 }
 .field-row { display: flex; gap: 8px; margin: 8px 0; }
+.cli-field-row {
+  margin: 0 0 12px;
+  align-items: center;
+}
+.cli-field-row > input,
+.cli-field-row > .token-box {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  width: auto;
+}
+.cli-field-row > .btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
 .check-row {
   display: grid;
   grid-template-columns: 16px 1fr;

@@ -866,6 +866,34 @@ class Api(PatchesApiMixin):
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
+    def pick_directory(self, title: str = "选择工作区目录") -> dict:
+        """打开系统文件夹选择对话框，返回所选路径。"""
+        try:
+            if self._window is None:
+                return {"ok": False, "error": "窗口未就绪"}
+            directory = ""
+            try:
+                from pathlib import Path
+
+                home = Path.home()
+                if home.is_dir():
+                    directory = str(home)
+            except Exception:
+                directory = ""
+            paths = self._window.create_file_dialog(
+                webview.FOLDER_DIALOG,
+                directory=directory or None,
+            )
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        if not paths:
+            return {"ok": False, "cancelled": True}
+        path = paths[0] if isinstance(paths, (list, tuple)) else paths
+        text = str(path or "").strip()
+        if not text:
+            return {"ok": False, "cancelled": True}
+        return {"ok": True, "path": text, "title": title or "选择工作区目录"}
+
     def get_cli_config(self) -> dict:
         """获取独立 CLI 的全局配置与安装状态。"""
         from launcher.agent_cli import resolve_agent_cli
