@@ -114,6 +114,18 @@ function daysLeft(ms) {
   return `${d}天后`;
 }
 
+function planDaysRemaining(ms) {
+  if (!ms) return null;
+  const n = Number(ms);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const d = Math.ceil((n - Date.now()) / 86400000);
+  return {
+    days: Math.max(0, d),
+    text: d <= 0 ? "0d" : `${d}d`,
+    isUrgent: d <= 3,
+  };
+}
+
 function closeAddDialog() {
   $("addDialog").close();
   $("tokenInput").value = "";
@@ -266,16 +278,22 @@ function barHtml(label, value, color) {
 function usageBlock(apiPct, autoPct, botPct) {
   const style = document.documentElement.getAttribute("data-usage") || "ring";
   if (style === "bar") {
-    return `<div class="usage-bars">
-      ${barHtml("高级", apiPct, "#ef4444")}
-      ${barHtml("Auto", autoPct, "#22c55e")}
-      ${barHtml("Bot", botPct, "#f59e0b")}
+    return `<div class="acc-health">
+      <div class="acc-health-head"><span>额度</span></div>
+      <div class="usage-bars">
+        ${barHtml("高级", apiPct, "#ef4444")}
+        ${barHtml("Auto", autoPct, "#22c55e")}
+        ${barHtml("Bot", botPct, "#f59e0b")}
+      </div>
     </div>`;
   }
-  return `<div class="ring-row">
-    ${ringHtml("高级", apiPct, "#ef4444")}
-    ${ringHtml("Auto", autoPct, "#22c55e")}
-    ${ringHtml("Bot", botPct, "#f59e0b")}
+  return `<div class="acc-health">
+    <div class="acc-health-head"><span>额度</span></div>
+    <div class="ring-row">
+      ${ringHtml("高级", apiPct, "#ef4444")}
+      ${ringHtml("Auto", autoPct, "#22c55e")}
+      ${ringHtml("Bot", botPct, "#f59e0b")}
+    </div>
   </div>`;
 }
 
@@ -330,8 +348,8 @@ function tokenDetailSection(a) {
         <button type="button" class="copy-link" id="btnToggleDetailApiKey">显示</button>
         <button type="button" class="copy-link" id="btnCopyDetailApiKey">复制</button>
       </div>
-      <input id="detailApiKey" class="token-box" type="password" spellcheck="false" value="${esc(apiKey)}" placeholder="crsr_…" />
-      <p class="hint token-hint">用于 Cursor Agent CLI（与 IDE 登录 Token 不同）。可显示/复制；保存后可点卡片「CLI」一键启动。</p>
+      <input id="detailApiKey" class="cli-input mono" type="password" spellcheck="false" autocomplete="off" value="${esc(apiKey)}" placeholder="crsr_…" />
+      <p class="hint token-hint">CLI 专用（不是 IDE Token）。可显示/复制；保存后卡片「CLI」可一键启动。</p>
       <div class="guard-actions" style="margin-top:8px">
         <button type="button" class="btn" id="btnSaveApiKey">保存 API Key</button>
         <button type="button" class="btn primary" id="btnLaunchCliDetail">启动 CLI</button>
@@ -447,76 +465,79 @@ function renderAccountCard(a) {
   const initial = (email[0] || "?").toUpperCase();
   const mClass = membershipClass(a.membershipType);
   const local = isLocalAccount(a);
-  const badges = [];
-  if (local) badges.push('<span class="tag local">本机</span>');
-  badges.push(`<span class="tag ${mClass}">${esc(membershipLabel(a.membershipType))}</span>`);
+  const plan = membershipLabel(a.membershipType);
+  const planInfo = planDaysRemaining(a.proExpiryMs);
+  const planDaysHtml = planInfo
+    ? `<span class="tag-days${planInfo.isUrgent ? " urgent" : ""}" title="周期剩余 ${planInfo.days} 天">${esc(planInfo.text)}</span>`
+    : "";
+  const secondary = [];
   if (hasWsToken(a)) {
-    badges.push('<span class="tag pro" title="完整 WorkOS Session Token（长效稳定，支持设备与用量管理）">长效 WS</span>');
+    secondary.push('<span class="tag pro" title="完整 WorkOS Session Token">长效 WS</span>');
   } else {
-    badges.push('<span class="tag trial" title="纯短期 Access Token（仅约1小时有效，无法自动续期，容易失效掉号），建议提供 user_xxx:: 完整 Session Token">临时 acc (易掉)</span>');
+    secondary.push('<span class="tag trial" title="纯短期 Access Token，易掉号">临时</span>');
   }
-  if (a.hasApiKey) badges.push('<span class="tag teal">CLI</span>');
+  if (a.hasApiKey) secondary.push('<span class="tag teal">CLI</span>');
   const machineShort = a.machineIdShort || "";
   if (machineShort) {
     const localShort = lastCursorStatus?.localMachineShort || "";
     const mismatch = local && localShort && machineShort.toLowerCase() !== localShort.toLowerCase();
-    badges.push(`<span class="tag machine${mismatch ? " warn" : ""}" title="${mismatch ? "与本机当前机器码不一致" : "已绑定机器码"}">机器码 ${esc(machineShort)}</span>`);
+    secondary.push(`<span class="tag machine${mismatch ? " warn" : ""}" title="${mismatch ? "与本机当前机器码不一致" : "已绑定机器码"}">${esc(machineShort)}</span>`);
   }
-  (a.tags || []).forEach((t) => badges.push(`<span class="tag custom">${esc(t)}</span>`));
-  if (a.hasPassword) badges.push('<span class="tag">密码</span>');
-  const expiry = a.proExpiryMs ? `周期至 ${fmtDate(a.proExpiryMs)} · ${daysLeft(a.proExpiryMs)}` : "周期未知";
-  const stats = `近30天 $${Number(a.periodCostUsd || 0).toFixed(2)} · ${a.requestCount30d || 0}次`;
+  (a.tags || []).forEach((t) => secondary.push(`<span class="tag custom">${esc(t)}</span>`));
+  if (a.hasPassword) secondary.push('<span class="tag">密码</span>');
+
+  const metaBits = [];
+  if (a.proExpiryMs) metaBits.push(`周期 ${fmtDate(a.proExpiryMs)}`);
+  metaBits.push(`$${Number(a.periodCostUsd || 0).toFixed(2)} · ${a.requestCount30d || 0} 次`);
+  if (a.lastRefreshed) metaBits.push(fmtTime(a.lastRefreshed));
+  const metaLine = metaBits.join(" · ");
+
   const apiPct = a.apiPercentUsed >= 0 ? a.apiPercentUsed : a.includedApiPct;
   const autoPct = a.autoPercentUsed >= 0 ? a.autoPercentUsed : a.includedTotalPct;
   const botPct = a.botPercent;
-  const err = a.err ? `<div class="hint" style="color:var(--danger)">${esc(a.err)}</div>` : "";
+  const err = a.err ? `<div class="acc-err">${esc(a.err)}</div>` : "";
   const switchAction = local ? "launch-here" : "switch";
-  const switchLabel = local ? "启动 IDE" : "切换并启动";
+  const switchLabel = local ? "启动" : "切换";
   const switchTitle = local ? "当前就是这个账号，直接启动 IDE" : "写入此账号并启动 IDE";
+  const statusCls = local ? "on" : (a.err ? "issue" : "idle");
+  const statusText = local ? "本机" : (a.err ? "异常" : "就绪");
 
-  return `<article class="acc-card${local ? " is-local" : ""}" data-id="${esc(a.id)}">
-    <div class="acc-head">
+  return `<article class="acc-card${local ? " is-local" : ""}${a.err ? " has-err" : ""}" data-id="${esc(a.id)}">
+    <div class="acc-top">
       <input type="checkbox" class="acc-check" data-select="${esc(a.id)}" />
       <div class="acc-avatar">${esc(initial)}</div>
-      <div class="acc-meta">
-        <div class="acc-email" title="${esc(email)}">${esc(email)}</div>
-        <div class="acc-badges">${badges.join("")}</div>
-        <div class="acc-sub">${esc(expiry)}</div>
-        <div class="acc-stats">${esc(stats)}</div>
+      <div class="acc-id">
+        <div class="acc-id-row">
+          <span class="acc-provider tag ${mClass}" title="${esc(plan)}${planInfo ? ` · 剩余 ${planInfo.text}` : ""}">
+            <span class="plan-name">${esc(plan)}</span>${planDaysHtml}
+          </span>
+          <span class="acc-email" title="${esc(email)}">${esc(email)}</span>
+        </div>
+        ${secondary.length ? `<div class="acc-badges">${secondary.join("")}</div>` : ""}
       </div>
+      <span class="acc-status ${statusCls}"><i></i>${statusText}</span>
     </div>
     ${err}
     ${usageBlock(apiPct, autoPct, botPct)}
+    <div class="acc-meta-line" title="${esc(metaLine)}">${esc(metaLine)}</div>
     <div class="acc-foot">
-      <div class="acc-foot-main">
-        <button class="btn primary btn-switch" data-action="${switchAction}" data-id="${esc(a.id)}" title="${switchTitle}">
-          ${local ? ico("launch") : ico("switch")} <span>${switchLabel}</span>
-        </button>
-      </div>
-      <div class="acc-foot-side">
-        <button class="icon-btn" data-action="detail" data-id="${esc(a.id)}" title="详情">${ico("info")}</button>
-        <button class="icon-btn" data-action="refresh" data-id="${esc(a.id)}" title="刷新额度">${ico("refresh")}</button>
+      <div class="acc-tools">
+        <button type="button" class="acc-chip" data-action="detail" data-id="${esc(a.id)}" title="详情">详情</button>
+        <button type="button" class="icon-btn" data-action="refresh" data-id="${esc(a.id)}" title="刷新额度">${ico("refresh")}</button>
+        <button type="button" class="icon-btn" data-action="launch-cli" data-id="${esc(a.id)}" title="Agent CLI">${ico("cli")}</button>
         <div class="acc-more-wrap">
-          <button class="icon-btn" data-action="toggle-more" data-id="${esc(a.id)}" title="更多操作" aria-label="更多操作">
-            ${ico("more")}
-          </button>
+          <button type="button" class="icon-btn" data-action="toggle-more" data-id="${esc(a.id)}" title="更多" aria-label="更多操作">${ico("more")}</button>
           <div class="acc-more-menu" role="menu">
-            <button type="button" class="acc-menu-item" data-action="copy-token" data-id="${esc(a.id)}">
-              ${ico("copy")} <span>复制 Token</span>
-            </button>
-            <button type="button" class="acc-menu-item" data-action="devices" data-id="${esc(a.id)}">
-              ${ico("devices")} <span>登录设备与守卫</span>
-            </button>
-            <button type="button" class="acc-menu-item" data-action="launch-cli" data-id="${esc(a.id)}">
-              ${ico("cli")} <span>启动 Agent CLI</span>
-            </button>
+            <button type="button" class="acc-menu-item" data-action="copy-token" data-id="${esc(a.id)}">${ico("copy")} <span>复制 Token</span></button>
+            <button type="button" class="acc-menu-item" data-action="devices" data-id="${esc(a.id)}">${ico("devices")} <span>登录设备</span></button>
             <div class="acc-menu-divider"></div>
-            <button type="button" class="acc-menu-item danger" data-action="remove" data-id="${esc(a.id)}">
-              ${ico("trash")} <span>删除账号</span>
-            </button>
+            <button type="button" class="acc-menu-item danger" data-action="remove" data-id="${esc(a.id)}">${ico("trash")} <span>删除</span></button>
           </div>
         </div>
       </div>
+      <button type="button" class="btn primary btn-switch" data-action="${switchAction}" data-id="${esc(a.id)}" title="${switchTitle}">
+        ${local ? ico("launch") : ico("switch")} <span>${switchLabel}</span>
+      </button>
     </div>
   </article>`;
 }
@@ -2206,6 +2227,10 @@ async function openDetail(accountId) {
 
 function renderDetail(a) {
   const expiryDays = a.proExpiryMs ? daysLeft(a.proExpiryMs) : "";
+  const planInfo = planDaysRemaining(a.proExpiryMs);
+  const planDaysHtml = planInfo
+    ? `<span class="tag-days${planInfo.isUrgent ? " urgent" : ""}" title="周期剩余 ${planInfo.days} 天">${esc(planInfo.text)}</span>`
+    : "";
   const body = $("detailBody");
   body.innerHTML = `
     <div class="detail-section">
@@ -2216,7 +2241,7 @@ function renderDetail(a) {
         <div class="k">标签</div><div class="v"><input id="detailTags" value="${esc((a.tags || []).join(","))}" placeholder="逗号分隔" /></div><span></span>
         <div class="k">备注</div><div class="v"><input id="detailRemark" value="${esc(a.remark || "")}" /></div><span></span>
         <div class="k">密码</div><div class="v"><input id="detailPassword" type="password" value="${esc(a.password || "")}" placeholder="本地加密保存" /></div><span></span>
-        <div class="k">套餐</div><div class="v"><span class="tag ${membershipClass(a.membershipType)}">${esc(membershipLabel(a.membershipType))}</span> ${expiryDays ? `周期至 ${fmtDate(a.proExpiryMs)} · ${expiryDays}` : ""}</div><span></span>
+        <div class="k">套餐</div><div class="v"><span class="acc-provider tag ${membershipClass(a.membershipType)}" style="vertical-align:middle"><span class="plan-name">${esc(membershipLabel(a.membershipType))}</span>${planDaysHtml}</span> ${expiryDays ? `周期至 ${fmtDate(a.proExpiryMs)} · ${expiryDays}` : ""}</div><span></span>
         <div class="k">最近刷新</div><div class="v">${esc(fmtTime(a.lastRefreshed))}</div><span></span>
       </div>
     </div>
@@ -2338,18 +2363,28 @@ async function openCliDialog() {
   const toggleBtn = $("btnCliToggleKey");
   if (keyInput) keyInput.type = "password";
   if (toggleBtn) toggleBtn.textContent = "显示";
+  const hint = $("cliStatusHint");
+  if (hint) {
+    hint.dataset.state = "checking";
+    hint.textContent = "正在检测 CLI…";
+  }
   if (api()?.get_cli_config) {
     const cfg = await api().get_cli_config();
     if (cfg?.ok) {
       if (cfg.apiKey && !$("cliApiKeyInput").value) $("cliApiKeyInput").value = cfg.apiKey;
       if (cfg.cwd && !$("cliCwdInput").value) $("cliCwdInput").value = cfg.cwd;
-      const hint = $("cliStatusHint");
       const installBtn = $("btnCliInstallHint");
       if (cfg.installed) {
-        if (hint) hint.textContent = `已检测到 CLI: ${cfg.agentPath}`;
+        if (hint) {
+          hint.dataset.state = "ok";
+          hint.textContent = `已安装 · ${cfg.agentPath}`;
+        }
         if (installBtn) installBtn.hidden = true;
       } else {
-        if (hint) hint.textContent = "未检测到 Cursor Agent CLI。建议先安装。";
+        if (hint) {
+          hint.dataset.state = "missing";
+          hint.textContent = "未检测到 Cursor Agent CLI，请先安装";
+        }
         if (installBtn) installBtn.hidden = false;
       }
     }
@@ -3279,30 +3314,37 @@ if ($("btnSandStreamRefresh")) $("btnSandStreamRefresh").onclick = () => refresh
 if ($("sandIncludeSubagent")) $("sandIncludeSubagent").onchange = () => refreshSandStream();
 
 async function refreshBotGateway() {
-  const pre = $("botGwInfo");
-  const copy = $("botGwCopy");
-  if (!pre && !copy) return;
+  const box = $("botGwInfo");
+  if (!box) return;
+  const row = (k, v, cls = "") =>
+    `<div class="bot-gw-row"><span class="bot-gw-k">${esc(k)}</span><span class="bot-gw-v ${cls}">${esc(v)}</span></div>`;
   try {
     const res = await api().bot_gateway_status();
     if (!res?.ok) {
-      if (pre) pre.textContent = res?.error || "网关状态不可用";
+      box.innerHTML = row("状态", res?.error || "不可用", "warn");
       return;
     }
     const up = res.upstream || {};
     const inj = res.cursorInject || {};
-    const lines = [
-      res.modeEnabled ? "模式：本机网关开" : "模式：关（仍可用 Direct）",
-      res.process?.running ? `进程：pid ${res.process.pid}` : "进程：未监听",
-      up.configured ? `上游：${up.baseUrlHost} 票已加载` : "上游：还没有 Box 票",
-      inj.injected ? `Cursor 改道：已注入（${inj.totalHits || 0}）` : "Cursor 改道：未注入",
-      res.conflictDirect ? "冲突：已检测到 Direct 补丁，不要叠打" : "Direct：未检测到（或无法扫描）",
-      res.conflictForeign ? `冲突：外置 relay ${((inj.foreign) || []).join(",")}` : "",
-      res.localStreamUrl ? `本机入口：${res.localStreamUrl}` : "",
-      res.note || "",
-    ].filter(Boolean);
-    if (pre) pre.textContent = lines.join("\n");
+    const parts = [
+      row("模式", res.modeEnabled ? "本机网关开" : "关", res.modeEnabled ? "ok" : "muted"),
+      row("进程", res.process?.running ? `运行中 · pid ${res.process.pid}` : "未监听", res.process?.running ? "ok" : "muted"),
+      row("上游", up.configured ? `${up.baseUrlHost || "已配置"} · 票已加载` : "还没有 Box 票", up.configured ? "ok" : "warn"),
+      row("改道", inj.injected ? `已注入（${inj.totalHits || 0}）` : "未注入", inj.injected ? "ok" : "muted"),
+      row("Direct", res.conflictDirect ? "已检测到，勿叠打" : "未检测到", res.conflictDirect ? "warn" : "muted"),
+    ];
+    if (res.conflictForeign) {
+      parts.push(row("外置", ((inj.foreign) || []).join(", ") || "冲突", "warn"));
+    }
+    if (res.localStreamUrl) {
+      parts.push(row("入口", res.localStreamUrl));
+    }
+    if (res.note) {
+      parts.push(`<div class="bot-gw-note">${esc(res.note)}</div>`);
+    }
+    box.innerHTML = parts.join("");
   } catch (e) {
-    if (pre) pre.textContent = String(e);
+    box.innerHTML = row("状态", String(e), "warn");
   }
 }
 
