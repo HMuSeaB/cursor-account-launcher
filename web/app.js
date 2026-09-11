@@ -17,6 +17,7 @@ let lastImportPreview = { count: 0, accounts: [], bareJwt: 0 };
 let importPreviewTimer = 0;
 let importCancel = false;
 let importBusy = false;
+let compactView = false;
 let guardConfig = {
   enabled: false,
   mode: "whitelist",
@@ -26,6 +27,7 @@ let guardConfig = {
 
 const PREF_THEME = "cursorLauncher.theme";
 const PREF_USAGE = "cursorLauncher.usageStyle";
+const PREF_COMPACT = "cursorLauncher.compactView";
 const PREF_COLOR = "cursorLauncher.colorTheme";
 
 const COLOR_THEMES = [
@@ -66,6 +68,7 @@ function loadPrefs() {
     const theme = localStorage.getItem(PREF_THEME) || "dark";
     const usage = localStorage.getItem(PREF_USAGE) || "ring";
     const color = localStorage.getItem(PREF_COLOR) || "mauve";
+    compactView = localStorage.getItem(PREF_COMPACT) === "true";
     document.documentElement.setAttribute("data-theme", theme === "dark" ? "dark" : "light");
     document.documentElement.setAttribute("data-usage", usage === "bar" ? "bar" : "ring");
     document.documentElement.setAttribute("data-color", color);
@@ -729,13 +732,128 @@ async function renderAccounts() {
   paintAccounts();
 }
 
+function renderCompactRow(a) {
+  const email = displayEmail(a);
+  const mClass = membershipClass(a.membershipType);
+  const plan = membershipLabel(a.membershipType);
+  const local = isLocalAccount(a);
+  const statusCls = local ? "on" : (a.err ? "issue" : "idle");
+  const statusText = local ? "本机" : (a.err ? "异常" : "就绪");
+  const ws = hasWsToken(a);
+  const planInfo = planDaysRemaining(a.proExpiryMs);
+  const daysHtml = planInfo
+    ? `<span class="compact-days${planInfo.isUrgent ? " urgent" : ""}">${esc(planInfo.text)}</span>`
+    : "";
+
+  const costBits = [];
+  if (Number(a.costMaxUsd) > 0) costBits.push(`$${Number(a.costUsd || 0).toFixed(2)}/$${Number(a.costMaxUsd).toFixed(2)}`);
+  if (a.requestCount30d) costBits.push(`${a.requestCount30d}次`);
+
+  const errHtml = a.err
+    ? `<span class="compact-err" title="${esc(a.err)}">${esc(a.err)}</span>`
+    : "";
+
+  return `<tr class="compact-row${local ? " is-local" : ""}${a.err ? " has-err" : ""}" data-id="${esc(a.id)}">
+    <td class="compact-cell-check"><input type="checkbox" class="acc-check" data-select="${esc(a.id)}" /></td>
+    <td class="compact-cell-email" title="${esc(email)}">${esc(email)}</td>
+    <td class="compact-cell-plan"><span class="tag ${mClass}">${esc(plan)}</span>${daysHtml}</td>
+    <td class="compact-cell-ws">${ws ? '<span class="tag pro">WS</span>' : '<span class="tag trial">临时</span>'}</td>
+    <td class="compact-cell-usage">${costBits.join(" · ") || "—"}</td>
+    <td class="compact-cell-status"><span class="acc-status ${statusCls}"><i></i>${statusText}</span></td>
+    <td class="compact-cell-err">${errHtml}</td>
+    <td class="compact-cell-actions">
+      <button type="button" class="icon-btn compact-act" data-action="refresh" data-id="${esc(a.id)}" title="刷新">${ico("refresh")}</button>
+      <button type="button" class="icon-btn compact-act danger" data-action="remove" data-id="${esc(a.id)}" title="删除">${ico("trash")}</button>
+    </td>
+  </tr>`;
+}
+
+function renderCompactTable(rows) {
+  const errCount = rows.filter((a) => a.err).length;
+  const okCount = rows.length - errCount;
+  return `<div class="compact-table-wrap">
+    <div class="compact-summary">
+      <span>${rows.length} 个账号</span>
+      <span class="compact-summary-ok">${okCount} 正常</span>
+      ${errCount ? `<span class="compact-summary-err">${errCount} 失效/异常</span>` : ""}
+      <span class="spacer"></span>
+      <button type="button" class="btn ghost compact" id="btnBatchDelete">删除选中</button>
+    </div>
+    <table class="compact-table">
+      <thead>
+        <tr>
+          <th class="compact-th-check"><input type="checkbox" id="compactCheckAll" title="全选/取消全选" /></th>
+          <th>邮箱</th>
+          <th>套餐</th>
+          <th>Token</th>
+          <th>费用</th>
+          <th>状态</th>
+          <th>错误</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>${rows.map(renderCompactRow).join("")}</tbody>
+    </table>
+  </div>`;
+}
+
+function toggleCompactView() {
+  compactView = !compactView;
+  try { localStorage.setItem(PREF_COMPACT, compactView ? "true" : "false"); } catch {}
+  const btn = $("btnCompactToggle");
+  if (btn) {
+    btn.title = compactView ? "切换卡片视图" : "切换紧凑列表";
+    btn.textContent = compactView ? "卡片" : "列表";
+  }
+  paintAccounts();
+}
+
 function paintAccounts() {
   const rows = filteredAccounts();
-  $("accGrid").innerHTML = rows.map(renderAccountCard).join("");
+  const grid = $("accGrid");
+  if (compactView) {
+    grid.innerHTML = renderCompactTable(rows);
+    grid.className = "acc-grid compact-mode";
+    const checkAll = $("compactCheckAll");
+    if (checkAll) {
+      checkAll.onchange = () => {
+        grid.querySelectorAll(".acc-check[data-select]").forEach((el) => { el.checked = checkAll.checked; });
+      };
+    }
+    const batchBtn = grid.querySelector("#btnBatchDelete");
+    if (batchBtn) batchBtn.onclick = batchDeleteSelected;
+  } else {
+    grid.innerHTML = rows.map(renderAccountCard).join("");
+    grid.className = "acc-grid";
+    setupAccountDragAndDrop();
+  }
   $("emptyAccounts").hidden = rows.length > 0;
   const sub = $("brandSub");
   if (sub) sub.textContent = accounts.length ? `${accounts.length} 个账号` : "还没有账号";
-  setupAccountDragAndDrop();
+  const btn = $("btnCompactToggle");
+  if (btn) {
+    btn.title = compactView ? "切换卡片视图" : "切换紧凑列表";
+    btn.textContent = compactView ? "卡片" : "列表";
+  }
+}
+
+async function batchDeleteSelected() {
+  const ids = selectedAccountIds();
+  if (!ids.length) return toast("请先勾选要删除的账号");
+  const errIds = ids.filter((id) => {
+    const a = accounts.find((x) => x.id === id);
+    return a && a.err;
+  });
+  const okIds = ids.filter((id) => !errIds.includes(id));
+  let msg = `确定删除选中的 ${ids.length} 个账号？`;
+  if (errIds.length && okIds.length) msg += `\n（其中 ${errIds.length} 个失效，${okIds.length} 个正常）`;
+  msg += "\n\n此操作不可撤销。";
+  if (!confirm(msg)) return;
+  for (const id of ids) {
+    try { await api().remove_account(id); } catch {}
+  }
+  toast(`已删除 ${ids.length} 个账号`);
+  await renderAccounts();
 }
 
 let draggedAccountId = null;
@@ -4214,6 +4332,7 @@ $("btnSaveGuard").onclick = () => saveGuard();
 $("btnRunGuard").onclick = () => runGuardNow();
 $("guardEnabled").onchange = () => updateGuardHint();
 $("guardMode").onchange = () => updateGuardHint();
+if ($("btnCompactToggle")) $("btnCompactToggle").onclick = toggleCompactView;
 $("btnSelectAll").onclick = () => {
   const boxes = [...document.querySelectorAll(".acc-check[data-select]")];
   const allChecked = boxes.length && boxes.every((el) => el.checked);
