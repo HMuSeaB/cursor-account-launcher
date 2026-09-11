@@ -212,13 +212,15 @@
             <button type="button" class="btn ghost" id="btnSandStreamRefresh">刷新</button>
           </div>
           <h3 class="settings-title">Bot 网关（路②，实验）</h3>
-          <p class="hint settings-hint" id="botGwCopy">先「领取并挂路由」，再关 Cursor 后点「开本机网关」：会启动 8765，并把 Stream 注入指到本机（独立 marker，可关网关还原）。勿叠 Direct / v136。</p>
-          <pre class="mini" id="botGwInfo">—</pre>
+          <p class="hint settings-hint" id="botGwCopy">先「领取并挂路由」，关 Cursor 后再「开本机网关」。会起 8765 并把 Stream 指到本机；关网关可还原。勿叠 Direct / v136。</p>
+          <div class="bot-gw-status" id="botGwInfo" aria-live="polite">
+            <div class="bot-gw-row"><span class="bot-gw-k">状态</span><span class="bot-gw-v muted">检测中…</span></div>
+          </div>
           <div class="guard-actions">
             <button type="button" class="btn" id="btnBotGwProvision">领取并挂路由</button>
             <button type="button" class="btn ghost" id="btnBotGwEnable">开本机网关</button>
             <button type="button" class="btn ghost" id="btnBotGwDisable">关本机网关</button>
-            <button type="button" class="btn ghost" id="btnBotGwRefresh">刷新网关</button>
+            <button type="button" class="btn ghost" id="btnBotGwRefresh">刷新</button>
           </div>
           <div class="sand-job" id="sandJobBox" hidden>
             <p class="sand-subhead" id="sandJobHead">本次写入</p>
@@ -425,41 +427,42 @@
   </dialog>
 
   <dialog id="cliDialog" class="modal">
-    <div class="modal-box">
+    <div class="modal-box cli-modal">
       <div class="modal-head">
         <div>
-          <h2>Cursor Agent CLI</h2>
-          <p class="hint" style="margin:4px 0 0">独立命令行智能体（无需绑定 IDE 账号，支持 crsr_… Key）</p>
+          <h2>Agent CLI</h2>
+          <p class="hint modal-sub">用 crsr_ Key 开独立终端，不绑 IDE 登录态</p>
         </div>
         <button type="button" class="icon-btn modal-close" id="btnCliCancel" aria-label="关闭">×</button>
       </div>
-      <div class="modal-scroll">
-        <label class="field-label" for="cliApiKeyInput">Cursor API Key (crsr_…)</label>
+      <div class="modal-scroll cli-form">
+        <div class="cli-status" id="cliStatusHint" data-state="checking">正在检测 CLI…</div>
+
+        <label class="field-label" for="cliApiKeyInput">API Key</label>
         <div class="field-row cli-field-row">
-          <input id="cliApiKeyInput" type="password" spellcheck="false" placeholder="crsr_…" class="token-box" />
-          <button type="button" class="btn ghost" id="btnCliToggleKey" title="显示或隐藏密钥">显示</button>
-          <button type="button" class="btn ghost" id="btnCliCopyKey" title="复制密钥">复制</button>
+          <input id="cliApiKeyInput" type="password" spellcheck="false" autocomplete="off" placeholder="crsr_…" class="cli-input mono" />
+          <button type="button" class="btn ghost compact" id="btnCliToggleKey" title="显示或隐藏">显示</button>
+          <button type="button" class="btn ghost compact" id="btnCliCopyKey" title="复制">复制</button>
         </div>
 
-        <label class="field-label" for="cliCwdInput">工作区目录 (Workspace)</label>
+        <label class="field-label" for="cliCwdInput">工作区</label>
         <div class="field-row cli-field-row">
-          <input id="cliCwdInput" spellcheck="false" placeholder="留空则使用当前目录" />
-          <button type="button" class="btn ghost" id="btnCliBrowseCwd" title="用资源管理器选择文件夹">浏览…</button>
+          <input id="cliCwdInput" class="cli-input" spellcheck="false" placeholder="留空 = 当前目录" />
+          <button type="button" class="btn ghost compact" id="btnCliBrowseCwd" title="选择文件夹">浏览</button>
         </div>
 
-        <label class="field-label" for="cliPromptInput">初始任务 / 提示词 (可选)</label>
-        <input id="cliPromptInput" spellcheck="false" placeholder="例如：帮我分析当前项目结构" style="margin-bottom:12px" />
+        <label class="field-label" for="cliPromptInput">初始任务 <span class="field-optional">可选</span></label>
+        <textarea id="cliPromptInput" class="cli-input cli-prompt" spellcheck="false" rows="3" placeholder="例如：帮我分析当前项目结构"></textarea>
 
-        <label class="check-row" style="margin-top:4px">
-          <input type="checkbox" id="cliRememberKey" checked /> 记住此 API Key 与工作区
+        <label class="check-row cli-remember">
+          <input type="checkbox" id="cliRememberKey" checked /> 记住 Key 与工作区
         </label>
-        <p class="hint" id="cliStatusHint" style="margin-top:8px">正在检测 Cursor Agent CLI 安装状态…</p>
       </div>
       <div class="modal-actions">
-        <button type="button" class="btn ghost" id="btnCliInstallHint" hidden>安装 CLI 指引</button>
+        <button type="button" class="btn ghost" id="btnCliInstallHint" hidden>安装指引</button>
         <span class="spacer"></span>
         <button type="button" class="btn ghost" id="btnCliCancel2">取消</button>
-        <button type="button" class="btn primary" id="btnLaunchCliDirect">启动 CLI</button>
+        <button type="button" class="btn primary" id="btnLaunchCliDirect">启动</button>
       </div>
     </div>
   </dialog>
