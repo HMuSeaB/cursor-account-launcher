@@ -1054,6 +1054,21 @@ html[data-theme="dark"] .pill.warn {
 .compact-act { width: 28px; height: 28px; padding: 0; }
 .compact-act.danger { color: var(--danger); }
 .compact-act.danger:hover { background: var(--danger-soft); }
+.compact-quick-picks {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.compact-pick {
+  font-size: 11px !important;
+  padding: 0 8px !important;
+  min-height: 28px !important;
+  border-color: var(--danger-soft) !important;
+  color: var(--danger) !important;
+}
+.compact-pick:hover {
+  background: var(--danger-soft) !important;
+}
 
 .acc-card {
   background: var(--card);

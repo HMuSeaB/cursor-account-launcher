@@ -768,8 +768,24 @@ function renderCompactRow(a) {
   </tr>`;
 }
 
+function _compactSelectBy(predicate) {
+  document.querySelectorAll(".compact-table .acc-check[data-select]").forEach((el) => {
+    const id = el.getAttribute("data-select");
+    const a = accounts.find((x) => x.id === id);
+    el.checked = a ? predicate(a) : false;
+  });
+  const all = $("compactCheckAll");
+  if (all) {
+    const boxes = [...document.querySelectorAll(".compact-table .acc-check[data-select]")];
+    all.checked = boxes.length > 0 && boxes.every((b) => b.checked);
+  }
+}
+
 function renderCompactTable(rows) {
   const errCount = rows.filter((a) => a.err).length;
+  const authFail = rows.filter((a) => /登录失效|401|403/.test(a.err || "")).length;
+  const httpErr = rows.filter((a) => a.err && /HTTP \d/.test(a.err)).length;
+  const netErr = rows.filter((a) => a.err && /超时|无法连接|代理/.test(a.err)).length;
   const okCount = rows.length - errCount;
   return `<div class="compact-table-wrap">
     <div class="compact-summary">
@@ -777,6 +793,12 @@ function renderCompactTable(rows) {
       <span class="compact-summary-ok">${okCount} 正常</span>
       ${errCount ? `<span class="compact-summary-err">${errCount} 失效/异常</span>` : ""}
       <span class="spacer"></span>
+      <div class="compact-quick-picks">
+        ${authFail ? `<button type="button" class="btn ghost compact compact-pick" data-pick="auth" title="勾选所有 401/403 登录失效">勾选失效 (${authFail})</button>` : ""}
+        ${httpErr > authFail ? `<button type="button" class="btn ghost compact compact-pick" data-pick="http" title="勾选所有 HTTP 错误">勾选HTTP错误 (${httpErr})</button>` : ""}
+        ${netErr ? `<button type="button" class="btn ghost compact compact-pick" data-pick="net" title="勾选所有网络/超时/代理错误">勾选网络错误 (${netErr})</button>` : ""}
+        ${errCount ? `<button type="button" class="btn ghost compact compact-pick" data-pick="all-err" title="勾选所有失效/异常账号">勾选全部异常 (${errCount})</button>` : ""}
+      </div>
       <button type="button" class="btn ghost compact" id="btnBatchDelete">删除选中</button>
     </div>
     <table class="compact-table">
@@ -822,6 +844,16 @@ function paintAccounts() {
     }
     const batchBtn = grid.querySelector("#btnBatchDelete");
     if (batchBtn) batchBtn.onclick = batchDeleteSelected;
+    grid.querySelectorAll(".compact-pick").forEach((btn) => {
+      btn.onclick = () => {
+        const pick = btn.dataset.pick;
+        if (pick === "auth") _compactSelectBy((a) => /登录失效|401|403/.test(a.err || ""));
+        else if (pick === "http") _compactSelectBy((a) => a.err && /HTTP \d/.test(a.err));
+        else if (pick === "net") _compactSelectBy((a) => a.err && /超时|无法连接|代理/.test(a.err));
+        else if (pick === "all-err") _compactSelectBy((a) => !!a.err);
+        toast(`已勾选 ${selectedAccountIds().length} 个`);
+      };
+    });
   } else {
     grid.innerHTML = rows.map(renderAccountCard).join("");
     grid.className = "acc-grid";
