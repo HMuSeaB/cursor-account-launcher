@@ -742,6 +742,30 @@ html[data-theme="dark"] .pill.warn {
   box-shadow: 0 0 0 2px var(--accent-soft), var(--shadow-lg) !important;
   transform: translateY(-2px);
 }
+.acc-card.drag-insert-before::before,
+.acc-card.drag-insert-after::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 4px;
+  background: var(--accent);
+  border-radius: 3px;
+  box-shadow: 0 0 8px var(--accent), 0 0 2px rgba(255, 255, 255, 0.8);
+  pointer-events: none;
+  z-index: 15;
+  animation: drop-line-glow 0.8s ease-in-out infinite alternate;
+}
+.acc-card.drag-insert-before::before {
+  left: -8px;
+}
+.acc-card.drag-insert-after::after {
+  right: -8px;
+}
+@keyframes drop-line-glow {
+  from { opacity: 0.75; transform: scaleY(0.96); }
+  to { opacity: 1; transform: scaleY(1); }
+}
 .acc-card.is-local {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent-soft), var(--shadow);

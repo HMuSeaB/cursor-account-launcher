@@ -610,47 +610,69 @@ function setupAccountDragAndDrop() {
     const overCard = ev.target.closest(".acc-card");
     if (!overCard || overCard.dataset.id === draggedAccountId) return;
 
-    grid.querySelectorAll(".acc-card.drag-over").forEach((el) => {
-      if (el !== overCard) el.classList.remove("drag-over");
+    const rect = overCard.getBoundingClientRect();
+    const isBefore = (ev.clientX - rect.left) < (rect.width / 2);
+
+    grid.querySelectorAll(".acc-card").forEach((el) => {
+      if (el !== overCard) {
+        el.classList.remove("drag-over", "drag-insert-before", "drag-insert-after");
+      }
     });
+
     overCard.classList.add("drag-over");
+    if (isBefore) {
+      overCard.classList.add("drag-insert-before");
+      overCard.classList.remove("drag-insert-after");
+    } else {
+      overCard.classList.add("drag-insert-after");
+      overCard.classList.remove("drag-insert-before");
+    }
   });
 
   grid.addEventListener("dragleave", (ev) => {
     const overCard = ev.target.closest(".acc-card");
     if (overCard && !overCard.contains(ev.relatedTarget)) {
-      overCard.classList.remove("drag-over");
+      overCard.classList.remove("drag-over", "drag-insert-before", "drag-insert-after");
     }
   });
 
   grid.addEventListener("drop", async (ev) => {
     ev.preventDefault();
-    grid.querySelectorAll(".acc-card.drag-over").forEach((el) => el.classList.remove("drag-over"));
-    grid.querySelectorAll(".acc-card.is-dragging").forEach((el) => el.classList.remove("is-dragging"));
-
     const targetCard = ev.target.closest(".acc-card");
+    const insertBefore = targetCard ? targetCard.classList.contains("drag-insert-before") : false;
+
+    grid.querySelectorAll(".acc-card").forEach((el) => {
+      el.classList.remove("drag-over", "drag-insert-before", "drag-insert-after", "is-dragging");
+    });
+
     if (!targetCard || !draggedAccountId) return;
     const targetId = targetCard.dataset.id;
     if (targetId === draggedAccountId) return;
 
-    await moveAccountToIndex(draggedAccountId, targetId);
+    await moveAccountRelative(draggedAccountId, targetId, insertBefore);
   });
 
   grid.addEventListener("dragend", () => {
     draggedAccountId = null;
-    grid.querySelectorAll(".acc-card.is-dragging").forEach((el) => el.classList.remove("is-dragging"));
-    grid.querySelectorAll(".acc-card.drag-over").forEach((el) => el.classList.remove("drag-over"));
-    grid.querySelectorAll(".acc-card").forEach((el) => el.setAttribute("draggable", "false"));
+    grid.querySelectorAll(".acc-card").forEach((el) => {
+      el.classList.remove("is-dragging", "drag-over", "drag-insert-before", "drag-insert-after");
+      el.setAttribute("draggable", "false");
+    });
   });
 }
 
-async function moveAccountToIndex(sourceId, targetId) {
+async function moveAccountRelative(sourceId, targetId, insertBefore) {
   const fromIndex = accounts.findIndex((a) => a.id === sourceId);
-  const toIndex = accounts.findIndex((a) => a.id === targetId);
-  if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return;
+  if (fromIndex === -1) return;
 
   const [moved] = accounts.splice(fromIndex, 1);
-  accounts.splice(toIndex, 0, moved);
+  let targetIndex = accounts.findIndex((a) => a.id === targetId);
+  if (targetIndex === -1) {
+    accounts.push(moved);
+  } else {
+    const insertIndex = insertBefore ? targetIndex : targetIndex + 1;
+    accounts.splice(insertIndex, 0, moved);
+  }
 
   paintAccounts();
   await persistAccountOrder();
