@@ -507,9 +507,9 @@ function renderAccountCard(a) {
   const statusCls = local ? "on" : (a.err ? "issue" : "idle");
   const statusText = local ? "本机" : (a.err ? "异常" : "就绪");
 
-  return `<article class="acc-card${local ? " is-local" : ""}${a.err ? " has-err" : ""}" data-id="${esc(a.id)}" draggable="true">
+  return `<article class="acc-card${local ? " is-local" : ""}${a.err ? " has-err" : ""}" data-id="${esc(a.id)}">
     <div class="acc-top">
-      <div class="acc-drag-handle" title="按住拖拽排序" aria-label="按住拖拽排序">${ico("drag")}</div>
+      <div class="acc-drag-handle" title="按住拖拽排序" aria-label="按住拖拽排序" draggable="false">${ico("drag")}</div>
       <input type="checkbox" class="acc-check" data-select="${esc(a.id)}" />
       <div class="acc-avatar">${esc(initial)}</div>
       <div class="acc-id">
@@ -577,16 +577,22 @@ function setupAccountDragAndDrop() {
   if (!grid || grid.__dnd_bound) return;
   grid.__dnd_bound = true;
 
-  // 鼠标在交互控件上按下时禁用卡片拖拽，避免干扰点击与选择
+  // 仅在鼠标精准按在六点拖拽手柄上时才激活拖拽，卡片主体其他区域恢复文字划选
   grid.addEventListener("mousedown", (ev) => {
+    const handle = ev.target.closest(".acc-drag-handle");
     const card = ev.target.closest(".acc-card");
     if (!card) return;
-    const isControl = ev.target.closest("button, input, select, a, .acc-more-menu, .tag");
-    if (isControl) {
-      card.setAttribute("draggable", "false");
-    } else {
+    if (handle) {
       card.setAttribute("draggable", "true");
+    } else {
+      card.setAttribute("draggable", "false");
     }
+  });
+
+  window.addEventListener("mouseup", () => {
+    grid.querySelectorAll(".acc-card[draggable='true']").forEach((el) => {
+      el.setAttribute("draggable", "false");
+    });
   });
 
   grid.addEventListener("dragstart", (ev) => {
@@ -634,7 +640,7 @@ function setupAccountDragAndDrop() {
     draggedAccountId = null;
     grid.querySelectorAll(".acc-card.is-dragging").forEach((el) => el.classList.remove("is-dragging"));
     grid.querySelectorAll(".acc-card.drag-over").forEach((el) => el.classList.remove("drag-over"));
-    grid.querySelectorAll(".acc-card").forEach((el) => el.setAttribute("draggable", "true"));
+    grid.querySelectorAll(".acc-card").forEach((el) => el.setAttribute("draggable", "false"));
   });
 }
 
@@ -651,25 +657,37 @@ async function moveAccountToIndex(sourceId, targetId) {
 }
 
 async function moveAccountAction(id, action) {
-  const idx = accounts.findIndex((a) => a.id === id);
-  if (idx === -1) return;
+  const visibleRows = filteredAccounts();
+  const vIdx = visibleRows.findIndex((a) => a.id === id);
+  if (vIdx === -1) return;
+
+  const curGlobalIdx = accounts.findIndex((a) => a.id === id);
+  if (curGlobalIdx === -1) return;
 
   if (action === "move-top") {
-    if (idx === 0) return;
-    const [item] = accounts.splice(idx, 1);
-    accounts.unshift(item);
+    if (vIdx === 0) return;
+    const topVisible = visibleRows[0];
+    const topGlobalIdx = accounts.findIndex((a) => a.id === topVisible.id);
+    const [item] = accounts.splice(curGlobalIdx, 1);
+    accounts.splice(topGlobalIdx, 0, item);
   } else if (action === "move-up") {
-    if (idx === 0) return;
-    const [item] = accounts.splice(idx, 1);
-    accounts.splice(idx - 1, 0, item);
+    if (vIdx === 0) return;
+    const prevVisible = visibleRows[vIdx - 1];
+    const prevGlobalIdx = accounts.findIndex((a) => a.id === prevVisible.id);
+    const [item] = accounts.splice(curGlobalIdx, 1);
+    accounts.splice(prevGlobalIdx, 0, item);
   } else if (action === "move-down") {
-    if (idx >= accounts.length - 1) return;
-    const [item] = accounts.splice(idx, 1);
-    accounts.splice(idx + 1, 0, item);
+    if (vIdx >= visibleRows.length - 1) return;
+    const nextVisible = visibleRows[vIdx + 1];
+    const nextGlobalIdx = accounts.findIndex((a) => a.id === nextVisible.id);
+    const [item] = accounts.splice(curGlobalIdx, 1);
+    accounts.splice(nextGlobalIdx, 0, item);
   } else if (action === "move-bottom") {
-    if (idx >= accounts.length - 1) return;
-    const [item] = accounts.splice(idx, 1);
-    accounts.push(item);
+    if (vIdx >= visibleRows.length - 1) return;
+    const lastVisible = visibleRows[visibleRows.length - 1];
+    const lastGlobalIdx = accounts.findIndex((a) => a.id === lastVisible.id);
+    const [item] = accounts.splice(curGlobalIdx, 1);
+    accounts.splice(lastGlobalIdx, 0, item);
   }
 
   paintAccounts();
