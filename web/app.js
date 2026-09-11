@@ -3629,25 +3629,28 @@ function applyRefreshResult(res) {
   return true;
 }
 
-async function runAccountRefreshQueue(ids, { quick = true, title = "正在拉取额度", onStep = null } = {}) {
+async function runAccountRefreshQueue(ids, opts = {}) {
+  const { quick = true, title = "正在拉取额度", onStep = null } = opts;
   const list = (ids || []).filter(Boolean);
   if (!list.length) return { ok: 0, fail: 0, cancelled: false, failures: [] };
   importBusy = true;
   importCancel = false;
 
-  const useBatch = list.length >= 3 && api().refresh_batch;
+  // 默认串行（安全，不触发 WAF），parallel 选项可显式开启
+  const useParallel = !!opts.parallel && list.length >= 2 && api().refresh_batch;
 
-  if (useBatch) {
+  if (useParallel) {
+    const conc = Math.min(opts.concurrency || 3, 6);
     setImportProgress({
       busy: true,
-      text: `${title}：${list.length} 个账号（并发 4 路）…`,
+      text: `${title}：${list.length} 个账号（并发 ${conc} 路）…`,
       pct: 10,
       pctText: `0/${list.length}`,
     });
     if (onStep) onStep({ phase: "start", index: 0, total: list.length, account: { id: list[0] } });
     let batchRes;
     try {
-      batchRes = await api().refresh_batch(list, quick, 4);
+      batchRes = await api().refresh_batch(list, quick, conc);
     } catch (err) {
       batchRes = { ok: false, results: [], total: list.length, refreshed: 0, failed: list.length };
     }
@@ -3684,12 +3687,14 @@ async function runAccountRefreshQueue(ids, { quick = true, title = "正在拉取
     return { ok, fail, cancelled: false, leftover: 0, failures };
   }
 
-  // fallback: serial
+  // 串行：每个号之间间隔 350ms，安全不被封
+  const delay = opts.delay ?? 350;
   let ok = 0;
   let fail = 0;
   const failures = [];
   for (let i = 0; i < list.length; i++) {
     if (importCancel) break;
+    if (i > 0 && delay > 0) await new Promise((r) => setTimeout(r, delay));
     const id = list[i];
     const acct = accounts.find((a) => a.id === id) || { id };
     setImportProgress({
@@ -4014,13 +4019,21 @@ $("btnDetect").onclick = async () => {
   if (res.id) await api().refresh_account(res.id);
   await renderAccounts();
 };
-$("btnRefreshAll").onclick = async () => {
+$("btnRefreshAll").onclick = async (ev) => {
   if (importBusy) return toast("正在刷新中，请稍等或点「停止刷新」");
   const ids = accounts.map((a) => a.id).filter(Boolean);
   if (!ids.length) return toast("没有账号");
-  toast(`开始刷新 ${ids.length} 个账号…`);
-  const result = await runAccountRefreshQueue(ids, { quick: false, title: "正在刷新全部账号" });
-  toast(`完成：${result.ok} 成功，${result.fail} 失败`);
+  // Shift+点击 = 并发快刷
+  const useParallel = ev && ev.shiftKey;
+  if (useParallel) {
+    toast(`并发刷新 ${ids.length} 个账号（Shift 模式，3 路并发）…`);
+    const result = await runAccountRefreshQueue(ids, { quick: true, parallel: true, concurrency: 3, title: "并发刷新" });
+    toast(`完成：${result.ok} 成功，${result.fail} 失败`);
+  } else {
+    toast(`开始刷新 ${ids.length} 个账号（逐个安全刷新）…`);
+    const result = await runAccountRefreshQueue(ids, { quick: false, title: "正在刷新" });
+    toast(`完成：${result.ok} 成功，${result.fail} 失败`);
+  }
 };
 $("btnLaunchLocal").onclick = () => launch(null);
 $("btnLightLaunch").onclick = () => { closeIdeTools(); launch(null, true, true); };
