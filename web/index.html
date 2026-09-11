@@ -102,6 +102,17 @@
       <div class="progress-bar"><div class="progress-fill teal" id="compactFill" style="width:0%"></div></div>
     </div>
 
+    <div class="compact-banner import-banner" id="importBanner" hidden>
+      <div class="compact-banner-row">
+        <strong id="importText">正在添加账号…</strong>
+        <span class="compact-pct" id="importPct"></span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill teal" id="importFill" style="width:0%"></div></div>
+      <div class="import-banner-actions">
+        <button type="button" class="btn ghost compact" id="btnImportCancel">停止刷新</button>
+      </div>
+    </div>
+
     <div class="health-banner" id="healthBanner" hidden>
       <div class="health-banner-main">
         <strong id="healthTitle">补丁自检中…</strong>
@@ -414,13 +425,22 @@
       <div class="modal-head">
         <div>
           <h2>添加账号</h2>
-          <p class="hint" style="margin:4px 0 0">用于 IDE 登录（支持 access_token 或 user_xxx::eyJ…；crsr_… 为 CLI 专用）</p>
+          <p class="hint" style="margin:4px 0 0">直接粘贴号商文本、Cookie 或 Token，会自动识别；聊天里折行的 JWT 也会拼回去</p>
         </div>
         <button type="button" class="icon-btn modal-close" id="btnAddCancel" aria-label="关闭">×</button>
       </div>
       <div class="modal-scroll">
-        <label class="field-label">Token</label>
-        <textarea id="tokenInput" spellcheck="false" placeholder="每行一个 IDE Token（eyJ…），或整段 Cookie；crsr_… 开头将引导启动 CLI"></textarea>
+        <label class="field-label">Token / 粘贴文本</label>
+        <textarea id="tokenInput" spellcheck="false" placeholder="粘贴整段即可，例如：&#10;第21个：name@hotmail.com&#10;user_xxx::eyJ…&#10;重置时间：2026-09-12 20:46&#10;&#10;也支持每行一个 Token，或整段 Cookie。crsr_… 会引导启动 CLI。"></textarea>
+        <div id="importPreview" class="import-preview" hidden>
+          <div class="import-preview-head">
+            <strong id="importPreviewTitle">尚未识别到 Token</strong>
+            <span id="importPreviewMeta" class="hint"></span>
+          </div>
+          <ul id="importPreviewList" class="import-preview-list"></ul>
+          <p id="importPreviewWarn" class="hint token-hint warn" hidden></p>
+        </div>
+        <ol id="importLog" class="import-log" hidden aria-live="polite"></ol>
         <div class="field-grid">
           <div>
             <label class="field-label">邮箱</label>
@@ -439,6 +459,7 @@
             <input id="addTags" placeholder="逗号分隔" spellcheck="false" />
           </div>
         </div>
+        <p class="hint" style="margin:10px 0 0">一次贴多个号时，邮箱从文本里识别。上面四个框只在加单个号时生效。</p>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn ghost" id="btnImport">从文件导入</button>

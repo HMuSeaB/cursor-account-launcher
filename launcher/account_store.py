@@ -129,17 +129,19 @@ class AccountStore(_BaseStore):
             if normalized:
                 self._items[normalized["id"]] = normalized
 
-    def _add_token(self, token: str, priority: int = 5):
+    def _add_token(self, token: str, priority: int = 5, email: str = ""):
         user_id, _jwt, claims = parse_token(token)
         existing = self._items.get(user_id)
-        email = claims.get("email") or ""
+        pasted = (email or "").strip()
+        claim = claims.get("email") if isinstance(claims.get("email"), str) else ""
+        chosen = pasted or (claim.strip() if claim else "")
         if existing is None:
             self._items[user_id] = {
                 "id": user_id,
-                "label": email or user_id,
+                "label": chosen or user_id,
                 "token": token.strip(),
                 "_prio": priority,
-                "email": email,
+                "email": chosen,
                 "passwordEnc": "",
                 "group": "未分组",
                 "tags": [],
@@ -152,9 +154,9 @@ class AccountStore(_BaseStore):
         elif priority >= existing.get("_prio", 0):
             existing["token"] = token.strip()
             existing["_prio"] = priority
-            if email and not existing.get("email"):
-                existing["email"] = email
-                existing["label"] = email
+            if chosen and not existing.get("email"):
+                existing["email"] = chosen
+                existing["label"] = chosen
         return self._items[user_id]
 
     def _public_view(self, item: dict, *, include_token: bool = False) -> dict:

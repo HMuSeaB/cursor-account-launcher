@@ -14,6 +14,8 @@ from .token_utils import parse_token
 
 WS_RE = re.compile(r"user_[A-Za-z0-9]+(?:::|%3A%3A)eyJ[A-Za-z0-9_.\-]+")
 JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}")
+EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+_TOKEN_CONT_RE = re.compile(r"^[A-Za-z0-9_\-.=+/:%]+$")
 _TOKEN_PRIORITY = {
     "access_token": 5,
     "accesstoken": 5,
@@ -74,11 +76,46 @@ def _extract_from_obj(obj, out: list) -> None:
             _extract_from_obj(item, out)
 
 
-def tokens_from_text(text: str) -> list[tuple[int, str]]:
-    out: list[tuple[int, str]] = []
+def stitch_wrapped_tokens(text: str) -> str:
+    """把聊天窗口折行的 JWT / WS Token 拼回一行，避免只收半截。"""
+    lines = (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    out: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if out and stripped and _is_token_continuation(out[-1], stripped):
+            out[-1] = out[-1].rstrip() + stripped
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+def _is_token_continuation(prev: str, nxt: str) -> bool:
+    prev_s = prev.strip()
+    if not prev_s or not nxt:
+        return False
+    if "@" in nxt or re.search(r"[\u4e00-\u9fff]", nxt):
+        return False
+    if not _TOKEN_CONT_RE.fullmatch(nxt):
+        return False
+    if re.match(r"user_[A-Za-z0-9]+(?:::|%3A%3A)eyJ", nxt):
+        return False
+    if nxt.startswith("eyJ") and JWT_RE.match(nxt):
+        return False
+    if JWT_RE.search(prev_s):
+        return False
+    return bool(
+        "eyJ" in prev_s
+        or "::" in prev_s
+        or "%3A%3A" in prev_s.upper()
+        or re.search(r"user_[A-Za-z0-9]+$", prev_s)
+    )
+
+
+def _iter_token_matches(text: str) -> list[tuple[int, int, int, str]]:
+    found: list[tuple[int, int, int, str]] = []
     covered: list[tuple[int, int]] = []
     for match in WS_RE.finditer(text):
-        out.append((5, match.group(0)))
+        found.append((match.start(), match.end(), 5, match.group(0)))
         covered.append(match.span())
     for match in JWT_RE.finditer(text):
         start, end = match.span()
@@ -86,7 +123,29 @@ def tokens_from_text(text: str) -> list[tuple[int, str]]:
         # 收下它就会把 WS 前缀顶掉，设备管理和会话接口随后全部失效。
         if any(lo <= start and end <= hi for lo, hi in covered):
             continue
-        out.append((5, match.group(0)))
+        found.append((start, end, 5, match.group(0)))
+    found.sort(key=lambda row: row[0])
+    return found
+
+
+def tokens_from_text(text: str) -> list[tuple[int, str]]:
+    return [(prio, token) for _, _, prio, token in _iter_token_matches(text or "")]
+
+
+def parse_account_dump(text: str) -> list[tuple[int, str, str]]:
+    """从杂乱粘贴中抽出 (priority, token, email)。邮箱取该 token 前方最近的一个。"""
+    text = stitch_wrapped_tokens(text or "")
+    emails = [(m.start(), m.end(), m.group(0)) for m in EMAIL_RE.finditer(text)]
+    found = _iter_token_matches(text)
+    out: list[tuple[int, str, str]] = []
+    for i, (start, end, prio, token) in enumerate(found):
+        prev_end = found[i - 1][1] if i else 0
+        email = ""
+        for es, _ee, ev in reversed(emails):
+            if prev_end <= es < start:
+                email = ev
+                break
+        out.append((prio, token, email))
     return out
 
 
@@ -145,11 +204,14 @@ class AccountStore:
             json.dump(envelope, handle, ensure_ascii=False)
         os.replace(tmp, path)
 
-    def _add_token(self, token: str, priority: int = 5):
+    def _add_token(self, token: str, priority: int = 5, email: str = ""):
         user_id, _jwt, claims = parse_token(token)
         existing = self._items.get(user_id)
+        pasted = (email or "").strip()
+        claim = claims.get("email") if isinstance(claims.get("email"), str) else ""
+        label_src = pasted or (claim.strip() if claim else "")
         if existing is None or priority >= existing.get("_prio", 0):
-            label = claims.get("email") or (existing.get("label") if existing else None) or user_id
+            label = label_src or (existing.get("label") if existing else None) or user_id
             self._items[user_id] = {
                 "id": user_id,
                 "label": label,
@@ -158,12 +220,15 @@ class AccountStore:
             }
         return self._items[user_id]
 
-    def _ingest(self, pairs: list[tuple[int, str]]) -> list[dict]:
+    def _ingest(self, pairs: list[tuple]) -> list[dict]:
         touched: dict[str, dict] = {}
         with self._lock:
-            for prio, token in pairs:
+            for row in pairs:
+                prio = int(row[0])
+                token = row[1]
+                extra = row[2] if len(row) > 2 else ""
                 try:
-                    item = self._add_token(token, prio)
+                    item = self._add_token(token, prio, email=str(extra or ""))
                 except Exception:
                     continue
                 touched[item["id"]] = item
@@ -174,9 +239,9 @@ class AccountStore:
     def add_text(self, text: str) -> list[dict]:
         stripped = (text or "").strip()
         if stripped[:1] in "{[":
-            pairs = tokens_from_json_text(text) or tokens_from_text(text)
+            pairs = tokens_from_json_text(text) or parse_account_dump(text)
         else:
-            pairs = tokens_from_text(text) or tokens_from_json_text(text)
+            pairs = parse_account_dump(text) or tokens_from_json_text(text)
         return self._ingest(pairs)
 
     def add_json_files(self, paths: list[str]) -> list[dict]:
@@ -187,7 +252,7 @@ class AccountStore:
                     text = handle.read()
             except Exception:
                 continue
-            pairs.extend(tokens_from_json_text(text) or tokens_from_text(text))
+            pairs.extend(tokens_from_json_text(text) or parse_account_dump(text))
         return self._ingest(pairs)
 
     def list(self) -> list[dict]:

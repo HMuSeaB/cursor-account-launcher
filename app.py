@@ -242,16 +242,31 @@ class Api(PatchesApiMixin):
             return {"ok": False, "error": "账号不存在"}
         return {"ok": True, "account": updated}
 
-    def refresh_account(self, account_id: str) -> dict:
+    def refresh_account(self, account_id: str, quick: bool = False) -> dict:
         item = self._store.get(account_id)
         if not item:
             return {"ok": False, "error": "账号不存在"}
-        result = refresh_account_usage(item["token"], proxies=self._request_proxies())
+        has_email = "@" in str(item.get("email") or item.get("label") or "")
+        result = refresh_account_usage(
+            item["token"],
+            proxies=self._request_proxies(),
+            extras=not quick,
+            resolve_email=not (quick and has_email),
+        )
         if not result.get("ok"):
-            self._store.update_usage_snapshot(account_id, {"err": result.get("error"), "ok": False})
-            return {"ok": False, "error": result.get("error")}
+            account = self._store.update_usage_snapshot(account_id, {"err": result.get("error"), "ok": False})
+            return {
+                "ok": False,
+                "error": result.get("error"),
+                "errorKind": result.get("errorKind"),
+                "status": result.get("status"),
+                "account": account,
+            }
         account = self._store.update_usage_snapshot(account_id, result)
         return {"ok": True, "account": account}
+
+    def refresh_account_quick(self, account_id: str) -> dict:
+        return self.refresh_account(account_id, True)
 
     def fetch_account_model_usage(self, account_id: str) -> dict:
         item = self._store.get(account_id)
@@ -287,9 +302,54 @@ class Api(PatchesApiMixin):
     def list_account_filters(self) -> dict:
         return {"groups": self._store.list_groups(), "tags": self._store.list_tags()}
 
+    def preview_import(self, text: str) -> dict:
+        from launcher.accounts import parse_account_dump
+        from launcher.token_utils import token_expiry_ms
+
+        rows = parse_account_dump(text or "")
+        seen: dict[str, dict] = {}
+        bare = 0
+        skipped = 0
+        expired = 0
+        now_ms = int(time.time() * 1000)
+        for _prio, token, email in rows:
+            try:
+                uid, _jwt, claims = parse_token(token)
+            except Exception:
+                skipped += 1
+                continue
+            claim = claims.get("email") if isinstance(claims.get("email"), str) else ""
+            has_ws = "::" in token or "%3a%3a" in token.lower()
+            if not has_ws:
+                bare += 1
+            exp_ms = token_expiry_ms(claims)
+            is_expired = bool(exp_ms and exp_ms < now_ms)
+            if is_expired:
+                expired += 1
+            seen[uid] = {
+                "id": uid,
+                "email": (email or claim or "").strip(),
+                "hasWsToken": has_ws,
+                "expMs": exp_ms,
+                "expired": is_expired,
+                "existing": self._store.get(uid) is not None,
+            }
+        return {
+            "ok": True,
+            "count": len(seen),
+            "accounts": list(seen.values()),
+            "bareJwt": bare,
+            "expired": expired,
+            "skipped": skipped,
+        }
+
     def import_text(self, text: str) -> dict:
         added = self._store.add_text(text or "")
-        return {"added": len(added), "accounts": self._store.list()}
+        return {
+            "added": len(added),
+            "ids": [row["id"] for row in added],
+            "accounts": self._store.list(),
+        }
 
     def import_files(self) -> dict:
         paths = None
@@ -303,9 +363,13 @@ class Api(PatchesApiMixin):
         except Exception:
             paths = None
         if not paths:
-            return {"added": 0, "accounts": self._store.list()}
+            return {"added": 0, "ids": [], "accounts": self._store.list()}
         added = self._store.add_json_files(list(paths))
-        return {"added": len(added), "accounts": self._store.list()}
+        return {
+            "added": len(added),
+            "ids": [row["id"] for row in added],
+            "accounts": self._store.list(),
+        }
 
     def detect_local_account(self) -> dict:
         acct = read_local_account()

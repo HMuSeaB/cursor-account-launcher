@@ -463,19 +463,30 @@ def resolve_account_email(token: str, merged: dict | None = None, proxies: dict 
     return fetch_team_email(token, proxies=proxies)
 
 
-def fetch_usage_summary(token: str, proxies: dict | None = None) -> dict:
+def fetch_usage_summary(token: str, proxies: dict | None = None, resolve_email: bool = True) -> dict:
     session = _session_token(token)
     parts = session.split("::", 1)
     access = parts[1] if len(parts) > 1 else session
     if not access:
         return {"_error": "no_credentials"}
 
-    resp = requests.get(
-        USAGE_API2,
-        headers=_bearer_headers(access),
-        timeout=TIMEOUT,
-        proxies=proxies or {},
-    )
+    try:
+        resp = requests.get(
+            USAGE_API2,
+            headers=_bearer_headers(access),
+            timeout=TIMEOUT,
+            proxies=proxies or {},
+        )
+    except requests.exceptions.Timeout as exc:
+        return {"_error": "timeout", "detail": str(exc)[:160]}
+    except requests.exceptions.SSLError as exc:
+        return {"_error": "ssl", "detail": str(exc)[:160]}
+    except requests.exceptions.ProxyError as exc:
+        return {"_error": "proxy", "detail": str(exc)[:160]}
+    except requests.exceptions.ConnectionError as exc:
+        return {"_error": "connection", "detail": str(exc)[:160]}
+    except requests.exceptions.RequestException as exc:
+        return {"_error": "request", "detail": str(exc)[:160]}
     if resp.status_code in (401, 403):
         return {"_error": "auth_failed", "status": resp.status_code}
     if not resp.ok:
@@ -488,10 +499,11 @@ def fetch_usage_summary(token: str, proxies: dict | None = None) -> dict:
         return {"_error": "parse_error"}
     if isinstance(data.get("email"), str):
         data["usageSummaryEmail"] = data["email"].strip()
-    email = resolve_account_email(token, data, proxies=proxies)
-    if email:
-        data["usageSummaryEmail"] = email
-        data["email"] = email
+    if resolve_email:
+        email = resolve_account_email(token, data, proxies=proxies)
+        if email:
+            data["usageSummaryEmail"] = email
+            data["email"] = email
     return data
 
 
@@ -552,19 +564,59 @@ def fetch_period_stats(token: str, days: int = 30, proxies: dict | None = None) 
         return {"periodCostUsd": 0, "requestCount30d": 0}
 
 
-def refresh_account_usage(token: str, proxies: dict | None = None) -> dict:
-    merged = fetch_usage_summary(token, proxies=proxies)
+def describe_usage_error(merged: dict) -> str:
+    """把 usage 接口的失败原因翻成给人看的一句话，带上状态码。"""
+    kind = str(merged.get("_error") or "")
+    status = merged.get("status")
+    if kind == "auth_failed":
+        return f"登录失效（HTTP {status}）：Token 已被吊销或过期，请换新 Token"
+    if kind == "http_error":
+        if status == 404:
+            return "HTTP 404：接口不存在，Token 可能不是 Cursor 会话凭据，或被网关改写了地址"
+        if status == 429:
+            return "HTTP 429：请求太频繁，被限流，稍后再刷"
+        if isinstance(status, int) and status >= 500:
+            return f"HTTP {status}：Cursor 服务端出错，稍后再试"
+        return f"HTTP {status}：请求失败"
+    if kind == "timeout":
+        return f"网络超时（{TIMEOUT} 秒无响应），检查代理或网络"
+    if kind == "proxy":
+        return "无法连接：代理不可用，检查「网络代理」设置"
+    if kind == "ssl":
+        return "无法连接：TLS 握手失败，代理可能在劫持证书"
+    if kind == "connection":
+        return "无法连接 Cursor 服务器，检查网络或代理"
+    if kind == "request":
+        return f"请求失败：{merged.get('detail') or '未知原因'}"
+    if kind == "parse_error":
+        return "响应不是 JSON，可能被网关或代理页面拦截"
+    if kind == "no_credentials":
+        return "Token 为空"
+    return kind or "未知错误"
+
+
+def refresh_account_usage(
+    token: str,
+    proxies: dict | None = None,
+    extras: bool = True,
+    resolve_email: bool = True,
+) -> dict:
+    try:
+        merged = fetch_usage_summary(token, proxies=proxies, resolve_email=resolve_email)
+    except ValueError as exc:
+        return {"ok": False, "error": f"Token 无法解析：{exc}", "errorKind": "bad_token"}
     if merged.get("_error"):
-        err = merged["_error"]
-        msg = {"auth_failed": "登录失效", "http_error": f"HTTP {merged.get('status')}", "parse_error": "响应解析失败"}.get(err, err)
-        return {"ok": False, "error": msg}
+        return {"ok": False, "error": describe_usage_error(merged), "errorKind": merged["_error"], "status": merged.get("status")}
 
-    extras = {}
-    extras.update(fetch_sand_usage(token, proxies=proxies))
-    extras.update(fetch_period_stats(token, proxies=proxies))
+    extra_data = {}
+    if extras:
+        extra_data.update(fetch_sand_usage(token, proxies=proxies))
+        extra_data.update(fetch_period_stats(token, proxies=proxies))
 
-    snapshot = summarize_usage(merged, extras)
-    email = snapshot.get("email") or resolve_account_email(token, merged, proxies=proxies)
+    snapshot = summarize_usage(merged, extra_data)
+    email = snapshot.get("email")
+    if not email and resolve_email:
+        email = resolve_account_email(token, merged, proxies=proxies)
     if email:
         snapshot["email"] = email
     snapshot["lastRefreshed"] = int(time.time() * 1000)

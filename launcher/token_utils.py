@@ -61,6 +61,18 @@ def session_id_from_token(raw: str) -> str | None:
     return None
 
 
+def token_expiry_ms(claims: dict) -> int:
+    """JWT exp（秒）→ 毫秒；缺失或非法返回 0。"""
+    raw = (claims or {}).get("exp")
+    try:
+        sec = float(raw)
+    except (TypeError, ValueError):
+        return 0
+    if sec <= 0:
+        return 0
+    return int(sec * 1000) if sec < 1e12 else int(sec)
+
+
 def email_from_claims(claims: dict) -> str:
     for key in ("email", "user_email", "preferred_username", "name"):
         value = claims.get(key)

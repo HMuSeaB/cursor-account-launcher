@@ -13,6 +13,10 @@ let lastCursorStatus = null;
 let lastAccountId = "";
 let lastWbDiag = null;
 let pendingWbNext = null;
+let lastImportPreview = { count: 0, accounts: [], bareJwt: 0 };
+let importPreviewTimer = 0;
+let importCancel = false;
+let importBusy = false;
 let guardConfig = {
   enabled: false,
   mode: "whitelist",
@@ -193,13 +197,110 @@ function planDaysRemaining(ms) {
   };
 }
 
-function closeAddDialog() {
-  $("addDialog").close();
+let addDialogMode = "input"; // input | busy | done
+
+function resetAddDialog() {
+  addDialogMode = "input";
   $("tokenInput").value = "";
+  $("tokenInput").disabled = false;
   $("addEmail").value = "";
   $("addPassword").value = "";
   $("addGroup").value = "";
   $("addTags").value = "";
+  lastImportPreview = { count: 0, accounts: [], bareJwt: 0 };
+  const preview = $("importPreview");
+  if (preview) preview.hidden = true;
+  const log = $("importLog");
+  if (log) {
+    log.innerHTML = "";
+    log.hidden = true;
+  }
+  const btn = $("btnAdd");
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = "添加";
+  }
+  const cancel = $("btnAddCancel2");
+  if (cancel) cancel.textContent = "取消";
+  const fileBtn = $("btnImport");
+  if (fileBtn) fileBtn.disabled = false;
+}
+
+function closeAddDialog() {
+  $("addDialog").close();
+  // 后台还在拉额度：只收起窗口，日志和状态留着，重新打开还能看到
+  if (addDialogMode === "busy") return;
+  resetAddDialog();
+}
+
+function setAddDialogMode(mode) {
+  addDialogMode = mode;
+  const btn = $("btnAdd");
+  const cancel = $("btnAddCancel2");
+  const fileBtn = $("btnImport");
+  const input = $("tokenInput");
+  if (mode === "busy") {
+    if (btn) { btn.disabled = true; btn.textContent = "添加中…"; }
+    if (cancel) cancel.textContent = "后台运行";
+    if (fileBtn) fileBtn.disabled = true;
+    if (input) input.disabled = true;
+  } else if (mode === "done") {
+    if (btn) { btn.disabled = false; btn.textContent = "完成"; }
+    if (cancel) cancel.textContent = "关闭";
+    if (fileBtn) fileBtn.disabled = true;
+    if (input) input.disabled = true;
+  } else {
+    resetAddDialog();
+  }
+}
+
+function importLog(msg, kind = "info", opts = {}) {
+  const log = $("importLog");
+  if (!log) return null;
+  log.hidden = false;
+  const li = document.createElement("li");
+  li.className = kind;
+  const marks = { info: "·", step: "›", ok: "✓", err: "✕", busy: "…", summary: "" };
+  const mark = document.createElement("span");
+  mark.className = "mark";
+  mark.textContent = opts.mark ?? marks[kind] ?? "·";
+  const text = document.createElement("span");
+  text.className = "msg";
+  if (opts.html) text.innerHTML = msg;
+  else text.textContent = msg;
+  li.append(mark, text);
+  log.appendChild(li);
+  log.scrollTop = log.scrollHeight;
+  return li;
+}
+
+function importLogUpdate(li, msg, kind, opts = {}) {
+  if (!li) return;
+  li.className = kind;
+  const marks = { info: "·", step: "›", ok: "✓", err: "✕", busy: "…", summary: "" };
+  const mark = li.querySelector(".mark");
+  const text = li.querySelector(".msg");
+  if (mark) mark.textContent = opts.mark ?? marks[kind] ?? "·";
+  if (text) {
+    if (opts.html) text.innerHTML = msg;
+    else text.textContent = msg;
+  }
+  const log = $("importLog");
+  if (log) log.scrollTop = log.scrollHeight;
+}
+
+function describeAccountBrief(a) {
+  if (!a) return "";
+  const bits = [];
+  const mt = String(a.membershipType || "").trim();
+  if (mt) bits.push(mt.charAt(0).toUpperCase() + mt.slice(1));
+  if (Number(a.costMaxUsd) > 0) bits.push(`$${Number(a.costUsd || 0).toFixed(2)} / $${Number(a.costMaxUsd).toFixed(2)}`);
+  else if (a.usagePct >= 0) bits.push(`${Math.round(a.usagePct)}%`);
+  if (a.proExpiryMs) {
+    const d = planDaysRemaining(a.proExpiryMs);
+    if (d) bits.push(`${d.days} 天后重置`);
+  }
+  return bits.join(" · ");
 }
 
 function displayEmail(a) {
@@ -3223,7 +3324,233 @@ document.addEventListener("click", async (ev) => {
 $("searchInput").oninput = () => paintAccounts();
 ["filterGroup", "filterTag", "filterPlan"].forEach((id) => { $(id).onchange = () => paintAccounts(); });
 
-$("btnAddOpen").onclick = () => $("addDialog").showModal();
+function setImportProgress(state) {
+  const el = $("importBanner");
+  if (!el) return;
+  if (!state) {
+    el.hidden = true;
+    el.classList.remove("is-busy", "is-done", "is-error");
+    return;
+  }
+  el.hidden = false;
+  el.classList.toggle("is-busy", !!state.busy);
+  el.classList.toggle("is-done", !!state.done);
+  el.classList.toggle("is-error", !!state.error);
+  const text = $("importText");
+  const pct = $("importPct");
+  const fill = $("importFill");
+  if (text) text.textContent = state.text || "正在处理…";
+  if (pct) pct.textContent = state.pctText || "";
+  if (fill) fill.style.width = `${Math.max(0, Math.min(100, Number(state.pct) || 0))}%`;
+}
+
+function applyRefreshResult(res) {
+  if (!res?.ok || !res.account) return false;
+  const row = res.account;
+  const idx = accounts.findIndex((a) => a.id === row.id);
+  if (idx >= 0) accounts[idx] = { ...accounts[idx], ...row };
+  else accounts.push(row);
+  paintAccounts();
+  return true;
+}
+
+async function runAccountRefreshQueue(ids, { quick = true, title = "正在拉取额度", onStep = null } = {}) {
+  const list = (ids || []).filter(Boolean);
+  if (!list.length) return { ok: 0, fail: 0, cancelled: false, failures: [] };
+  importBusy = true;
+  importCancel = false;
+  let ok = 0;
+  let fail = 0;
+  const failures = [];
+  for (let i = 0; i < list.length; i++) {
+    if (importCancel) break;
+    const id = list[i];
+    const acct = accounts.find((a) => a.id === id) || { id };
+    setImportProgress({
+      busy: true,
+      text: `${title} ${i + 1}/${list.length}  ·  ${displayEmail(acct)}`,
+      pct: Math.round((i / list.length) * 100),
+      pctText: `${i}/${list.length}`,
+    });
+    let stepCtx = null;
+    if (onStep) stepCtx = onStep({ phase: "start", index: i, total: list.length, account: acct });
+    let res;
+    try {
+      res = quick && api().refresh_account_quick
+        ? await api().refresh_account_quick(id)
+        : await api().refresh_account(id);
+    } catch (err) {
+      res = { ok: false, error: "启动器内部错误：" + String(err), errorKind: "internal" };
+    }
+    if (res?.ok) ok += 1;
+    else {
+      fail += 1;
+      failures.push({ id, email: displayEmail(res?.account || acct), error: res?.error || "未知错误" });
+    }
+    if (res?.account) {
+      applyRefreshResult({ ok: true, account: res.account });
+    } else {
+      await renderAccounts();
+    }
+    if (onStep) onStep({ phase: "done", index: i, total: list.length, account: res?.account || acct, res, ctx: stepCtx });
+  }
+  const leftover = list.length - ok - fail;
+  const cancelled = leftover > 0;
+  setImportProgress({
+    busy: false,
+    done: fail === 0 && !cancelled,
+    error: fail > 0,
+    text: cancelled
+      ? `已停止：${ok} 个已刷新，还有 ${leftover} 个没刷`
+      : `刷新完成：${ok} 个成功${fail ? `，${fail} 个失败` : ""}`,
+    pct: 100,
+    pctText: `${ok + fail}/${list.length}`,
+  });
+  importBusy = false;
+  window.setTimeout(() => {
+    if (!importBusy) setImportProgress(null);
+  }, 4800);
+  return { ok, fail, cancelled, leftover, failures };
+}
+
+function importStepLogger() {
+  return (ev) => {
+    const mail = displayEmail(ev.account);
+    if (ev.phase === "start") {
+      return importLog(`(${ev.index + 1}/${ev.total}) 正在拉取 ${mail} 的额度…`, "busy");
+    }
+    if (ev.phase === "done") {
+      if (ev.res?.ok) {
+        const brief = describeAccountBrief(ev.account);
+        importLogUpdate(ev.ctx, `(${ev.index + 1}/${ev.total}) ${mail}${brief ? " · " + brief : ""}`, "ok");
+      } else {
+        const reason = ev.res?.error || "未知错误";
+        importLogUpdate(
+          ev.ctx,
+          `(${ev.index + 1}/${ev.total}) ${esc(mail)} <em>${esc(reason)}</em>`,
+          "err",
+          { html: true }
+        );
+      }
+    }
+    return null;
+  };
+}
+
+async function finishImportFlow(ids, { source = "文本" } = {}) {
+  setAddDialogMode("busy");
+  importLog(`开始拉取 ${ids.length} 个账号的额度（仅核心接口，Bot / 30 天统计稍后可点「刷新全部」）`, "step");
+  const result = await runAccountRefreshQueue(ids, { quick: true, title: "正在拉取额度", onStep: importStepLogger() });
+  const parts = [`${result.ok} 个成功`];
+  if (result.fail) parts.push(`${result.fail} 个失败`);
+  if (result.leftover) parts.push(`${result.leftover} 个未刷（已停止）`);
+  importLog(`完成：${parts.join("，")}`, "summary", { mark: result.fail ? "!" : "✓" });
+  if (result.fail) {
+    importLog("失败的账号已写入列表，卡片上会标红原因；换新 Token 后点卡片「刷新」即可重试。", "info");
+  }
+  const dialogOpen = $("addDialog").open;
+  if (dialogOpen) setAddDialogMode("done");
+  else resetAddDialog();
+  toast(result.fail ? `${source}导入完成：${result.ok} 成功，${result.fail} 失败` : `${source}导入完成：${result.ok} 个账号`);
+}
+
+function renderImportPreview(res) {
+  const box = $("importPreview");
+  const title = $("importPreviewTitle");
+  const meta = $("importPreviewMeta");
+  const list = $("importPreviewList");
+  const warn = $("importPreviewWarn");
+  const btn = $("btnAdd");
+  if (!box) return;
+  const count = Number(res?.count || 0);
+  const rows = Array.isArray(res?.accounts) ? res.accounts : [];
+  box.hidden = false;
+  if (title) title.textContent = count ? `识别到 ${count} 个账号` : "未识别到 Token";
+  if (meta) {
+    const ws = rows.filter((a) => a.hasWsToken).length;
+    meta.textContent = count ? `${ws} 个含长效 WS Token` : "需要 user_xxx::eyJ… 或 Cookie";
+  }
+  if (list) {
+    const shown = rows.slice(0, 8);
+    const extra = count - shown.length;
+    list.innerHTML = shown.map((a, i) => {
+      const mail = esc(a.email || a.id || "未带邮箱");
+      const marks = [];
+      if (a.expired) marks.push(`<span class="ws bare" title="JWT exp 已过期，服务端大概率返回 401">已过期</span>`);
+      if (a.existing) marks.push(`<span class="ws dim" title="列表里已有该账号，会覆盖旧 Token">已存在</span>`);
+      marks.push(a.hasWsToken ? `<span class="ws">WS</span>` : `<span class="ws bare">JWT</span>`);
+      return `<li><span class="idx">${i + 1}.</span><span class="mail">${mail}</span>${marks.join("")}</li>`;
+    }).join("") + (extra > 0 ? `<li><span class="idx">…</span><span class="mail">还有 ${extra} 个</span></li>` : "");
+  }
+  if (warn) {
+    const bare = Number(res?.bareJwt || 0);
+    const expired = Number(res?.expired || 0);
+    const msgs = [];
+    if (expired && count && expired === count) msgs.push("这些 Token 的有效期都已经过了，导入后基本会报「登录失效」。");
+    else if (expired) msgs.push(`其中 ${expired} 个 Token 已过期。`);
+    if (bare && count && bare === count) msgs.push("这些都是裸 JWT，没有 user_xxx:: 前缀，大约 1 小时后容易掉号。建议贴完整 Session Token。");
+    else if (bare) msgs.push(`其中 ${bare} 个是裸 JWT，导入后可能无法长效续期。`);
+    warn.hidden = msgs.length === 0;
+    warn.textContent = msgs.join(" ");
+  }
+  if (btn && !importBusy) btn.textContent = count > 1 ? `添加 ${count} 个` : "添加";
+}
+
+function scheduleImportPreview() {
+  clearTimeout(importPreviewTimer);
+  importPreviewTimer = setTimeout(updateImportPreview, 140);
+}
+
+async function updateImportPreview() {
+  const text = ($("tokenInput")?.value || "").trim();
+  const box = $("importPreview");
+  const btn = $("btnAdd");
+  if (!text) {
+    lastImportPreview = { count: 0, accounts: [], bareJwt: 0 };
+    if (box) box.hidden = true;
+    if (btn && !importBusy) btn.textContent = "添加";
+    return;
+  }
+  if (!api()?.preview_import) {
+    if (box) box.hidden = true;
+    return;
+  }
+  try {
+    const res = await api().preview_import(text);
+    lastImportPreview = res && res.ok !== false ? res : { count: 0, accounts: [], bareJwt: 0 };
+    renderImportPreview(lastImportPreview);
+  } catch {
+    lastImportPreview = { count: 0, accounts: [], bareJwt: 0 };
+  }
+}
+
+async function applyImportMeta(ids) {
+  if (!ids.length) return;
+  const tags = ($("addTags")?.value || "").split(/[,，]/).map((s) => s.trim()).filter(Boolean);
+  const meta = {
+    group: $("addGroup")?.value || undefined,
+    tags: tags.length ? tags : undefined,
+  };
+  if (ids.length === 1) {
+    meta.email = $("addEmail")?.value || undefined;
+    meta.password = $("addPassword")?.value || undefined;
+  }
+  if (!meta.group && !meta.tags && !meta.email && !meta.password) return;
+  for (const id of ids) await api().update_account(id, meta);
+}
+
+$("btnAddOpen").onclick = () => {
+  $("addDialog").showModal();
+  if (addDialogMode === "input") updateImportPreview();
+};
+if ($("tokenInput")) {
+  $("tokenInput").addEventListener("input", scheduleImportPreview);
+  $("tokenInput").addEventListener("paste", () => setTimeout(updateImportPreview, 0));
+}
+$("btnImportCancel")?.addEventListener("click", () => {
+  importCancel = true;
+  toast("当前这个号刷完后停止");
+});
 $("btnAddCancel").onclick = closeAddDialog;
 $("btnAddCancel2").onclick = closeAddDialog;
 $("addDialog").addEventListener("cancel", (ev) => {
@@ -3254,7 +3581,14 @@ $("mcpDeleteDialog")?.addEventListener("cancel", (ev) => {
 });
 $("btnAdd").onclick = async (ev) => {
   ev.preventDefault();
+  if (addDialogMode === "done") {
+    resetAddDialog();
+    $("addDialog").close();
+    return;
+  }
+  if (importBusy || addDialogMode === "busy") return toast("正在添加中，请稍等或点「停止刷新」");
   const rawInput = ($("tokenInput").value || "").trim();
+  if (!rawInput) return toast("请先粘贴 Token 或号商文本");
   if (/^crsr_[A-Za-z0-9]{16,}$/.test(rawInput)) {
     const wantCli = confirm(
       "检测到您输入的是 Cursor Agent API Key（crsr_…）。\n\n" +
@@ -3263,47 +3597,86 @@ $("btnAdd").onclick = async (ev) => {
     );
     if (wantCli) {
       closeAddDialog();
-      $("tokenInput").value = "";
       return launchCli(null, rawInput);
     }
     return toast("crsr_ Key 仅用于 CLI，IDE 登录需填 Session Token");
   }
+  await updateImportPreview();
+  const preview = lastImportPreview || {};
+  const allBare = preview.count > 0 && preview.bareJwt === preview.count;
   const hasWsFormat = rawInput.includes("::") || rawInput.includes("%3A%3A") || /workoscursorsessiontoken/i.test(rawInput);
-  const isPureJwt = /^eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}$/.test(rawInput.trim());
-  if (isPureJwt && !hasWsFormat) {
+  const isPureJwt = /^eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}$/.test(rawInput);
+  if ((isPureJwt && !hasWsFormat) || allBare) {
     const wantAcc = confirm(
-      "⚠️ 风险提示：检测到您输入的是纯 Access Token（裸 JWT）\n\n" +
+      "⚠️ 风险提示：检测到纯 Access Token（裸 JWT）\n\n" +
       "• 掉号风险：纯 acc 仅有约 1 小时有效期，缺乏长效 Session 凭据（WorkosCursorSessionToken），无法正常自动续期。1 小时后 IDE 尝试刷新会话将失败，极易被官方判定异常而导致该账号在云端被强制吊销！\n\n" +
       "• 强烈建议：提供以 user_xxx::eyJ… 开头的完整 Session Token，或直接粘贴整段浏览器 Cookie。\n\n" +
-      "是否仍要强制以【临时调试模式】导入该 Token？"
+      "是否仍要强制以【临时调试模式】导入？"
     );
     if (!wantAcc) return;
   }
-  const res = await api().import_text(rawInput);
-  if (!res.added) return toast("未识别到 token");
-  const added = res.accounts.slice(-res.added);
-  for (const acct of added) {
-    const tags = ($("addTags").value || "").split(/[,，]/).map((s) => s.trim()).filter(Boolean);
-    await api().update_account(acct.id, {
-      email: $("addEmail").value || undefined,
-      password: $("addPassword").value || undefined,
-      group: $("addGroup").value || undefined,
-      tags: tags.length ? tags : undefined,
-    });
-    await api().refresh_account(acct.id);
+  const log = $("importLog");
+  if (log) log.innerHTML = "";
+  setAddDialogMode("busy");
+  const recognized = Number(preview.count || 0);
+  const existing = (preview.accounts || []).filter((a) => a.existing).length;
+  importLog(
+    recognized
+      ? `识别到 ${recognized} 个 Token${existing ? `（${existing} 个已在列表，将覆盖旧 Token）` : ""}`
+      : "开始识别 Token…",
+    "step"
+  );
+  const writing = importLog("正在写入本地账号库…", "busy");
+  let res;
+  try {
+    res = await api().import_text(rawInput);
+  } catch (err) {
+    importLogUpdate(writing, `写入失败：<em>${esc(String(err))}</em>`, "err", { html: true });
+    setAddDialogMode("done");
+    return;
   }
-  $("tokenInput").value = "";
-  closeAddDialog();
-  toast(`已添加 ${res.added} 个账号`);
-  await renderAccounts();
-};
-$("btnImport").onclick = async () => {
-  const res = await api().import_files();
-  toast(res.added ? `导入 ${res.added} 个` : "未选择文件");
-  if (res.added) {
-    for (const acct of res.accounts.slice(-res.added)) await api().refresh_account(acct.id);
+  if (!res?.added) {
+    importLogUpdate(writing, "未识别到可用 Token：需要 user_xxx::eyJ… 或 eyJ… 开头的 JWT", "err");
+    setAddDialogMode("done");
+    return;
+  }
+  const ids = Array.isArray(res.ids) && res.ids.length
+    ? res.ids
+    : (res.accounts || []).slice(-res.added).map((a) => a.id);
+  importLogUpdate(writing, `已写入 ${ids.length} 个账号（本地加密保存）`, "ok");
+  await applyImportMeta(ids);
+  if (Array.isArray(res.accounts) && res.accounts.length) {
+    accounts = res.accounts;
+    paintAccounts();
+  } else {
     await renderAccounts();
   }
+  setImportProgress({
+    busy: true,
+    text: `已写入 ${ids.length} 个账号，开始拉额度`,
+    pct: 0,
+    pctText: `0/${ids.length}`,
+  });
+  await finishImportFlow(ids, { source: "" });
+};
+$("btnImport").onclick = async () => {
+  if (importBusy || addDialogMode !== "input") return toast("正在添加中，请稍等");
+  const res = await api().import_files();
+  if (!res?.added) return toast("未选择文件或未识别到 token");
+  const ids = Array.isArray(res.ids) && res.ids.length
+    ? res.ids
+    : (res.accounts || []).slice(-res.added).map((a) => a.id);
+  const log = $("importLog");
+  if (log) log.innerHTML = "";
+  setAddDialogMode("busy");
+  importLog(`从文件识别并写入 ${ids.length} 个账号`, "ok");
+  if (Array.isArray(res.accounts) && res.accounts.length) {
+    accounts = res.accounts;
+    paintAccounts();
+  } else {
+    await renderAccounts();
+  }
+  await finishImportFlow(ids, { source: "文件" });
 };
 $("btnDetect").onclick = async () => {
   const res = await api().detect_local_account();
@@ -3316,10 +3689,12 @@ $("btnDetect").onclick = async () => {
   await renderAccounts();
 };
 $("btnRefreshAll").onclick = async () => {
-  toast("正在刷新全部账号…");
-  const res = await api().refresh_all_accounts();
-  toast(`完成：${(res.refreshed || []).length} 成功，${(res.errors || []).length} 失败`);
-  await renderAccounts();
+  if (importBusy) return toast("正在刷新中，请稍等或点「停止刷新」");
+  const ids = accounts.map((a) => a.id).filter(Boolean);
+  if (!ids.length) return toast("没有账号");
+  toast(`开始刷新 ${ids.length} 个账号…`);
+  const result = await runAccountRefreshQueue(ids, { quick: false, title: "正在刷新全部账号" });
+  toast(`完成：${result.ok} 成功，${result.fail} 失败`);
 };
 $("btnLaunchLocal").onclick = () => launch(null);
 $("btnLightLaunch").onclick = () => { closeIdeTools(); launch(null, true, true); };
