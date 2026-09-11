@@ -97,7 +97,7 @@ html[data-theme="dark"][data-color="cobalt"] {
   --accent-soft: rgba(59, 130, 246, 0.18);
 }
 
-/* 颜色方案 2：星云暮紫（图一极赞暮紫质感） */
+/* 颜色方案 2：星云幻紫（纯正极客紫） */
 html[data-color="violet"] {
   --primary: #7c3aed;
   --primary-fg: #ffffff;
@@ -106,6 +106,38 @@ html[data-color="violet"] {
   --accent-soft: rgba(124, 58, 237, 0.14);
 }
 html[data-theme="dark"][data-color="violet"] {
+  --bg: #0e0d17;
+  --bg-elevated: #161426;
+  --card: #1c1930;
+  --card-hover: #25213f;
+  --border: rgba(167, 139, 250, 0.14);
+  --border-strong: rgba(167, 139, 250, 0.26);
+  --text: #f5f3ff;
+  --muted: #a7a1c7;
+  --primary: #a78bfa;
+  --primary-fg: #1e113a;
+  --primary-hover: #c4b5fd;
+  --accent: #a78bfa;
+  --accent-soft: rgba(167, 139, 250, 0.18);
+}
+
+/* 颜色方案 3：温润暮粉（图一独立莫兰迪灰粉/暮紫质感） */
+html[data-color="mauve"] {
+  --bg: #faf6f7;
+  --bg-elevated: #ffffff;
+  --card: #ffffff;
+  --card-hover: #f7eff2;
+  --border: rgba(190, 140, 160, 0.14);
+  --border-strong: rgba(190, 140, 160, 0.28);
+  --text: #2a2024;
+  --muted: #856e79;
+  --primary: #b87a91;
+  --primary-fg: #ffffff;
+  --primary-hover: #a56980;
+  --accent: #b87a91;
+  --accent-soft: rgba(184, 122, 145, 0.12);
+}
+html[data-theme="dark"][data-color="mauve"] {
   --bg: #181518;
   --bg-elevated: #221d22;
   --card: #252025;
@@ -183,7 +215,7 @@ html[data-theme="dark"][data-color="emerald"] {
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
   z-index: 100;
-  width: 276px;
+  width: 312px;
   opacity: 0;
   visibility: hidden;
   transform: translateY(6px);
@@ -224,12 +256,12 @@ html[data-theme="dark"][data-color="emerald"] {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
 }
 .palette-chip {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
   background: var(--btn-bg);
   border: 1px solid var(--border);
   cursor: pointer;
@@ -251,16 +283,16 @@ html[data-theme="dark"][data-color="emerald"] {
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
 .palette-pie {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
   border: 1px solid rgba(0, 0, 0, 0.08);
 }
 .palette-check {
   position: absolute;
-  width: 18px;
-  height: 18px;
+  width: 17px;
+  height: 17px;
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.52);
   color: #ffffff;

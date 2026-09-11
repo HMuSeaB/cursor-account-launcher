@@ -26,9 +26,14 @@ const PREF_COLOR = "cursorLauncher.colorTheme";
 
 const COLOR_THEMES = [
   {
-    id: "violet",
-    name: "星云暮紫",
+    id: "mauve",
+    name: "温润暮粉",
     pie: "conic-gradient(#f0e0e3 0deg 90deg, #ded1d5 90deg 180deg, #d8b4c0 180deg 270deg, #ebdcd4 270deg 360deg)",
+  },
+  {
+    id: "violet",
+    name: "星云幻紫",
+    pie: "conic-gradient(#a78bfa 0deg 90deg, #7c3aed 90deg 180deg, #c4b5fd 180deg 270deg, #ede9fe 270deg 360deg)",
   },
   {
     id: "obsidian",
@@ -56,7 +61,7 @@ function loadPrefs() {
   try {
     const theme = localStorage.getItem(PREF_THEME) || "dark";
     const usage = localStorage.getItem(PREF_USAGE) || "ring";
-    const color = localStorage.getItem(PREF_COLOR) || "violet";
+    const color = localStorage.getItem(PREF_COLOR) || "mauve";
     document.documentElement.setAttribute("data-theme", theme === "dark" ? "dark" : "light");
     document.documentElement.setAttribute("data-usage", usage === "bar" ? "bar" : "ring");
     document.documentElement.setAttribute("data-color", color);
@@ -65,7 +70,7 @@ function loadPrefs() {
   } catch {
     document.documentElement.setAttribute("data-theme", "dark");
     document.documentElement.setAttribute("data-usage", "ring");
-    document.documentElement.setAttribute("data-color", "violet");
+    document.documentElement.setAttribute("data-color", "mauve");
   }
 }
 
@@ -90,7 +95,7 @@ function syncPrefButtons() {
 function renderColorPaletteChips() {
   const container = $("colorPaletteChips");
   if (!container) return;
-  const current = document.documentElement.getAttribute("data-color") || "violet";
+  const current = document.documentElement.getAttribute("data-color") || "mauve";
   const found = COLOR_THEMES.find((t) => t.id === current);
   if ($("paletteActiveName")) {
     $("paletteActiveName").textContent = found ? found.name : current;
@@ -107,7 +112,7 @@ function renderColorPaletteChips() {
 }
 
 function setColorTheme(color) {
-  const c = String(color || "violet");
+  const c = String(color || "mauve");
   document.documentElement.setAttribute("data-color", c);
   try { localStorage.setItem(PREF_COLOR, c); } catch {}
   renderColorPaletteChips();
