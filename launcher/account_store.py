@@ -380,6 +380,35 @@ class AccountStore(_BaseStore):
             tags.update(v.get("tags") or [])
         return sorted(tags)
 
+    def reorder(self, account_ids: list[str]) -> list[dict]:
+        with self._lock:
+            new_items: dict[str, dict] = {}
+            for aid in account_ids:
+                item = self._items.get(aid)
+                if item and aid not in new_items:
+                    new_items[aid] = item
+            for aid, item in self._items.items():
+                if aid not in new_items:
+                    new_items[aid] = item
+            self._items = new_items
+            self._save()
+        return self.list()
+
+    def sink_errors(self) -> list[dict]:
+        """将带有错误（登录失效、异常等）的账号排到正常账号之后并持久化。"""
+        with self._lock:
+            normal_items: dict[str, dict] = {}
+            error_items: dict[str, dict] = {}
+            for aid, item in self._items.items():
+                if item.get("err"):
+                    error_items[aid] = item
+                else:
+                    normal_items[aid] = item
+            normal_items.update(error_items)
+            self._items = normal_items
+            self._save()
+        return self.list()
+
 
 def sort_account_rows(
     rows: list[dict],
@@ -387,21 +416,28 @@ def sort_account_rows(
     local_user_id: str = "",
     local_email: str = "",
     last_id: str = "",
+    sink_errors: bool = True,
+    prioritize_local: bool = True,
 ) -> list[dict]:
-    """本机账号最上，其次最近切换的账号，其余保持相对顺序。"""
+    """正常账号在前（本机最上，其次最近切换，其余保持相对顺序），错误/失效账号自动沉底到末尾。"""
     uid = (local_user_id or "").strip()
     email = (local_email or "").strip().lower()
     last = (last_id or "").strip()
 
-    def rank(item: dict) -> int:
+    def rank(item: dict) -> tuple[int, int]:
+        has_err = bool(item.get("err")) if sink_errors else False
+        err_group = 1 if has_err else 0
+
         aid = str(item.get("id") or "")
         mail = str(item.get("email") or item.get("label") or "").strip().lower()
-        if uid and aid == uid:
-            return 0
-        if not uid and email and mail == email:
-            return 0
-        if last and aid == last:
-            return 1
-        return 2
+        if prioritize_local and uid and aid == uid:
+            sub = 0
+        elif prioritize_local and not uid and email and mail == email:
+            sub = 0
+        elif prioritize_local and last and aid == last:
+            sub = 1
+        else:
+            sub = 2
+        return (err_group, sub)
 
     return sorted(rows, key=rank)

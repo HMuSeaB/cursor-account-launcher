@@ -171,6 +171,18 @@ class Api(PatchesApiMixin):
             last_id=last_id,
         )
 
+    def reorder_accounts(self, account_ids: list[str]) -> dict:
+        if not isinstance(account_ids, list):
+            return {"ok": False, "error": "参数必须为账号 ID 列表"}
+        self._store.reorder(account_ids)
+        return {"ok": True, "accounts": self.list_accounts()}
+
+    def sink_error_accounts(self) -> dict:
+        """将有错误或登录失效的账号全部沉底到末尾并保存"""
+        self._store.sink_errors()
+        return {"ok": True, "accounts": self.list_accounts()}
+
+
     def get_account_detail(self, account_id: str) -> dict:
         detail = self._store.get_detail(account_id)
         if not detail:

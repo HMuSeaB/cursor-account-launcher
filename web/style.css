@@ -722,13 +722,25 @@ html[data-theme="dark"] .pill.warn {
   padding: 14px 14px 12px;
   width: 100%;
   box-shadow: var(--shadow);
-  transition: border-color .18s, box-shadow .18s;
+  transition: border-color .18s, box-shadow .18s, opacity .18s, transform .18s;
   display: grid;
   gap: 10px;
+  position: relative;
 }
 .acc-card:hover {
   border-color: var(--border-strong);
   box-shadow: var(--shadow-lg);
+}
+.acc-card.is-dragging {
+  opacity: 0.38;
+  transform: scale(0.98);
+  border-style: dashed;
+  border-color: var(--accent);
+}
+.acc-card.drag-over {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 2px var(--accent-soft), var(--shadow-lg) !important;
+  transform: translateY(-2px);
 }
 .acc-card.is-local {
   border-color: var(--accent);
@@ -745,10 +757,30 @@ html[data-theme="dark"] .pill.warn {
 
 .acc-top {
   display: grid;
-  grid-template-columns: 18px 36px minmax(0, 1fr) auto;
-  column-gap: 10px;
+  grid-template-columns: 14px 18px 36px minmax(0, 1fr) auto;
+  column-gap: 8px;
   align-items: start;
   width: 100%;
+}
+.acc-drag-handle {
+  width: 14px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  cursor: grab;
+  user-select: none;
+  border-radius: 3px;
+  margin-top: 4px;
+  transition: color .15s, background-color .15s;
+}
+.acc-drag-handle:hover {
+  color: var(--text);
+  background-color: var(--accent-soft);
+}
+.acc-drag-handle:active {
+  cursor: grabbing;
 }
 .acc-check {
   margin: 10px 0 0;

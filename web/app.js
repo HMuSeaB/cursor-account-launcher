@@ -433,9 +433,9 @@ function filteredAccounts() {
 }
 
 function accountRank(a) {
-  if (isLocalAccount(a)) return 0;
-  if (lastAccountId && a.id === lastAccountId) return 1;
-  return 2;
+  // 登录失败/异常账号一律排到后面
+  if (a.err) return 100;
+  return 0;
 }
 
 function isLocalAccount(a) {
@@ -456,6 +456,11 @@ function ico(name) {
     more: '<circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="6" cy="12" r="1.5" fill="currentColor"/><circle cx="18" cy="12" r="1.5" fill="currentColor"/>',
     launch: '<polygon points="8 5 19 12 8 19 8 5" fill="currentColor" stroke="none"/>',
     switch: '<path d="M8 3L4 7l4 4"/><path d="M4 7h16"/><path d="M16 21l4-4-4-4"/><path d="M20 17H4"/>',
+    drag: '<circle cx="9" cy="6" r="1.5" fill="currentColor"/><circle cx="15" cy="6" r="1.5" fill="currentColor"/><circle cx="9" cy="12" r="1.5" fill="currentColor"/><circle cx="15" cy="12" r="1.5" fill="currentColor"/><circle cx="9" cy="18" r="1.5" fill="currentColor"/><circle cx="15" cy="18" r="1.5" fill="currentColor"/>',
+    top: '<path d="M5 4h14M12 19V8M7 13l5-5 5 5"/>',
+    up: '<path d="M18 15l-6-6-6 6"/>',
+    down: '<path d="M6 9l6 6 6-6"/>',
+    bottom: '<path d="M5 20h14M12 5v11M7 11l5 5 5-5"/>',
   };
   return `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || ""}</svg>`;
 }
@@ -502,8 +507,9 @@ function renderAccountCard(a) {
   const statusCls = local ? "on" : (a.err ? "issue" : "idle");
   const statusText = local ? "本机" : (a.err ? "异常" : "就绪");
 
-  return `<article class="acc-card${local ? " is-local" : ""}${a.err ? " has-err" : ""}" data-id="${esc(a.id)}">
+  return `<article class="acc-card${local ? " is-local" : ""}${a.err ? " has-err" : ""}" data-id="${esc(a.id)}" draggable="true">
     <div class="acc-top">
+      <div class="acc-drag-handle" title="按住拖拽排序" aria-label="按住拖拽排序">${ico("drag")}</div>
       <input type="checkbox" class="acc-check" data-select="${esc(a.id)}" />
       <div class="acc-avatar">${esc(initial)}</div>
       <div class="acc-id">
@@ -531,6 +537,11 @@ function renderAccountCard(a) {
             <button type="button" class="acc-menu-item" data-action="copy-token" data-id="${esc(a.id)}">${ico("copy")} <span>复制 Token</span></button>
             <button type="button" class="acc-menu-item" data-action="devices" data-id="${esc(a.id)}">${ico("devices")} <span>登录设备</span></button>
             <div class="acc-menu-divider"></div>
+            <button type="button" class="acc-menu-item" data-action="move-top" data-id="${esc(a.id)}">${ico("top")} <span>置顶</span></button>
+            <button type="button" class="acc-menu-item" data-action="move-up" data-id="${esc(a.id)}">${ico("up")} <span>上移</span></button>
+            <button type="button" class="acc-menu-item" data-action="move-down" data-id="${esc(a.id)}">${ico("down")} <span>下移</span></button>
+            <button type="button" class="acc-menu-item" data-action="move-bottom" data-id="${esc(a.id)}">${ico("bottom")} <span>置底</span></button>
+            <div class="acc-menu-divider"></div>
             <button type="button" class="acc-menu-item danger" data-action="remove" data-id="${esc(a.id)}">${ico("trash")} <span>删除</span></button>
           </div>
         </div>
@@ -556,6 +567,140 @@ function paintAccounts() {
   $("emptyAccounts").hidden = rows.length > 0;
   const sub = $("brandSub");
   if (sub) sub.textContent = accounts.length ? `${accounts.length} 个账号` : "还没有账号";
+  setupAccountDragAndDrop();
+}
+
+let draggedAccountId = null;
+
+function setupAccountDragAndDrop() {
+  const grid = $("accGrid");
+  if (!grid || grid.__dnd_bound) return;
+  grid.__dnd_bound = true;
+
+  // 鼠标在交互控件上按下时禁用卡片拖拽，避免干扰点击与选择
+  grid.addEventListener("mousedown", (ev) => {
+    const card = ev.target.closest(".acc-card");
+    if (!card) return;
+    const isControl = ev.target.closest("button, input, select, a, .acc-more-menu, .tag");
+    if (isControl) {
+      card.setAttribute("draggable", "false");
+    } else {
+      card.setAttribute("draggable", "true");
+    }
+  });
+
+  grid.addEventListener("dragstart", (ev) => {
+    const card = ev.target.closest(".acc-card");
+    if (!card) return;
+    draggedAccountId = card.dataset.id;
+    card.classList.add("is-dragging");
+    ev.dataTransfer.effectAllowed = "move";
+    ev.dataTransfer.setData("text/plain", draggedAccountId);
+  });
+
+  grid.addEventListener("dragover", (ev) => {
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = "move";
+    const overCard = ev.target.closest(".acc-card");
+    if (!overCard || overCard.dataset.id === draggedAccountId) return;
+
+    grid.querySelectorAll(".acc-card.drag-over").forEach((el) => {
+      if (el !== overCard) el.classList.remove("drag-over");
+    });
+    overCard.classList.add("drag-over");
+  });
+
+  grid.addEventListener("dragleave", (ev) => {
+    const overCard = ev.target.closest(".acc-card");
+    if (overCard && !overCard.contains(ev.relatedTarget)) {
+      overCard.classList.remove("drag-over");
+    }
+  });
+
+  grid.addEventListener("drop", async (ev) => {
+    ev.preventDefault();
+    grid.querySelectorAll(".acc-card.drag-over").forEach((el) => el.classList.remove("drag-over"));
+    grid.querySelectorAll(".acc-card.is-dragging").forEach((el) => el.classList.remove("is-dragging"));
+
+    const targetCard = ev.target.closest(".acc-card");
+    if (!targetCard || !draggedAccountId) return;
+    const targetId = targetCard.dataset.id;
+    if (targetId === draggedAccountId) return;
+
+    await moveAccountToIndex(draggedAccountId, targetId);
+  });
+
+  grid.addEventListener("dragend", () => {
+    draggedAccountId = null;
+    grid.querySelectorAll(".acc-card.is-dragging").forEach((el) => el.classList.remove("is-dragging"));
+    grid.querySelectorAll(".acc-card.drag-over").forEach((el) => el.classList.remove("drag-over"));
+    grid.querySelectorAll(".acc-card").forEach((el) => el.setAttribute("draggable", "true"));
+  });
+}
+
+async function moveAccountToIndex(sourceId, targetId) {
+  const fromIndex = accounts.findIndex((a) => a.id === sourceId);
+  const toIndex = accounts.findIndex((a) => a.id === targetId);
+  if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return;
+
+  const [moved] = accounts.splice(fromIndex, 1);
+  accounts.splice(toIndex, 0, moved);
+
+  paintAccounts();
+  await persistAccountOrder();
+}
+
+async function moveAccountAction(id, action) {
+  const idx = accounts.findIndex((a) => a.id === id);
+  if (idx === -1) return;
+
+  if (action === "move-top") {
+    if (idx === 0) return;
+    const [item] = accounts.splice(idx, 1);
+    accounts.unshift(item);
+  } else if (action === "move-up") {
+    if (idx === 0) return;
+    const [item] = accounts.splice(idx, 1);
+    accounts.splice(idx - 1, 0, item);
+  } else if (action === "move-down") {
+    if (idx >= accounts.length - 1) return;
+    const [item] = accounts.splice(idx, 1);
+    accounts.splice(idx + 1, 0, item);
+  } else if (action === "move-bottom") {
+    if (idx >= accounts.length - 1) return;
+    const [item] = accounts.splice(idx, 1);
+    accounts.push(item);
+  }
+
+  paintAccounts();
+  await persistAccountOrder();
+}
+
+async function persistAccountOrder(silent = false) {
+  const ids = accounts.map((a) => a.id);
+  try {
+    const res = await api()?.reorder_accounts?.(ids);
+    if (res && res.ok && res.accounts) {
+      accounts = res.accounts;
+    }
+    if (!silent) toast("已保存排序");
+  } catch (e) {
+    console.error("保存排序失败", e);
+  }
+}
+
+async function sinkErrorAccounts() {
+  const errCount = accounts.filter((a) => a.err).length;
+  if (!errCount) {
+    toast("当前没有登录失效或异常账号");
+    return;
+  }
+  const normal = accounts.filter((a) => !a.err);
+  const errored = accounts.filter((a) => a.err);
+  accounts = [...normal, ...errored];
+  paintAccounts();
+  await persistAccountOrder(true);
+  toast(`已将 ${errCount} 个失效/异常账号排至末尾并保存`);
 }
 
 function fillSelect(el, allLabel, items) {
@@ -2948,6 +3093,9 @@ document.addEventListener("click", async (ev) => {
   if (action === "switch") return launch(id);
   if (action === "launch-here") return launch(null);
   if (action === "launch-cli") return launchCli(id);
+  if (action === "move-top" || action === "move-up" || action === "move-down" || action === "move-bottom") {
+    return moveAccountAction(id, action);
+  }
   if (action === "remove") {
     if (!confirm("确定删除该账号？")) return;
     await api().remove_account(id);
@@ -3560,6 +3708,7 @@ $("btnSelectAll").onclick = () => {
   setAllAccountChecks(!allChecked);
 };
 $("btnExport").onclick = () => exportAccounts();
+if ($("btnSinkErrors")) $("btnSinkErrors").onclick = () => sinkErrorAccounts();
 
 window.addEventListener("guard-event", (ev) => {
   const d = ev.detail || {};
