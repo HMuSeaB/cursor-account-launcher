@@ -844,6 +844,20 @@ function paintAccounts() {
     }
     const batchBtn = grid.querySelector("#btnBatchDelete");
     if (batchBtn) batchBtn.onclick = batchDeleteSelected;
+    grid.querySelectorAll(".compact-row").forEach((tr) => {
+      tr.addEventListener("click", (ev) => {
+        if (ev.target.closest("button, a, input[type=checkbox]")) return;
+        const cb = tr.querySelector(".acc-check");
+        if (cb) {
+          cb.checked = !cb.checked;
+          const all = $("compactCheckAll");
+          if (all) {
+            const boxes = [...grid.querySelectorAll(".acc-check[data-select]")];
+            all.checked = boxes.length > 0 && boxes.every((b) => b.checked);
+          }
+        }
+      });
+    });
     grid.querySelectorAll(".compact-pick").forEach((btn) => {
       btn.onclick = () => {
         const pick = btn.dataset.pick;
