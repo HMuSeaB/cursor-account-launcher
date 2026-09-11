@@ -1060,6 +1060,17 @@ html[data-theme="dark"] .pill.warn {
   white-space: nowrap;
   user-select: none;
 }
+th.sortable {
+  cursor: pointer;
+  transition: color .15s, background .15s;
+}
+th.sortable:hover {
+  color: var(--text);
+  background: var(--card-hover);
+}
+th.sortable.sorted {
+  color: var(--accent);
+}
 .compact-table td {
   padding: 7px 10px;
   border-bottom: 1px solid var(--border);

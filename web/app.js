@@ -18,6 +18,7 @@ let importPreviewTimer = 0;
 let importCancel = false;
 let importBusy = false;
 let compactView = false;
+let compactSort = { col: "", dir: "asc" };
 let guardConfig = {
   enabled: false,
   mode: "whitelist",
@@ -781,6 +782,51 @@ function _compactSelectBy(predicate) {
   }
 }
 
+function compactSortTh(col, label) {
+  const active = compactSort.col === col;
+  const arrow = active ? (compactSort.dir === "asc" ? " ▲" : " ▼") : "";
+  return `<th class="sortable${active ? " sorted" : ""}" data-sort="${col}">${label}${arrow}</th>`;
+}
+
+function compactSortKey(a, col) {
+  switch (col) {
+    case "email": return displayEmail(a).toLowerCase();
+    case "plan": {
+      const order = { ultra: 0, pro: 1, trial: 2, free: 3 };
+      return order[String(a.membershipType || "free").toLowerCase()] ?? 4;
+    }
+    case "ws": return hasWsToken(a) ? 0 : 1;
+    case "cost": return Number(a.costUsd || 0);
+    case "status": return a.err ? 1 : 0;
+    case "err": return a.err ? a.err : "zzz";
+    case "days": return Number(a.proExpiryMs || Infinity);
+    default: return 0;
+  }
+}
+
+function compactSortedRows(rows) {
+  if (!compactSort.col) return rows;
+  const col = compactSort.col;
+  const dir = compactSort.dir === "desc" ? -1 : 1;
+  return [...rows].sort((a, b) => {
+    const ka = compactSortKey(a, col);
+    const kb = compactSortKey(b, col);
+    if (ka < kb) return -1 * dir;
+    if (ka > kb) return 1 * dir;
+    return 0;
+  });
+}
+
+function toggleCompactSort(col) {
+  if (compactSort.col === col) {
+    compactSort.dir = compactSort.dir === "asc" ? "desc" : "asc";
+  } else {
+    compactSort.col = col;
+    compactSort.dir = col === "cost" || col === "days" ? "desc" : "asc";
+  }
+  paintAccounts();
+}
+
 function renderCompactTable(rows) {
   const errCount = rows.filter((a) => a.err).length;
   const authFail = rows.filter((a) => /登录失效|401|403/.test(a.err || "")).length;
@@ -805,16 +851,16 @@ function renderCompactTable(rows) {
       <thead>
         <tr>
           <th class="compact-th-check"><input type="checkbox" id="compactCheckAll" title="全选/取消全选" /></th>
-          <th>邮箱</th>
-          <th>套餐</th>
-          <th>Token</th>
-          <th>费用</th>
-          <th>状态</th>
-          <th>错误</th>
+          ${compactSortTh("email", "邮箱")}
+          ${compactSortTh("plan", "套餐")}
+          ${compactSortTh("ws", "Token")}
+          ${compactSortTh("cost", "费用")}
+          ${compactSortTh("status", "状态")}
+          ${compactSortTh("err", "错误")}
           <th>操作</th>
         </tr>
       </thead>
-      <tbody>${rows.map(renderCompactRow).join("")}</tbody>
+      <tbody>${compactSortedRows(rows).map(renderCompactRow).join("")}</tbody>
     </table>
   </div>`;
 }
@@ -844,6 +890,9 @@ function paintAccounts() {
     }
     const batchBtn = grid.querySelector("#btnBatchDelete");
     if (batchBtn) batchBtn.onclick = batchDeleteSelected;
+    grid.querySelectorAll("th.sortable[data-sort]").forEach((th) => {
+      th.onclick = () => toggleCompactSort(th.dataset.sort);
+    });
     grid.querySelectorAll(".compact-row").forEach((tr) => {
       tr.addEventListener("click", (ev) => {
         if (ev.target.closest("button, a, input[type=checkbox]")) return;
