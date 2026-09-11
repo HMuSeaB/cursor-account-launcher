@@ -22,25 +22,31 @@ let guardConfig = {
 
 const PREF_THEME = "cursorLauncher.theme";
 const PREF_USAGE = "cursorLauncher.usageStyle";
+const PREF_COLOR = "cursorLauncher.colorTheme";
 
 function loadPrefs() {
   try {
     const theme = localStorage.getItem(PREF_THEME) || "light";
     const usage = localStorage.getItem(PREF_USAGE) || "ring";
+    const color = localStorage.getItem(PREF_COLOR) || "obsidian";
     document.documentElement.setAttribute("data-theme", theme === "dark" ? "dark" : "light");
     document.documentElement.setAttribute("data-usage", usage === "bar" ? "bar" : "ring");
+    document.documentElement.setAttribute("data-color", color);
     syncPrefButtons();
   } catch {
     document.documentElement.setAttribute("data-theme", "light");
     document.documentElement.setAttribute("data-usage", "ring");
+    document.documentElement.setAttribute("data-color", "obsidian");
   }
 }
 
 function syncPrefButtons() {
   const theme = document.documentElement.getAttribute("data-theme") || "light";
   const usage = document.documentElement.getAttribute("data-usage") || "ring";
+  const color = document.documentElement.getAttribute("data-color") || "obsidian";
   const themeBtn = $("btnTheme");
   const usageBtn = $("btnUsageStyle");
+  const colorSel = $("selectColorTheme");
   if (themeBtn) {
     const label = theme === "dark" ? "切换日间模式" : "切换夜间模式";
     themeBtn.title = label;
@@ -51,6 +57,24 @@ function syncPrefButtons() {
     usageBtn.title = label;
     usageBtn.setAttribute("aria-label", label);
   }
+  if (colorSel && colorSel.value !== color) {
+    colorSel.value = color;
+  }
+}
+
+function setColorTheme(color) {
+  const c = String(color || "obsidian");
+  document.documentElement.setAttribute("data-color", c);
+  try { localStorage.setItem(PREF_COLOR, c); } catch {}
+  if ($("selectColorTheme")) $("selectColorTheme").value = c;
+  const names = {
+    obsidian: "黑曜极客",
+    cobalt: "深海曜蓝",
+    violet: "星云紫罗兰",
+    amber: "极客暖金",
+    emerald: "墨翠翡绿",
+  };
+  toast(`已切换配色：${names[c] || c}`);
 }
 
 function toggleTheme() {
@@ -3367,6 +3391,7 @@ $("btnTestLatency").onclick = async () => {
     toast("测延迟失败：" + String(e));
   }
 };
+if ($("selectColorTheme")) $("selectColorTheme").onchange = (e) => setColorTheme(e.target.value);
 $("btnTheme").onclick = () => toggleTheme();
 $("btnUsageStyle").onclick = () => toggleUsageStyle();
 $("btnSaveProxy").onclick = async () => {

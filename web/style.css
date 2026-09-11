@@ -7,11 +7,11 @@
   --border-strong: rgba(15, 23, 42, 0.16);
   --text: #0f172a;
   --muted: #64748b;
-  --primary: #0f766e;
+  --primary: #18181b;
   --primary-fg: #ffffff;
-  --primary-hover: #115e59;
-  --accent: #0f766e;
-  --accent-soft: rgba(15, 118, 110, 0.12);
+  --primary-hover: #27272a;
+  --accent: #18181b;
+  --accent-soft: rgba(24, 24, 27, 0.08);
   --danger: #ef4444;
   --danger-soft: rgba(239, 68, 68, 0.1);
   --success: #10b981;
@@ -51,11 +51,11 @@ html[data-theme="dark"] {
   --border-strong: rgba(255, 255, 255, 0.16);
   --text: #f4f4f5;
   --muted: #a1a1aa;
-  --primary: #14b8a6;
-  --primary-fg: #042f2e;
-  --primary-hover: #2dd4bf;
-  --accent: #14b8a6;
-  --accent-soft: rgba(20, 184, 166, 0.16);
+  --primary: #ffffff;
+  --primary-fg: #09090b;
+  --primary-hover: #e4e4e7;
+  --accent: #f4f4f5;
+  --accent-soft: rgba(255, 255, 255, 0.12);
   --danger: #f87171;
   --danger-soft: rgba(248, 113, 113, 0.14);
   --success: #34d399;
@@ -81,6 +81,96 @@ html[data-theme="dark"] {
   --tab-active-fg: #f4f4f5;
 }
 
+/* 颜色方案 1：深海曜石蓝 */
+html[data-color="cobalt"] {
+  --primary: #2563eb;
+  --primary-fg: #ffffff;
+  --primary-hover: #1d4ed8;
+  --accent: #2563eb;
+  --accent-soft: rgba(37, 99, 235, 0.14);
+}
+html[data-theme="dark"][data-color="cobalt"] {
+  --primary: #3b82f6;
+  --primary-fg: #ffffff;
+  --primary-hover: #60a5fa;
+  --accent: #3b82f6;
+  --accent-soft: rgba(59, 130, 246, 0.18);
+}
+
+/* 颜色方案 2：暗夜星云紫 */
+html[data-color="violet"] {
+  --primary: #6366f1;
+  --primary-fg: #ffffff;
+  --primary-hover: #4f46e5;
+  --accent: #6366f1;
+  --accent-soft: rgba(99, 102, 241, 0.14);
+}
+html[data-theme="dark"][data-color="violet"] {
+  --primary: #818cf8;
+  --primary-fg: #0f172a;
+  --primary-hover: #a5b4fc;
+  --accent: #818cf8;
+  --accent-soft: rgba(129, 140, 248, 0.18);
+}
+
+/* 颜色方案 3：极客暖金琥珀 */
+html[data-color="amber"] {
+  --primary: #d97706;
+  --primary-fg: #ffffff;
+  --primary-hover: #b45309;
+  --accent: #d97706;
+  --accent-soft: rgba(217, 119, 6, 0.14);
+}
+html[data-theme="dark"][data-color="amber"] {
+  --primary: #f59e0b;
+  --primary-fg: #451a03;
+  --primary-hover: #fbbf24;
+  --accent: #f59e0b;
+  --accent-soft: rgba(245, 158, 11, 0.18);
+}
+
+/* 颜色方案 4：极客墨翠翡绿 */
+html[data-color="emerald"] {
+  --primary: #0f766e;
+  --primary-fg: #ffffff;
+  --primary-hover: #115e59;
+  --accent: #0f766e;
+  --accent-soft: rgba(15, 118, 110, 0.14);
+}
+html[data-theme="dark"][data-color="emerald"] {
+  --primary: #14b8a6;
+  --primary-fg: #042f2e;
+  --primary-hover: #2dd4bf;
+  --accent: #14b8a6;
+  --accent-soft: rgba(20, 184, 166, 0.18);
+}
+
+/* 顶栏配色切换器 */
+.color-theme-wrap {
+  display: flex;
+  align-items: center;
+}
+.topbar-select {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--btn-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.topbar-select:hover {
+  background: var(--btn-bg-hover);
+  border-color: var(--border-strong);
+}
+.topbar-select:focus {
+  border-color: var(--accent);
+}
+
 * { box-sizing: border-box; }
 
 body {
@@ -89,7 +179,7 @@ body {
   color: var(--text);
   background:
     radial-gradient(circle at 0% 0%, rgba(120, 113, 108, 0.08), transparent 42%),
-    radial-gradient(circle at 100% 0%, rgba(15, 118, 110, 0.05), transparent 38%),
+    radial-gradient(circle at 100% 0%, var(--accent-soft), transparent 38%),
     var(--bg);
   min-height: 100vh;
   transition: background-color .2s, color .2s;
@@ -98,7 +188,7 @@ body {
 html[data-theme="dark"] body {
   background:
     radial-gradient(circle at 0% 0%, rgba(120, 113, 108, 0.12), transparent 42%),
-    radial-gradient(circle at 100% 0%, rgba(20, 184, 166, 0.07), transparent 38%),
+    radial-gradient(circle at 100% 0%, var(--accent-soft), transparent 38%),
     var(--bg);
 }
 
@@ -920,11 +1010,11 @@ html[data-theme="dark"] .acc-provider .tag-days.urgent {
   background: var(--muted);
 }
 .acc-status.on {
-  color: #047857;
-  background: #ecfdf5;
-  border-color: rgba(4, 120, 87, 0.18);
+  color: var(--primary);
+  background: var(--accent-soft);
+  border-color: var(--border-strong);
 }
-.acc-status.on i { background: #10b981; }
+.acc-status.on i { background: var(--accent); }
 .acc-status.issue {
   color: #b91c1c;
   background: #fef2f2;
@@ -932,10 +1022,11 @@ html[data-theme="dark"] .acc-provider .tag-days.urgent {
 }
 .acc-status.issue i { background: #ef4444; }
 html[data-theme="dark"] .acc-status.on {
-  color: #6ee7b7;
-  background: rgba(4, 120, 87, 0.18);
-  border-color: rgba(110, 231, 183, 0.25);
+  color: var(--text);
+  background: var(--accent-soft);
+  border-color: var(--border-strong);
 }
+html[data-theme="dark"] .acc-status.on i { background: var(--accent); }
 html[data-theme="dark"] .acc-status.issue {
   color: #fca5a5;
   background: rgba(185, 28, 28, 0.18);
