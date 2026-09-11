@@ -876,11 +876,73 @@ function paintAccounts() {
   $("emptyAccounts").hidden = rows.length > 0;
   const sub = $("brandSub");
   if (sub) sub.textContent = accounts.length ? `${accounts.length} 个账号` : "还没有账号";
+  paintPoolDash();
   const btn = $("btnCompactToggle");
   if (btn) {
     btn.title = compactView ? "切换卡片视图" : "切换紧凑列表";
     btn.textContent = compactView ? "卡片" : "列表";
   }
+}
+
+function paintPoolDash() {
+  const el = $("poolDash");
+  if (!el || accounts.length < 2) { if (el) el.hidden = true; return; }
+  el.hidden = false;
+
+  const total = accounts.length;
+  const ok = accounts.filter((a) => !a.err).length;
+  const err = total - ok;
+  const plans = {};
+  let totalCost = 0, totalMax = 0, totalReq = 0, expiringCount = 0;
+  const now = Date.now();
+  for (const a of accounts) {
+    const mt = String(a.membershipType || "free").toLowerCase();
+    plans[mt] = (plans[mt] || 0) + 1;
+    totalCost += Number(a.costUsd || 0);
+    totalMax += Number(a.costMaxUsd || 0);
+    totalReq += Number(a.requestCount30d || 0);
+    if (a.proExpiryMs && (a.proExpiryMs - now) < 3 * 86400000 && (a.proExpiryMs - now) > 0) expiringCount++;
+  }
+  const pctUsed = totalMax > 0 ? Math.round((totalCost / totalMax) * 100) : 0;
+  const planBits = [];
+  for (const [k, v] of Object.entries(plans).sort((a, b) => b[1] - a[1])) {
+    const cls = membershipClass(k);
+    planBits.push(`<span class="tag ${cls}" style="font-size:10px">${v} ${membershipLabel(k)}</span>`);
+  }
+
+  el.innerHTML = `
+    <div class="pool-stat pool-total">
+      <span class="pool-num">${total}</span>
+      <span class="pool-label">总计</span>
+    </div>
+    <div class="pool-stat pool-ok">
+      <span class="pool-num">${ok}</span>
+      <span class="pool-label">正常</span>
+    </div>
+    ${err ? `<div class="pool-stat pool-err">
+      <span class="pool-num">${err}</span>
+      <span class="pool-label">异常</span>
+    </div>` : ""}
+    <div class="pool-divider"></div>
+    <div class="pool-plans">${planBits.join("")}</div>
+    <div class="pool-divider"></div>
+    <div class="pool-stat">
+      <span class="pool-num">$${totalCost.toFixed(1)}<span class="pool-max">/$${totalMax.toFixed(0)}</span></span>
+      <span class="pool-label">总额度 ${pctUsed}%</span>
+    </div>
+    <div class="pool-stat">
+      <span class="pool-num">${totalReq}</span>
+      <span class="pool-label">30d 请求</span>
+    </div>
+    ${expiringCount ? `<div class="pool-stat pool-warn">
+      <span class="pool-num">${expiringCount}</span>
+      <span class="pool-label">即将到期</span>
+    </div>` : ""}
+    <div class="pool-bar">
+      <div class="pool-bar-fill pool-bar-ok" style="width:${total ? (ok / total * 100) : 0}%"></div>
+      <div class="pool-bar-fill pool-bar-err" style="width:${total ? (err / total * 100) : 0}%"></div>
+    </div>
+  `;
 }
 
 async function batchDeleteSelected() {
@@ -3523,6 +3585,57 @@ async function runAccountRefreshQueue(ids, { quick = true, title = "正在拉取
   if (!list.length) return { ok: 0, fail: 0, cancelled: false, failures: [] };
   importBusy = true;
   importCancel = false;
+
+  const useBatch = list.length >= 3 && api().refresh_batch;
+
+  if (useBatch) {
+    setImportProgress({
+      busy: true,
+      text: `${title}：${list.length} 个账号（并发 4 路）…`,
+      pct: 10,
+      pctText: `0/${list.length}`,
+    });
+    if (onStep) onStep({ phase: "start", index: 0, total: list.length, account: { id: list[0] } });
+    let batchRes;
+    try {
+      batchRes = await api().refresh_batch(list, quick, 4);
+    } catch (err) {
+      batchRes = { ok: false, results: [], total: list.length, refreshed: 0, failed: list.length };
+    }
+    const results = batchRes?.results || [];
+    let ok = 0, fail = 0;
+    const failures = [];
+    for (const r of results) {
+      const acct = r.account || accounts.find((a) => a.id === r.id) || { id: r.id };
+      if (r.ok) {
+        ok++;
+        if (r.account) applyRefreshResult({ ok: true, account: r.account });
+      } else {
+        fail++;
+        failures.push({ id: r.id, email: displayEmail(acct), error: r.error || "未知错误" });
+      }
+      if (onStep) onStep({ phase: "done", index: ok + fail - 1, total: list.length, account: acct, res: r, ctx: null });
+    }
+    if (batchRes?.accounts?.length) {
+      accounts = batchRes.accounts;
+      paintAccounts();
+    } else {
+      await renderAccounts();
+    }
+    setImportProgress({
+      busy: false,
+      done: fail === 0,
+      error: fail > 0,
+      text: `刷新完成：${ok} 个成功${fail ? `，${fail} 个失败` : ""}`,
+      pct: 100,
+      pctText: `${ok + fail}/${list.length}`,
+    });
+    importBusy = false;
+    window.setTimeout(() => { if (!importBusy) setImportProgress(null); }, 4800);
+    return { ok, fail, cancelled: false, leftover: 0, failures };
+  }
+
+  // fallback: serial
   let ok = 0;
   let fail = 0;
   const failures = [];

@@ -285,19 +285,51 @@ class Api(PatchesApiMixin):
             },
         }
 
+    def refresh_batch(self, account_ids: list | None = None, quick: bool = True, concurrency: int = 4) -> dict:
+        """并发刷新多个账号，返回 {results: [{id, ok, error?, account?}, …]}."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        ids = list(account_ids or [a["id"] for a in self._store.list()])
+        concurrency = max(1, min(concurrency, 8))
+        results: list[dict] = []
+        lock = threading.Lock()
+
+        def _refresh_one(account_id: str) -> dict:
+            try:
+                res = self.refresh_account(account_id, quick=quick)
+            except Exception as exc:
+                res = {"ok": False, "error": str(exc)}
+            row = {"id": account_id, "ok": bool(res.get("ok")), "error": res.get("error") or ""}
+            if res.get("account"):
+                row["account"] = res["account"]
+            with lock:
+                results.append(row)
+            return row
+
+        with ThreadPoolExecutor(max_workers=concurrency) as pool:
+            futures = {pool.submit(_refresh_one, aid): aid for aid in ids}
+            for f in as_completed(futures):
+                try:
+                    f.result()
+                except Exception:
+                    pass
+
+        ok = sum(1 for r in results if r["ok"])
+        fail = len(results) - ok
+        return {
+            "ok": True,
+            "total": len(ids),
+            "refreshed": ok,
+            "failed": fail,
+            "results": results,
+            "accounts": self._store.list(),
+        }
+
     def refresh_all_accounts(self) -> dict:
-        refreshed = []
-        errors = []
-        items = self._store.list()
-        for idx, acct in enumerate(items):
-            if idx > 0:
-                time.sleep(0.35)  # 平滑请求间隔，避免单 IP 突发高频探测被官方 WAF 判定号池
-            res = self.refresh_account(acct["id"])
-            if res.get("ok"):
-                refreshed.append(acct["id"])
-            else:
-                errors.append({"id": acct["id"], "error": res.get("error")})
-        return {"ok": True, "refreshed": refreshed, "errors": errors, "accounts": self._store.list()}
+        res = self.refresh_batch(quick=False, concurrency=4)
+        refreshed = [r["id"] for r in res["results"] if r["ok"]]
+        errors = [{"id": r["id"], "error": r["error"]} for r in res["results"] if not r["ok"]]
+        return {"ok": True, "refreshed": refreshed, "errors": errors, "accounts": res["accounts"]}
 
     def list_account_filters(self) -> dict:
         return {"groups": self._store.list_groups(), "tags": self._store.list_tags()}
