@@ -24,29 +24,56 @@ const PREF_THEME = "cursorLauncher.theme";
 const PREF_USAGE = "cursorLauncher.usageStyle";
 const PREF_COLOR = "cursorLauncher.colorTheme";
 
+const COLOR_THEMES = [
+  {
+    id: "violet",
+    name: "星云暮紫",
+    pie: "conic-gradient(#f0e0e3 0deg 90deg, #ded1d5 90deg 180deg, #d8b4c0 180deg 270deg, #ebdcd4 270deg 360deg)",
+  },
+  {
+    id: "obsidian",
+    name: "黑曜极客",
+    pie: "conic-gradient(#27272a 0deg 90deg, #52525b 90deg 180deg, #a1a1aa 180deg 270deg, #f4f4f5 270deg 360deg)",
+  },
+  {
+    id: "cobalt",
+    name: "深海曜蓝",
+    pie: "conic-gradient(#60a5fa 0deg 90deg, #3b82f6 90deg 180deg, #bfdbfe 180deg 270deg, #dbeafe 270deg 360deg)",
+  },
+  {
+    id: "amber",
+    name: "极客暖金",
+    pie: "conic-gradient(#fbbf24 0deg 90deg, #f59e0b 90deg 180deg, #fef3c7 180deg 270deg, #fde68a 270deg 360deg)",
+  },
+  {
+    id: "emerald",
+    name: "墨翠翡绿",
+    pie: "conic-gradient(#2dd4bf 0deg 90deg, #0f766e 90deg 180deg, #99f6e4 180deg 270deg, #ccfbf1 270deg 360deg)",
+  },
+];
+
 function loadPrefs() {
   try {
-    const theme = localStorage.getItem(PREF_THEME) || "light";
+    const theme = localStorage.getItem(PREF_THEME) || "dark";
     const usage = localStorage.getItem(PREF_USAGE) || "ring";
-    const color = localStorage.getItem(PREF_COLOR) || "obsidian";
+    const color = localStorage.getItem(PREF_COLOR) || "violet";
     document.documentElement.setAttribute("data-theme", theme === "dark" ? "dark" : "light");
     document.documentElement.setAttribute("data-usage", usage === "bar" ? "bar" : "ring");
     document.documentElement.setAttribute("data-color", color);
     syncPrefButtons();
+    renderColorPaletteChips();
   } catch {
-    document.documentElement.setAttribute("data-theme", "light");
+    document.documentElement.setAttribute("data-theme", "dark");
     document.documentElement.setAttribute("data-usage", "ring");
-    document.documentElement.setAttribute("data-color", "obsidian");
+    document.documentElement.setAttribute("data-color", "violet");
   }
 }
 
 function syncPrefButtons() {
-  const theme = document.documentElement.getAttribute("data-theme") || "light";
+  const theme = document.documentElement.getAttribute("data-theme") || "dark";
   const usage = document.documentElement.getAttribute("data-usage") || "ring";
-  const color = document.documentElement.getAttribute("data-color") || "obsidian";
   const themeBtn = $("btnTheme");
   const usageBtn = $("btnUsageStyle");
-  const colorSel = $("selectColorTheme");
   if (themeBtn) {
     const label = theme === "dark" ? "切换日间模式" : "切换夜间模式";
     themeBtn.title = label;
@@ -57,24 +84,35 @@ function syncPrefButtons() {
     usageBtn.title = label;
     usageBtn.setAttribute("aria-label", label);
   }
-  if (colorSel && colorSel.value !== color) {
-    colorSel.value = color;
+  renderColorPaletteChips();
+}
+
+function renderColorPaletteChips() {
+  const container = $("colorPaletteChips");
+  if (!container) return;
+  const current = document.documentElement.getAttribute("data-color") || "violet";
+  const found = COLOR_THEMES.find((t) => t.id === current);
+  if ($("paletteActiveName")) {
+    $("paletteActiveName").textContent = found ? found.name : current;
   }
+  container.innerHTML = COLOR_THEMES.map((t) => {
+    const active = t.id === current ? " active" : "";
+    return `<button type="button" class="palette-chip${active}" data-color-id="${t.id}" title="${t.name}" aria-label="${t.name}">
+      <div class="palette-pie" style="background: ${t.pie};"></div>
+      <div class="palette-check">
+        <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+      </div>
+    </button>`;
+  }).join("");
 }
 
 function setColorTheme(color) {
-  const c = String(color || "obsidian");
+  const c = String(color || "violet");
   document.documentElement.setAttribute("data-color", c);
   try { localStorage.setItem(PREF_COLOR, c); } catch {}
-  if ($("selectColorTheme")) $("selectColorTheme").value = c;
-  const names = {
-    obsidian: "黑曜极客",
-    cobalt: "深海曜蓝",
-    violet: "星云紫罗兰",
-    amber: "极客暖金",
-    emerald: "墨翠翡绿",
-  };
-  toast(`已切换配色：${names[c] || c}`);
+  renderColorPaletteChips();
+  const found = COLOR_THEMES.find((t) => t.id === c);
+  toast(`已切换配色：${found ? found.name : c}`);
 }
 
 function toggleTheme() {
@@ -3391,7 +3429,36 @@ $("btnTestLatency").onclick = async () => {
     toast("测延迟失败：" + String(e));
   }
 };
-if ($("selectColorTheme")) $("selectColorTheme").onchange = (e) => setColorTheme(e.target.value);
+if ($("btnColorPalette")) {
+  $("btnColorPalette").onclick = (e) => {
+    e.stopPropagation();
+    $("colorPaletteWrap")?.classList.toggle("open");
+  };
+}
+if ($("colorPaletteChips")) {
+  $("colorPaletteChips").onclick = (e) => {
+    const chip = e.target.closest(".palette-chip");
+    if (!chip) return;
+    const id = chip.dataset.colorId;
+    if (id) {
+      setColorTheme(id);
+      setTimeout(() => {
+        $("colorPaletteWrap")?.classList.remove("open");
+      }, 150);
+    }
+  };
+}
+document.addEventListener("click", (e) => {
+  const wrap = $("colorPaletteWrap");
+  if (wrap && wrap.classList.contains("open") && !wrap.contains(e.target)) {
+    wrap.classList.remove("open");
+  }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    $("colorPaletteWrap")?.classList.remove("open");
+  }
+});
 $("btnTheme").onclick = () => toggleTheme();
 $("btnUsageStyle").onclick = () => toggleUsageStyle();
 $("btnSaveProxy").onclick = async () => {

@@ -97,20 +97,28 @@ html[data-theme="dark"][data-color="cobalt"] {
   --accent-soft: rgba(59, 130, 246, 0.18);
 }
 
-/* 颜色方案 2：暗夜星云紫 */
+/* 颜色方案 2：星云暮紫（图一极赞暮紫质感） */
 html[data-color="violet"] {
-  --primary: #6366f1;
+  --primary: #7c3aed;
   --primary-fg: #ffffff;
-  --primary-hover: #4f46e5;
-  --accent: #6366f1;
-  --accent-soft: rgba(99, 102, 241, 0.14);
+  --primary-hover: #6d28d9;
+  --accent: #7c3aed;
+  --accent-soft: rgba(124, 58, 237, 0.14);
 }
 html[data-theme="dark"][data-color="violet"] {
-  --primary: #818cf8;
-  --primary-fg: #0f172a;
-  --primary-hover: #a5b4fc;
-  --accent: #818cf8;
-  --accent-soft: rgba(129, 140, 248, 0.18);
+  --bg: #181518;
+  --bg-elevated: #221d22;
+  --card: #252025;
+  --card-hover: #2e272e;
+  --border: rgba(222, 209, 213, 0.12);
+  --border-strong: rgba(222, 209, 213, 0.22);
+  --text: #f5f0f3;
+  --muted: #b0a3aa;
+  --primary: #ded1d5;
+  --primary-fg: #2c2028;
+  --primary-hover: #ebe1e4;
+  --accent: #d8b4c0;
+  --accent-soft: rgba(216, 180, 192, 0.16);
 }
 
 /* 颜色方案 3：极客暖金琥珀 */
@@ -145,30 +153,127 @@ html[data-theme="dark"][data-color="emerald"] {
   --accent-soft: rgba(20, 184, 166, 0.18);
 }
 
-/* 顶栏配色切换器 */
-.color-theme-wrap {
-  display: flex;
+/* 图二 Material You 风格调色盘浮层与色彩卡片 */
+.color-palette-wrap {
+  position: relative;
+  display: inline-flex;
   align-items: center;
 }
-.topbar-select {
-  height: 30px;
-  padding: 0 10px;
+#btnColorPalette {
+  position: relative;
+}
+.palette-current-dot {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 4px var(--accent);
+  border: 1.5px solid var(--card);
+}
+.color-palette-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  padding: 12px 14px 14px;
+  background: var(--card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+  width: 276px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition: opacity .16s ease, transform .16s ease, visibility .16s;
+  backdrop-filter: blur(16px);
+}
+.color-palette-wrap.open .color-palette-popover {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.color-palette-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.palette-title {
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.palette-active-name {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 500;
+  background: var(--bg-elevated);
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+.color-palette-chips {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.palette-chip {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
   background: var(--btn-bg);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  outline: none;
   cursor: pointer;
-  transition: border-color .15s, background .15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: 0;
+  outline: none;
+  transition: transform .14s ease, border-color .14s ease, box-shadow .14s ease, background .14s;
 }
-.topbar-select:hover {
-  background: var(--btn-bg-hover);
+.palette-chip:hover {
+  transform: translateY(-2px);
   border-color: var(--border-strong);
+  background: var(--btn-bg-hover);
 }
-.topbar-select:focus {
+.palette-chip.active {
   border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.palette-pie {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+.palette-check {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.52);
+  color: #ffffff;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+}
+html[data-theme="dark"] .palette-check {
+  background: rgba(0, 0, 0, 0.65);
+}
+.palette-chip.active .palette-check {
+  display: flex;
 }
 
 * { box-sizing: border-box; }

@@ -20,14 +20,27 @@
         <span class="pill" id="settingsMeta" style="font-size:11px;opacity:0.85"></span>
       </div>
       <div class="topbar-actions">
-        <div class="color-theme-wrap" title="切换主题配色">
-          <select class="topbar-select" id="selectColorTheme" aria-label="主题配色">
-            <option value="obsidian">黑曜极客</option>
-            <option value="cobalt">深海曜蓝</option>
-            <option value="violet">星云紫罗兰</option>
-            <option value="amber">极客暖金</option>
-            <option value="emerald">墨翠翡绿</option>
-          </select>
+        <div class="color-palette-wrap" id="colorPaletteWrap">
+          <button class="btn ghost icon-only" id="btnColorPalette" type="button" title="主题色彩" aria-label="主题色彩">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="13.5" cy="6.5" r=".8" fill="currentColor"/>
+              <circle cx="17.5" cy="10.5" r=".8" fill="currentColor"/>
+              <circle cx="8.5" cy="7.5" r=".8" fill="currentColor"/>
+              <circle cx="6.5" cy="12.5" r=".8" fill="currentColor"/>
+              <path d="M12 2C6.5 2 2 6.5 2 12s4 10 9 10c.8 0 1.5-.7 1.5-1.5 0-.4-.1-.7-.4-1-.3-.3-.4-.7-.4-1.1 0-.8.7-1.4 1.5-1.4H15c4.4 0 8-3.6 8-8 0-5.5-4.5-9-11-9z"/>
+            </svg>
+            <span class="palette-current-dot" id="paletteCurrentDot"></span>
+          </button>
+          <div class="color-palette-popover" id="colorPalettePopover" role="dialog" aria-label="主题色彩面板">
+            <div class="color-palette-header">
+              <span class="palette-title">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4 10 9 10c.8 0 1.5-.7 1.5-1.5 0-.4-.1-.7-.4-1-.3-.3-.4-.7-.4-1.1 0-.8.7-1.4 1.5-1.4H15c4.4 0 8-3.6 8-8 0-5.5-4.5-9-11-9z"/></svg>
+                主题色彩
+              </span>
+              <span class="palette-active-name" id="paletteActiveName">星云暮紫</span>
+            </div>
+            <div class="color-palette-chips" id="colorPaletteChips"></div>
+          </div>
         </div>
         <button class="btn ghost icon-only" id="btnTheme" type="button" title="切换夜间模式" aria-label="切换夜间模式">
           <svg class="ico-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 14.5A8.5 8.5 0 0 1 9.5 3 7 7 0 1 0 21 14.5z"/></svg>
