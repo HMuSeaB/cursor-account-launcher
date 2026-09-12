@@ -1,6 +1,6 @@
 #define MyAppName "Cursor 账号启动器"
 #define MyAppNameEn "Cursor Launcher"
-#define MyAppVersion "1.3.16"
+#define MyAppVersion "1.3.17"
 #define MyAppPublisher "HMuSeaB"
 #define MyAppURL "https://github.com/HMuSeaB/cursor-account-launcher"
 #define MyAppExeName "CursorLauncher.exe"
