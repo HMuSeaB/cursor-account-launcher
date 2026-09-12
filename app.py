@@ -376,10 +376,16 @@ class Api(PatchesApiMixin):
         }
 
     def import_text(self, text: str) -> dict:
+        existing_ids = {row["id"] for row in self._store.list()}
         added = self._store.add_text(text or "")
+        ids = [row["id"] for row in added]
+        updated = [aid for aid in ids if aid in existing_ids]
+        created = [aid for aid in ids if aid not in existing_ids]
         return {
             "added": len(added),
-            "ids": [row["id"] for row in added],
+            "ids": ids,
+            "created": len(created),
+            "updated": len(updated),
             "accounts": self._store.list(),
         }
 
@@ -396,10 +402,16 @@ class Api(PatchesApiMixin):
             paths = None
         if not paths:
             return {"added": 0, "ids": [], "accounts": self._store.list()}
+        existing_ids = {row["id"] for row in self._store.list()}
         added = self._store.add_json_files(list(paths))
+        ids = [row["id"] for row in added]
+        updated = [aid for aid in ids if aid in existing_ids]
+        created = [aid for aid in ids if aid not in existing_ids]
         return {
             "added": len(added),
-            "ids": [row["id"] for row in added],
+            "ids": ids,
+            "created": len(created),
+            "updated": len(updated),
             "accounts": self._store.list(),
         }
 

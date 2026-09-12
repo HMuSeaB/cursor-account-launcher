@@ -595,7 +595,51 @@ def describe_usage_error(merged: dict) -> str:
     return kind or "未知错误"
 
 
+_NETWORK_KINDS = frozenset({"timeout", "proxy", "connection", "ssl", "request"})
+
+
+def with_network_hint(message: str, kind: str, *, used_proxy: bool, tried_direct: bool = False) -> str:
+    """网络类失败补一句：没代理 / 代理挂了还能直连试。"""
+    text = message or "未知错误"
+    if kind not in _NETWORK_KINDS:
+        return text
+    if used_proxy and tried_direct:
+        return f"{text}；关掉代理直连也失败"
+    if used_proxy:
+        return text
+    return f"{text}（当前没走代理。国内访问 Cursor API 通常要开代理，开完后再点「刷新失效」）"
+
+
 def refresh_account_usage(
+    token: str,
+    proxies: dict | None = None,
+    extras: bool = True,
+    resolve_email: bool = True,
+    fallback_direct: bool = True,
+) -> dict:
+    first = _refresh_account_usage_once(
+        token, proxies=proxies, extras=extras, resolve_email=resolve_email
+    )
+    if first.get("ok"):
+        return first
+    kind = str(first.get("errorKind") or "")
+    used_proxy = bool(proxies)
+    if fallback_direct and used_proxy and kind in _NETWORK_KINDS:
+        retry = _refresh_account_usage_once(
+            token, proxies=None, extras=extras, resolve_email=resolve_email
+        )
+        if retry.get("ok"):
+            retry["via"] = "direct_fallback"
+            return retry
+        first["error"] = with_network_hint(first.get("error") or "", kind, used_proxy=True, tried_direct=True)
+        first["triedDirect"] = True
+        return first
+    first["error"] = with_network_hint(first.get("error") or "", kind, used_proxy=used_proxy)
+    first["needProxy"] = bool(not used_proxy and kind in _NETWORK_KINDS)
+    return first
+
+
+def _refresh_account_usage_once(
     token: str,
     proxies: dict | None = None,
     extras: bool = True,

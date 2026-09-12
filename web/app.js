@@ -845,6 +845,7 @@ function renderCompactTable(rows) {
         ${netErr ? `<button type="button" class="btn ghost compact compact-pick" data-pick="net" title="勾选所有网络/超时/代理错误">勾选网络错误 (${netErr})</button>` : ""}
         ${errCount ? `<button type="button" class="btn ghost compact compact-pick" data-pick="all-err" title="勾选所有失效/异常账号">勾选全部异常 (${errCount})</button>` : ""}
       </div>
+      ${errCount ? `<button type="button" class="btn ghost compact" id="btnRefreshFailed">刷新失效 (${errCount})</button>` : ""}
       <button type="button" class="btn ghost compact" id="btnBatchDelete">删除选中</button>
     </div>
     <table class="compact-table">
@@ -890,6 +891,8 @@ function paintAccounts() {
     }
     const batchBtn = grid.querySelector("#btnBatchDelete");
     if (batchBtn) batchBtn.onclick = batchDeleteSelected;
+    const retryBtn = grid.querySelector("#btnRefreshFailed");
+    if (retryBtn) retryBtn.onclick = () => refreshFailedAccounts();
     grid.querySelectorAll("th.sortable[data-sort]").forEach((th) => {
       th.onclick = () => toggleCompactSort(th.dataset.sort);
     });
@@ -992,6 +995,25 @@ function paintPoolDash() {
       <div class="pool-bar-fill pool-bar-err" style="width:${total ? (err / total * 100) : 0}%"></div>
     </div>
   `;
+}
+
+function failedAccountIds() {
+  return accounts.filter((a) => a.err).map((a) => a.id).filter(Boolean);
+}
+
+async function refreshFailedAccounts(ev) {
+  if (importBusy) return toast("正在刷新中，请稍等或点「停止刷新」");
+  const ids = failedAccountIds();
+  if (!ids.length) return toast("当前没有失效/异常账号");
+  const useParallel = ev && ev.shiftKey;
+  toast(`重新刷新 ${ids.length} 个失效账号${useParallel ? "（并发）" : ""}…`);
+  const result = await runAccountRefreshQueue(ids, {
+    quick: true,
+    parallel: !!useParallel,
+    concurrency: 3,
+    title: "正在重刷失效账号",
+  });
+  toast(`失效重刷完成：${result.ok} 个恢复，${result.fail} 个仍失败`);
 }
 
 async function batchDeleteSelected() {
@@ -3974,7 +3996,17 @@ $("btnAdd").onclick = async (ev) => {
   const ids = Array.isArray(res.ids) && res.ids.length
     ? res.ids
     : (res.accounts || []).slice(-res.added).map((a) => a.id);
-  importLogUpdate(writing, `已写入 ${ids.length} 个账号（本地加密保存）`, "ok");
+  const updated = Number(res.updated || 0);
+  const created = Number(res.created || (ids.length - updated));
+  importLogUpdate(
+    writing,
+    created && updated
+      ? `已写入 ${created} 个新账号，覆盖 ${updated} 个已存在（旧错误已清掉，将重新拉额度）`
+      : updated
+        ? `已覆盖 ${updated} 个已存在账号的 Token（旧错误已清掉，将重新拉额度）`
+        : `已写入 ${ids.length} 个账号（本地加密保存）`,
+    "ok"
+  );
   await applyImportMeta(ids);
   if (Array.isArray(res.accounts) && res.accounts.length) {
     accounts = res.accounts;
@@ -4000,7 +4032,13 @@ $("btnImport").onclick = async () => {
   const log = $("importLog");
   if (log) log.innerHTML = "";
   setAddDialogMode("busy");
-  importLog(`从文件识别并写入 ${ids.length} 个账号`, "ok");
+  const updated = Number(res.updated || 0);
+  importLog(
+    updated
+      ? `从文件写入 ${ids.length} 个账号（覆盖 ${updated} 个已存在，将重新拉额度）`
+      : `从文件识别并写入 ${ids.length} 个账号`,
+    "ok"
+  );
   if (Array.isArray(res.accounts) && res.accounts.length) {
     accounts = res.accounts;
     paintAccounts();
@@ -4019,6 +4057,7 @@ $("btnDetect").onclick = async () => {
   if (res.id) await api().refresh_account(res.id);
   await renderAccounts();
 };
+if ($("btnRefreshFailedBar")) $("btnRefreshFailedBar").onclick = (ev) => refreshFailedAccounts(ev);
 $("btnRefreshAll").onclick = async (ev) => {
   if (importBusy) return toast("正在刷新中，请稍等或点「停止刷新」");
   const ids = accounts.map((a) => a.id).filter(Boolean);

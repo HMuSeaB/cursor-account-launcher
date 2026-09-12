@@ -96,7 +96,7 @@ def test_render_icon_rgba():
     assert img.size == (64, 64)
     small = mod.render_icon(16)
     assert small.size == (16, 16)
-    # 16px 必须带播放键，不能只剩一根竖条（资源管理器列表视图用这一档）
+    # 16px 必须有高光主体（新月开口的亮点），不能糊成一团死黑
     px = small.getpixel((10, 8))
     assert px[3] > 200
     assert px[0] + px[1] + px[2] > 400

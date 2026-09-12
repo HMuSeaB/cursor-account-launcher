@@ -154,6 +154,7 @@ class AccountStore(_BaseStore):
         elif priority >= existing.get("_prio", 0):
             existing["token"] = token.strip()
             existing["_prio"] = priority
+            existing.pop("err", None)
             if chosen and not existing.get("email"):
                 existing["email"] = chosen
                 existing["label"] = chosen

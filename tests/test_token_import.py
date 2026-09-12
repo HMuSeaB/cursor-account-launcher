@@ -189,3 +189,51 @@ def test_quick_refresh_skips_sand_and_period(monkeypatch):
     out = cu.refresh_account_usage("dummy", extras=False, resolve_email=False)
     assert out["ok"] is True
     assert out["email"] == "a@x.com"
+
+
+def test_direct_network_error_hints_to_enable_proxy():
+    from launcher.cursor_usage import describe_usage_error, with_network_hint
+
+    raw = describe_usage_error({"_error": "connection"})
+    hinted = with_network_hint(raw, "connection", used_proxy=False)
+    assert "没走代理" in hinted
+    assert "刷新失效" in hinted
+
+
+def test_proxy_failure_retries_direct_and_succeeds(monkeypatch):
+    from launcher import cursor_usage as cu
+
+    calls = {"n": 0}
+
+    def fake_summary(token, proxies=None, resolve_email=True):
+        calls["n"] += 1
+        if proxies:
+            return {"_error": "proxy", "detail": "refused"}
+        return {"email": "ok@x.com", "individualUsage": {}}
+
+    monkeypatch.setattr(cu, "fetch_usage_summary", fake_summary)
+    out = cu.refresh_account_usage(
+        "dummy",
+        proxies={"https": "http://127.0.0.1:9"},
+        extras=False,
+        resolve_email=False,
+    )
+    assert out["ok"] is True
+    assert out.get("via") == "direct_fallback"
+    assert calls["n"] == 2
+
+
+def test_reimport_clears_stale_err_and_updates_token(tmp_path, monkeypatch):
+    monkeypatch.setattr("launcher.accounts._app_dir", lambda: str(tmp_path))
+    jwt_old = fake_jwt("auth0|user_retry")
+    jwt_new = fake_jwt("auth0|user_retry", extra="y" * 80)
+    store = AccountStore()
+    store.add_text(f"retry@x.com\nuser_retry::{jwt_old}\n")
+    store.update_usage_snapshot("user_retry", {"err": "无法连接 Cursor 服务器", "ok": False})
+    assert store.get("user_retry")["err"]
+
+    added = store.add_text(f"retry@x.com\nuser_retry::{jwt_new}\n")
+    assert added[0]["id"] == "user_retry"
+    item = store.get("user_retry")
+    assert item["token"] == f"user_retry::{jwt_new}"
+    assert not item.get("err")
