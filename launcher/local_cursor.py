@@ -135,6 +135,24 @@ def _ws_token_owner(token: str) -> str:
     return _user_id_from_jwt(tail if sep else token) or (head.strip() if sep else "")
 
 
+def login_email(item: dict | None, claims: dict | None = None) -> str:
+    """只接受带 @ 的邮箱。备注、user id 写进 cachedEmail 会让 Cursor 对不上号。"""
+    claims = claims or {}
+    item = item or {}
+    for candidate in (item.get("email"), claims.get("email"), item.get("label")):
+        text = str(candidate or "").strip()
+        if "@" in text and " " not in text:
+            return text
+    return ""
+
+
+def _jwt_expiry(jwt: str) -> int | None:
+    exp = _decode_jwt_payload(jwt).get("exp")
+    if isinstance(exp, (int, float)):
+        return int(exp)
+    return None
+
+
 def _auth_token_owner(raw: str | None) -> str:
     """access / refresh / WS 任一形态能解析出的 user_xxx；解析不了返回空串。"""
     text = str(raw or "").strip()
@@ -329,9 +347,12 @@ def write_local_account(
     没有独立 refresh 时，把当前 access JWT 写入 refresh 键（FlyCursor 也是如此）；
     空 refresh 会被 Cursor 当成未登录。
     """
-    wait_state_db_ready()
     user_id, jwt, claims = parse_token(token)
-    email = (email or claims.get("email") or "").strip()
+    email = login_email({"email": email}, claims)
+    exp = _jwt_expiry(jwt)
+    if exp is not None and exp < int(time.time()):
+        raise RuntimeError("这个 Token 已过期。写入后 Cursor 一启动就会登出，请重新复制新的 Token。")
+    wait_state_db_ready()
     membership = (membership or "").strip() or None
     ws = _normalize_session_token(token)
     if not ws and user_id:
@@ -361,10 +382,15 @@ def write_local_account(
         write_refresh = bool(incoming) and (not incoming_owner or incoming_owner == user_id)
 
         put("cursorAuth/accessToken", jwt)
-        put("cursorAuth/cachedEmail", email or "")
-        put("cursorAuth/email", email or "")
         put("cursor.accessToken", jwt)
-        put("cursor.email", email or "")
+        if email:
+            put("cursorAuth/cachedEmail", email)
+            put("cursorAuth/email", email)
+            put("cursor.email", email)
+            put("cursorAuth/cachedSignUpType", "Auth_0")
+        elif switching:
+            for key in ("cursorAuth/cachedEmail", "cursorAuth/email", "cursor.email"):
+                cur.execute("DELETE FROM ItemTable WHERE key=?", (key,))
         put("cursorAuth/cachedUserId", user_id)
         put("cursorAuth/userId", user_id)
         put("cursorAuth/authId", f"auth0|{user_id}" if not user_id.startswith("auth0|") else user_id)

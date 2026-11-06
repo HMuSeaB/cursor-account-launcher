@@ -2954,7 +2954,7 @@ async function launch(accountId, force = false, light = false) {
     if (st.running && !confirm("Cursor 已在运行，仍要启动新实例？")) return;
     force = st.running;
   }
-  const machineMode = accountId ? "bind" : "none";
+  const machineMode = accountId ? "keep" : "none";
   if (light) toast("正在轻量启动（关 GPU、空工作区）…");
   else if (accountId) toast("正在切号并启动 IDE…");
   else toast("正在启动 IDE…");

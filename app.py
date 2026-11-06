@@ -69,6 +69,7 @@ from launcher.cursor_usage import fetch_model_usage, refresh_account_usage
 from launcher.session_keep import merge_keep_ids, pick_auto_keep_sessions, sessions_to_revoke
 from launcher.local_cursor import (
     generate_fingerprint,
+    login_email,
     peek_local_identity,
     peek_local_machine_short,
     read_fingerprint,
@@ -890,7 +891,7 @@ class Api(PatchesApiMixin):
         account_id: str | None = None,
         reset_machine_id: bool = False,
         force: bool = False,
-        machine_mode: str = "bind",
+        machine_mode: str = "keep",
         light: bool = False,
     ) -> dict:
         """切号启动。light=True 时关 GPU、打开空工作区，适合打游戏挂机。"""
@@ -922,7 +923,7 @@ class Api(PatchesApiMixin):
                 proxy_args = tuple(proxy_chromium_args(proxy_cfg))
                 proxy_env_extra = proxy_env(proxy_cfg)
 
-            mode = (machine_mode or "bind").lower()
+            mode = (machine_mode or "keep").lower()
             if reset_machine_id:
                 mode = "reset"
 
@@ -930,14 +931,15 @@ class Api(PatchesApiMixin):
                 item = self._store.get(account_id)
                 if not item:
                     return {"ok": False, "error": "账号不存在"}
-                user_id, jwt, claims = parse_token(item["token"])
-                email = item.get("label") or item.get("email") or claims.get("email") or user_id
+                _user_id, _jwt, claims = parse_token(item["token"])
+                email = login_email(item, claims)
                 refresh = self._store.get_refresh_token(account_id) or None
                 membership = item.get("membershipType") or None
 
                 close_cursor(layout)
                 wait_state_db_ready()
 
+                # keep：不改机器码。每次切号都重写指纹时，Cursor 启动会刷新登录并把它踢掉。
                 if mode == "reset":
                     reset_machine_ids()
                     self._store.set_device_ids(account_id, read_fingerprint())

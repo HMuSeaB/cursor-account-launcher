@@ -216,6 +216,66 @@ def test_write_local_account_drops_stale_refresh_when_access_already_matches(tmp
     assert rows["cursorAuth/refreshToken"] == jwt_new
 
 
+def test_login_email_ignores_remark():
+    from launcher.local_cursor import login_email
+
+    assert login_email({"label": "小号", "email": "a@b.co"}, {}) == "a@b.co"
+    assert login_email({"label": "不是邮箱"}, {}) == ""
+
+
+def test_write_local_account_rejects_expired_token(tmp_path, monkeypatch):
+    from launcher.local_cursor import write_local_account
+
+    header = _b64url({"alg": "none", "typ": "JWT"})
+    body = _b64url({"sub": "auth0|user_oldacct", "exp": 1})
+    expired = f"{header}.{body}.sigxxxxxxxx"
+    jwt_old = fake_jwt("auth0|user_oldacct")
+    db = tmp_path / "state.vscdb"
+    _write_state_db(db, {"cursorAuth/accessToken": jwt_old})
+    monkeypatch.setattr("launcher.local_cursor.state_db_path", lambda: str(db))
+
+    try:
+        write_local_account(expired, "new@x.com")
+    except RuntimeError as exc:
+        assert "过期" in str(exc)
+    else:
+        raise AssertionError("expired token should be refused")
+    conn = sqlite3.connect(db)
+    try:
+        row = conn.execute(
+            "SELECT value FROM ItemTable WHERE key=?",
+            ("cursorAuth/accessToken",),
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row[0] == jwt_old
+
+
+def test_write_local_account_does_not_store_remark_as_email(tmp_path, monkeypatch):
+    from launcher.local_cursor import write_local_account
+
+    jwt_old = fake_jwt("auth0|user_oldacct")
+    jwt_new = fake_jwt("auth0|user_newacct")
+    db = tmp_path / "state.vscdb"
+    _write_state_db(
+        db,
+        {
+            "cursorAuth/accessToken": jwt_old,
+            "cursorAuth/cachedEmail": "old@x.com",
+        },
+    )
+    monkeypatch.setattr("launcher.local_cursor.state_db_path", lambda: str(db))
+
+    write_local_account(jwt_new, "备注不是邮箱")
+    conn = sqlite3.connect(db)
+    try:
+        rows = dict(conn.execute("SELECT key, value FROM ItemTable").fetchall())
+    finally:
+        conn.close()
+    assert "cursorAuth/cachedEmail" not in rows
+    assert "cursorAuth/cachedSignUpType" not in rows
+
+
 def test_write_local_account_rejects_foreign_refresh_token(tmp_path, monkeypatch):
     from launcher.local_cursor import write_local_account
 
