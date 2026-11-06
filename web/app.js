@@ -2380,6 +2380,7 @@ function paintWbDiag(res) {
   const hint = $("wbNextHint");
   const fix500 = $("btnWbDiagFix500k");
   const restoreBtn = $("btnWbDiagRestore");
+  const cleanBtn = $("btnRestoreClean");
   if (!info) return;
 
   lastWbDiag = res;
@@ -2445,13 +2446,25 @@ function paintWbDiag(res) {
   }
   if (restoreBtn) {
     restoreBtn.classList.toggle("is-blocked", !!res.cursorRunning);
-    restoreBtn.title = res.cursorRunning ? "请先关闭 IDE" : "从 official 基线还原 workbench（不会用 bajie 备份补墙）";
+    restoreBtn.title = res.cursorRunning ? "请先关闭 IDE" : "仅当备份版本与当前 Cursor 一致时才覆盖 workbench";
+  }
+  if (cleanBtn) {
+    cleanBtn.classList.toggle("is-blocked", !!res.cursorRunning);
+    const clean = res.clean || {};
+    cleanBtn.title = res.cursorRunning
+      ? "请先关闭 IDE"
+      : (clean.sameVersion
+        ? `回到已记下的 v${clean.version} 干净文件，不走网关`
+        : "就地去掉启动器补丁。版本对不上不会用旧快照盖文件");
   }
 
   const bak = res.backup || {};
   info.textContent = [
     `v${res.version || "?"} · ${res.installRoot || ""}`,
     `备份：official=${bak.hasOfficial ? "有" : "无"} · 快照×${bak.snapshotCount || 0}`,
+    (res.clean && res.clean.version)
+      ? `干净快照 v${res.clean.version}${res.clean.sameVersion ? " · 与当前版本一致" : " · 与当前版本不同，还原时不覆盖"}`
+      : "干净快照：还没有（当前文件有补丁时不会记）",
     bak.hasLegacyBajie ? "legacy bajie 备份可用" : "",
   ].filter(Boolean).join("\n");
   syncIdeGate(Boolean(lastCursorStatus?.running || res.cursorRunning));
@@ -2629,6 +2642,35 @@ async function runWbDiagFix500k() {
   await runCtxwin("apply");
   await refreshWbDiag();
   await refreshCtxwin();
+}
+
+async function runRestoreClean() {
+  if (!api()?.restore_clean_state) return;
+  if (!(await requireIdeClosed("还原到干净状态"))) return;
+  const ok = confirm(
+    "将回到这一版 Cursor 还能启动时的文件。\n\n" +
+    "会就地去掉 Grok Bot、MAX、500k、完整解锁，并关掉本机 Bot 网关。\n" +
+    "不会用旧备份或模型墙盖当前文件，也不经过 AnyCursor。\n\n确定？"
+  );
+  if (!ok) return;
+  const info = $("wbDiagInfo");
+  if (info) info.textContent = "正在还原到干净状态…";
+  try {
+    const res = await api().restore_clean_state();
+    if (!res.ok) {
+      toast(res.error || "还原失败");
+      paintWbDiag(await api().workbench_diagnostic());
+      return;
+    }
+    toast(res.message || "已回到干净状态，请再启动 IDE");
+    await refreshWbDiag();
+    await refreshModelUnlock();
+    await refreshCtxwin();
+    if (typeof refreshSandStream === "function") await refreshSandStream();
+    if (typeof refreshBotGateway === "function") await refreshBotGateway();
+  } catch (e) {
+    toast(String(e));
+  }
 }
 
 async function runWbDiagRestore() {
@@ -4430,6 +4472,7 @@ if ($("btnWbDiagRefresh")) $("btnWbDiagRefresh").onclick = () => refreshWbDiag({
 if ($("btnHealthRefresh")) $("btnHealthRefresh").onclick = () => refreshWbDiag({ extras: true });
 if ($("btnAutofix")) $("btnAutofix").onclick = () => runAutofix();
 if ($("btnWbDiagFix500k")) $("btnWbDiagFix500k").onclick = () => runWbDiagFix500k();
+if ($("btnRestoreClean")) $("btnRestoreClean").onclick = () => runRestoreClean();
 if ($("btnWbDiagRestore")) $("btnWbDiagRestore").onclick = () => runWbDiagRestore();
 if ($("btnIdeGateClose")) {
   $("btnIdeGateClose").onclick = async () => {

@@ -585,7 +585,7 @@ def _collect_full_diagnostic() -> dict:
                     if ver_ok
                     else "读不到 Cursor 版本（安装可能不完整）"
                 ),
-                "action": "关 IDE → 一键补齐（重打 MAX / 500k）",
+                "action": "先点「还原到干净状态」。公开登录器补丁只对齐到 3.19，不要用旧备份盖当前文件。",
                 "detail": f"上次记录：{upgrade.get('previousVersion') or '—'}",
             },
         )
@@ -634,6 +634,18 @@ def _collect_full_diagnostic() -> dict:
         },
     }
     report["autofix"] = plan_autofix(report)
+    try:
+        from launcher.ctxwin import host_js_path
+        from launcher.workbench.clean import pin_clean_now
+
+        host = host_js_path(app_root)
+        report["clean"] = pin_clean_now(
+            files,
+            host if host.is_file() else None,
+            app_root / "product.json",
+        )
+    except Exception as exc:
+        report["clean"] = {"ok": False, "error": str(exc)}
     return report
 
 
@@ -663,6 +675,9 @@ def restore_workbench_layer(*, target: str = "auto") -> dict:
     if not files:
         return {"ok": False, "error": "找不到 workbench 文件"}
 
+    from launcher.workbench.clean import backup_version_matches
+
+    product_json = app_root / "product.json"
     candidates: list[tuple[str, Path]] = []
     off = wb_backup.official_dir()
     if any((off / p.name).is_file() for p in files):
@@ -676,10 +691,6 @@ def restore_workbench_layer(*, target: str = "auto") -> dict:
     if legacy_clean:
         candidates.append(("legacy-model-unlock", legacy_clean))
 
-    if not candidates:
-        return {"ok": False, "error": "没有可用的 workbench 备份"}
-
-    pick = candidates[0]
     if target != "auto":
         named = {name: path for name, path in candidates}
         key_map = {
@@ -690,7 +701,19 @@ def restore_workbench_layer(*, target: str = "auto") -> dict:
         mapped = key_map.get(target, target)
         if mapped not in named:
             return {"ok": False, "error": f"备份 {target} 不存在", "available": list(named.keys())}
-        pick = (mapped, named[mapped])
+        candidates = [(mapped, named[mapped])]
+
+    pick = next(
+        ((name, path) for name, path in candidates if backup_version_matches(path, product_json)),
+        None,
+    )
+    if pick is None:
+        return {
+            "ok": False,
+            "refused": True,
+            "error": "备份版本和当前 Cursor 不一致，已拒绝覆盖。请用「还原到干净状态」。",
+            "available": [name for name, _path in candidates],
+        }
 
     restored = wb_backup.restore_from_dir(files, pick[1])
     product_src = pick[1] / "product.json"

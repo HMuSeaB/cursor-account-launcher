@@ -207,13 +207,14 @@
       <div class="settings-grid" id="settingsGrid">
         <section class="settings-panel settings-span" id="wbDiagPanel">
           <h3 class="settings-title">日常状态（看这个就够）</h3>
-          <p class="hint settings-hint">YC 原生：自己的号、模型多、可开 Sand。Sub2API：窄模型墙。同一时间只应打一套，且必须在对应扩展面板里打，启动器不代写。</p>
+          <p class="hint settings-hint">YC 原生：自己的号、模型多、可开 Sand。Sub2API：窄模型墙。同一时间只应打一套，且必须在对应扩展面板里打，启动器不代写。公开登录器补丁只对齐到 Cursor 3.19；这一页用「还原到干净状态」回到当前还能启动的文件，不走 AnyCursor，也不拿旧备份盖新版本。</p>
           <ol class="wb-checklist" id="wbChecklist" aria-live="polite"></ol>
           <div class="wb-incidents" id="wbIncidents" hidden></div>
           <p class="wb-next-hint" id="wbNextHint">点刷新可重新扫描模型墙和补丁状态</p>
           <div class="guard-actions">
             <button type="button" class="btn ghost" id="btnWbDiagRefresh">刷新</button>
             <button type="button" class="btn ghost" id="btnWbDiagFix500k" data-needs-closed hidden>启用 500k</button>
+            <button type="button" class="btn" id="btnRestoreClean" data-needs-closed>还原到干净状态</button>
             <button type="button" class="btn ghost" id="btnWbDiagRestore" data-needs-closed>急救还原</button>
           </div>
           <details class="adv-fold">

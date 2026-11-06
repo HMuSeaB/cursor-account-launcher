@@ -14,6 +14,14 @@ class PatchesApiMixin:
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
+    def restore_clean_state(self) -> dict:
+        from launcher.workbench.clean import restore_to_clean
+
+        try:
+            return restore_to_clean()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
     def restore_workbench_unified(self, target: str = "auto") -> dict:
         from launcher.workbench.diagnostic import restore_workbench_layer
 

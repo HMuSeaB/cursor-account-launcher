@@ -2934,7 +2934,11 @@ def apply(
     return st
 
 
-def restore(on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
+def restore(
+    on_progress: Callable[[dict[str, Any]], None] | None = None,
+    *,
+    keep_siblings: bool = True,
+) -> dict[str, Any]:
     if is_cursor_running():
         return {"ok": False, "error": "请先关闭 IDE，再还原 Sand Stream", "running": True}
     log = _ProgressLog(on_progress)
@@ -2979,7 +2983,11 @@ def restore(on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict
     except WorkbenchWriteError as exc:
         return {"ok": False, "error": str(exc)}
 
-    layers = _reapply_sibling_layers(layout, wanted, log=log)
+    if keep_siblings:
+        layers = _reapply_sibling_layers(layout, wanted, log=log)
+    else:
+        layers = {"kept": [], "reapplied": [], "failed": []}
+        log.emit(90, "干净还原：不补回 MAX / 500k")
     log.begin("verify", "核对还原结果")
     log.emit(96, "核对还原结果…")
     after = inspect_status(layout)
@@ -2989,8 +2997,11 @@ def restore(on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict
     st["keptLayers"] = layers["kept"]
     st["reappliedLayers"] = layers["reapplied"]
     st["failedLayers"] = layers["failed"]
+    st["keptSiblings"] = keep_siblings
     message = "已还原 Grok Bot 补丁（含 RPC 片段，不留半档）"
-    if layers["reapplied"]:
+    if not keep_siblings:
+        message += "；未补回 MAX / 500k"
+    elif layers["reapplied"]:
         message += "；已补回 " + " / ".join(layers["reapplied"])
     elif layers["kept"]:
         message += "；" + " / ".join(layers["kept"]) + " 未动"
